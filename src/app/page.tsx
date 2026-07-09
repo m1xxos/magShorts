@@ -1,65 +1,141 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useCallback, useEffect, useState } from "react";
+import { type ArticleDto, type FeedDto } from "@/lib/types";
+import { AddFeedDialog } from "@/components/AddFeedDialog";
+import { ArticleCard } from "@/components/ArticleCard";
+import { Sidebar } from "@/components/Sidebar";
+import { TopBar } from "@/components/TopBar";
+
+export default function HomePage() {
+  const [feeds, setFeeds] = useState<FeedDto[]>([]);
+  const [articles, setArticles] = useState<ArticleDto[]>([]);
+  const [selectedFeedId, setSelectedFeedId] = useState<number | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const loadFeeds = useCallback(async () => {
+    const response = await fetch("/api/feeds");
+    setFeeds(await response.json());
+  }, []);
+
+  const loadArticles = useCallback(async (feedId: number | null) => {
+    setLoading(true);
+    try {
+      const query = feedId ? `?feed=${feedId}` : "?mix=1";
+      const response = await fetch(`/api/articles${query}`);
+      setArticles(await response.json());
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- async data fetch, state updates happen after await
+    loadFeeds();
+  }, [loadFeeds]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- async data fetch, state updates happen after await
+    loadArticles(selectedFeedId);
+  }, [selectedFeedId, loadArticles]);
+
+  async function removeFeed(feed: FeedDto) {
+    if (!confirm(`Unsubscribe from “${feed.title}”?`)) return;
+    await fetch(`/api/feeds/${feed.id}`, { method: "DELETE" });
+    if (selectedFeedId === feed.id) setSelectedFeedId(null);
+    else loadArticles(selectedFeedId);
+    loadFeeds();
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <div className="min-h-screen">
+      <TopBar selectedFeedId={selectedFeedId} />
+      <div className="mx-auto flex max-w-[1500px]">
+        <Sidebar
+          feeds={feeds}
+          selectedFeedId={selectedFeedId}
+          onSelect={setSelectedFeedId}
+          onRemove={removeFeed}
+          onAddClick={() => setDialogOpen(true)}
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+        <main className="min-w-0 flex-1 px-5 py-6 md:px-8">
+          {/* Mobile feed chips */}
+          <div className="no-scrollbar -mx-5 mb-4 flex gap-2 overflow-x-auto px-5 md:hidden">
+            <button
+              onClick={() => setSelectedFeedId(null)}
+              className={`shrink-0 rounded-full border px-3.5 py-1.5 text-[13px] ${
+                selectedFeedId === null
+                  ? "border-ink bg-ink text-paper"
+                  : "border-line bg-paper-raised text-ink-soft"
+              }`}
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+              All
+            </button>
+            {feeds.map((feed) => (
+              <button
+                key={feed.id}
+                onClick={() => setSelectedFeedId(feed.id)}
+                className={`shrink-0 rounded-full border px-3.5 py-1.5 text-[13px] ${
+                  selectedFeedId === feed.id
+                    ? "border-ink bg-ink text-paper"
+                    : "border-line bg-paper-raised text-ink-soft"
+                }`}
+              >
+                {feed.title}
+              </button>
+            ))}
+            <button
+              onClick={() => setDialogOpen(true)}
+              className="shrink-0 rounded-full border border-dashed border-line px-3.5 py-1.5 text-[13px] text-clay"
             >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+              + Add
+            </button>
+          </div>
+
+          {loading ? (
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {Array.from({ length: 8 }).map((_, index) => (
+                <div
+                  key={index}
+                  className="animate-pulse overflow-hidden rounded-2xl border border-line bg-paper-raised"
+                >
+                  <div className="aspect-video bg-paper-sunken" />
+                  <div className="space-y-2 p-4">
+                    <div className="h-4 w-11/12 rounded bg-paper-sunken" />
+                    <div className="h-4 w-2/3 rounded bg-paper-sunken" />
+                    <div className="h-3 w-1/3 rounded bg-paper-sunken" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : articles.length === 0 ? (
+            <div className="flex flex-col items-center gap-3 py-24 text-center">
+              <p className="font-serif text-xl text-ink">Nothing here yet</p>
+              <p className="max-w-sm text-sm text-ink-faint">
+                Add a publication with the button in the sidebar and fresh
+                articles will appear here.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {articles.map((article) => (
+                <ArticleCard key={article.id} article={article} />
+              ))}
+            </div>
+          )}
+        </main>
+      </div>
+
+      {dialogOpen && (
+        <AddFeedDialog
+          onClose={() => setDialogOpen(false)}
+          onAdded={() => {
+            loadFeeds();
+            loadArticles(selectedFeedId);
+          }}
+        />
+      )}
     </div>
   );
 }
