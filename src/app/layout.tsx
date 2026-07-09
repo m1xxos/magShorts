@@ -1,10 +1,16 @@
 import type { Metadata } from "next";
-import { Inter, Lora } from "next/font/google";
+import { Geist, Inter, Lora } from "next/font/google";
 import "./globals.css";
 
-const interSans = Inter({
+const geistSans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+// Geist has no Cyrillic glyphs; Inter fills them in via the font stack.
+const interCyrillic = Inter({
   variable: "--font-inter",
-  subsets: ["latin", "cyrillic"],
+  subsets: ["cyrillic"],
 });
 
 const lora = Lora({
@@ -26,7 +32,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${interSans.variable} ${lora.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${interCyrillic.variable} ${lora.variable} h-full antialiased`}
     >
       <body className="min-h-full">{children}</body>
     </html>
