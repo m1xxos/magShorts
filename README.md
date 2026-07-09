@@ -1,36 +1,46 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# magShorts
 
-## Getting Started
+A cozy, YouTube-style reader for articles. Subscribe to publications (RSS/Atom
+feeds), browse them as a card grid like your YouTube subscriptions, or flip
+through them one screen at a time in **Shorts** mode.
 
-First, run the development server:
+Ships with The Atlantic, The Verge, The New York Times and Habr; add any feed
+you like with the *Add publication* button.
+
+## Run with Docker
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+docker compose up --build
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000. The SQLite database is stored in `./data`, so
+subscriptions and cached articles survive restarts.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+> On Linux, make sure `./data` is writable by the container user:
+> `mkdir -p data && chmod 777 data` (or chown it to the container UID).
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Run for development
 
-## Learn More
+```bash
+npm install
+npm run dev
+```
 
-To learn more about Next.js, take a look at the following resources:
+## How it works
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- **Next.js (App Router)** serves both the UI and the API.
+- Feeds live in **SQLite** (`better-sqlite3`); articles are ingested with
+  `rss-parser` and refreshed lazily (15-minute TTL) whenever they're requested.
+- `GET /api/articles?mix=1` interleaves feeds round-robin so one prolific
+  source doesn't drown out the others.
+- Shorts mode is a CSS scroll-snap column with keyboard navigation
+  (↑/↓, j/k, space).
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## API
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Method | Route | Description |
+| --- | --- | --- |
+| GET | `/api/feeds` | List subscriptions with article counts |
+| POST | `/api/feeds` | Add a feed: `{ "url": "https://…/feed.xml" }` |
+| DELETE | `/api/feeds/:id` | Unsubscribe (removes its articles) |
+| GET | `/api/articles` | Articles; `?feed=ID`, `?mix=1`, `?limit=`, `?offset=` |
