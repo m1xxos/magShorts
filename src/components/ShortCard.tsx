@@ -46,7 +46,12 @@ export function ShortCard({
 
         <div className="flex min-h-0 flex-col gap-4 overflow-y-auto p-7 md:p-8">
           <div className="flex items-center gap-2.5">
-            <FeedAvatar feedId={article.feed_id} title={article.feed_title} size={26} />
+            <FeedAvatar
+              feedId={article.feed_id}
+              title={article.feed_title}
+              siteUrl={article.link}
+              size={26}
+            />
             <span className="text-[13px] font-medium text-ink-soft">
               {article.feed_title}
             </span>

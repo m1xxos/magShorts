@@ -49,7 +49,11 @@ export function Sidebar({
             onClick={() => onSelect(feed.id)}
             className="flex min-w-0 flex-1 items-center gap-3 text-left"
           >
-            <FeedAvatar feedId={feed.id} title={feed.title} />
+            <FeedAvatar
+              feedId={feed.id}
+              title={feed.title}
+              siteUrl={feed.site_url ?? feed.url}
+            />
             <span
               className={`truncate text-sm ${
                 selectedFeedId === feed.id

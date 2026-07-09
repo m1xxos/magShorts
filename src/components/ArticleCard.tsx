@@ -42,7 +42,12 @@ export function ArticleCard({ article }: { article: ArticleDto }) {
         )}
       </div>
       <div className="flex gap-3 p-4">
-        <FeedAvatar feedId={article.feed_id} title={article.feed_title} size={32} />
+        <FeedAvatar
+          feedId={article.feed_id}
+          title={article.feed_title}
+          siteUrl={article.link}
+          size={32}
+        />
         <div className="min-w-0">
           <h3 className="line-clamp-2 font-serif text-[15px] leading-snug font-medium text-ink">
             {article.title}
