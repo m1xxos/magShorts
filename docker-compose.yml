@@ -5,4 +5,9 @@ services:
       - "3000:3000"
     volumes:
       - ./data:/data
+    environment:
+      # Optional defaults; can also be set in the app's Settings dialog.
+      - OMNIVORE_URL=${OMNIVORE_URL:-}
+      - OMNIVORE_API_KEY=${OMNIVORE_API_KEY:-}
+      - MARRETA_URL=${MARRETA_URL:-}
     restart: unless-stopped
