@@ -80,6 +80,22 @@ export function getDb(): Database.Database {
 
     CREATE INDEX IF NOT EXISTS idx_articles_published
       ON articles(published_at DESC);
+
+    CREATE TABLE IF NOT EXISTS reading_list (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      link TEXT NOT NULL UNIQUE,
+      title TEXT NOT NULL,
+      summary TEXT,
+      image_url TEXT,
+      feed_title TEXT,
+      published_at TEXT,
+      added_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
   `);
   db.pragma("foreign_keys = ON");
 
