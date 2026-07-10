@@ -1,10 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { type ArticleDto, type FeedDto } from "@/lib/types";
 import { AddFeedDialog } from "@/components/AddFeedDialog";
 import { ArticleCard } from "@/components/ArticleCard";
+import { SettingsDialog } from "@/components/SettingsDialog";
 import { Sidebar } from "@/components/Sidebar";
+import { Toast, useToast } from "@/components/Toast";
 import { TopBar } from "@/components/TopBar";
 
 export default function HomePage() {
@@ -12,11 +15,20 @@ export default function HomePage() {
   const [articles, setArticles] = useState<ArticleDto[]>([]);
   const [selectedFeedId, setSelectedFeedId] = useState<number | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [readingCount, setReadingCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const { toast, showToast } = useToast();
 
   const loadFeeds = useCallback(async () => {
     const response = await fetch("/api/feeds");
     setFeeds(await response.json());
+  }, []);
+
+  const loadReadingCount = useCallback(async () => {
+    const response = await fetch("/api/reading-list");
+    const items = await response.json();
+    setReadingCount(Array.isArray(items) ? items.length : 0);
   }, []);
 
   const loadArticles = useCallback(async (feedId: number | null) => {
@@ -33,7 +45,8 @@ export default function HomePage() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- async data fetch, state updates happen after await
     loadFeeds();
-  }, [loadFeeds]);
+    loadReadingCount();
+  }, [loadFeeds, loadReadingCount]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- async data fetch, state updates happen after await
@@ -55,9 +68,11 @@ export default function HomePage() {
         <Sidebar
           feeds={feeds}
           selectedFeedId={selectedFeedId}
+          readingCount={readingCount}
           onSelect={setSelectedFeedId}
           onRemove={removeFeed}
           onAddClick={() => setDialogOpen(true)}
+          onOpenSettings={() => setSettingsOpen(true)}
         />
         <main className="min-w-0 flex-1 px-5 py-6 md:px-8">
           {/* Mobile feed chips */}
@@ -91,6 +106,12 @@ export default function HomePage() {
             >
               + Add
             </button>
+            <Link
+              href="/reading-list"
+              className="shrink-0 rounded-full border border-line bg-paper-raised px-3.5 py-1.5 text-[13px] text-ink-soft"
+            >
+              Read later{readingCount > 0 ? ` (${readingCount})` : ""}
+            </Link>
           </div>
 
           {loading ? (
@@ -120,7 +141,14 @@ export default function HomePage() {
           ) : (
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {articles.map((article) => (
-                <ArticleCard key={article.id} article={article} />
+                <ArticleCard
+                  key={article.id}
+                  article={article}
+                  onToast={(message, error) => {
+                    showToast(message, error);
+                    if (!error) loadReadingCount();
+                  }}
+                />
               ))}
             </div>
           )}
@@ -136,6 +164,13 @@ export default function HomePage() {
           }}
         />
       )}
+      {settingsOpen && (
+        <SettingsDialog
+          onClose={() => setSettingsOpen(false)}
+          onSaved={(message) => showToast(message)}
+        />
+      )}
+      <Toast toast={toast} />
     </div>
   );
 }

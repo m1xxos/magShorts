@@ -5,8 +5,10 @@ import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type ArticleDto } from "@/lib/types";
 import { ShortCard } from "./ShortCard";
+import { Toast, useToast } from "./Toast";
 
 export function ShortsReader() {
+  const { toast, showToast } = useToast();
   const searchParams = useSearchParams();
   const feedParam = searchParams.get("feed");
 
@@ -130,10 +132,16 @@ export function ShortsReader() {
           className="no-scrollbar h-full snap-y snap-mandatory overflow-y-auto"
         >
           {articles.map((article, index) => (
-            <ShortCard key={article.id} article={article} index={index} />
+            <ShortCard
+              key={article.id}
+              article={article}
+              index={index}
+              onToast={showToast}
+            />
           ))}
         </div>
       )}
+      <Toast toast={toast} />
     </div>
   );
 }

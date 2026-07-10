@@ -17,6 +17,17 @@ export interface ArticleDto {
   feed_title: string;
 }
 
+export interface ReadingItemDto {
+  id: number;
+  link: string;
+  title: string;
+  summary: string | null;
+  image_url: string | null;
+  feed_title: string | null;
+  published_at: string | null;
+  added_at: string;
+}
+
 const AVATAR_TONES = [
   "#c96442",
   "#7d9a6d",
