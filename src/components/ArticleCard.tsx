@@ -6,7 +6,7 @@ import { saveToReadingList, sendToOmnivore, unlockUrl } from "@/lib/actions";
 import { FeedAvatar } from "./FeedAvatar";
 import {
   BookmarkIcon,
-  SendIcon,
+  OmnivoreIcon,
   SwipeableCard,
   UnlockIcon,
 } from "./SwipeableCard";
@@ -95,7 +95,7 @@ export function ArticleCard({
             {actionButton(
               "Send to Omnivore",
               handleOmnivore,
-              <SendIcon size={14} />
+              <OmnivoreIcon size={14} />
             )}
             {actionButton(
               "Read without paywall",

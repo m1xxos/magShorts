@@ -6,7 +6,7 @@ import { saveToReadingList, sendToOmnivore, unlockUrl } from "@/lib/actions";
 import { FeedAvatar } from "./FeedAvatar";
 import {
   BookmarkIcon,
-  SendIcon,
+  OmnivoreIcon,
   SwipeableCard,
   UnlockIcon,
 } from "./SwipeableCard";
@@ -101,35 +101,41 @@ export function ShortCard({
               </p>
             )}
 
-            <div className="mt-auto flex flex-wrap items-center gap-2 pt-2">
+            <div className="mt-auto flex flex-nowrap items-center gap-1.5 pt-2 md:gap-2">
               <a
                 href={article.link}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 rounded-full bg-clay px-5 py-2.5 text-sm font-medium text-white transition hover:brightness-95"
+                className="inline-flex shrink-0 items-center gap-2 rounded-full bg-clay px-4 py-2.5 text-sm font-medium text-white transition hover:brightness-95 md:px-5"
               >
                 Read the article →
               </a>
+              <span className="flex-1" />
               <button
                 onClick={handleSave}
-                className="inline-flex items-center gap-2 rounded-full border border-line px-4 py-2.5 text-sm text-ink-soft transition hover:border-clay hover:text-clay"
+                title="Read later"
+                aria-label="Read later"
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line md:h-10 md:w-10 text-ink-soft transition hover:border-clay hover:text-clay"
               >
-                <BookmarkIcon size={14} /> Read later
+                <BookmarkIcon size={16} />
               </button>
               <button
                 onClick={handleOmnivore}
-                className="inline-flex items-center gap-2 rounded-full border border-line px-4 py-2.5 text-sm text-ink-soft transition hover:border-clay hover:text-clay"
+                title="Send to Omnivore"
+                aria-label="Send to Omnivore"
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line md:h-10 md:w-10 text-ink-soft transition hover:border-clay hover:text-clay"
               >
-                <SendIcon size={14} /> Omnivore
+                <OmnivoreIcon size={16} />
               </button>
               <a
                 href={unlockUrl(article.link)}
                 target="_blank"
                 rel="noopener noreferrer"
                 title="Read without paywall via Marreta"
-                className="inline-flex items-center gap-2 rounded-full border border-line px-4 py-2.5 text-sm text-ink-soft transition hover:border-clay hover:text-clay"
+                aria-label="Read without paywall via Marreta"
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line md:h-10 md:w-10 text-ink-soft transition hover:border-clay hover:text-clay"
               >
-                <UnlockIcon size={14} /> No paywall
+                <UnlockIcon size={16} />
               </a>
             </div>
           </div>

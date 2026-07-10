@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type ArticleDto } from "@/lib/types";
+import { saveToReadingList, sendToOmnivore } from "@/lib/actions";
 import { ShortCard } from "./ShortCard";
 import { Toast, useToast } from "./Toast";
 
@@ -32,6 +33,16 @@ export function ShortsReader() {
   }, []);
 
   useEffect(() => {
+    async function swipeCurrent(direction: "right" | "left") {
+      const article = articles[current];
+      if (!article) return;
+      const result =
+        direction === "right"
+          ? await saveToReadingList(article)
+          : await sendToOmnivore(article);
+      showToast(result.message, !result.ok);
+    }
+
     function onKey(event: KeyboardEvent) {
       if (event.key === "ArrowDown" || event.key === "j" || event.key === " ") {
         event.preventDefault();
@@ -47,11 +58,17 @@ export function ShortsReader() {
           scrollToIndex(prev);
           return prev;
         });
+      } else if (event.key === "ArrowRight") {
+        event.preventDefault();
+        swipeCurrent("right");
+      } else if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        swipeCurrent("left");
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [articles.length, scrollToIndex]);
+  }, [articles, current, scrollToIndex, showToast]);
 
   // Track which card is in view while the user scrolls freely.
   useEffect(() => {

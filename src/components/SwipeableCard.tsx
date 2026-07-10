@@ -95,7 +95,7 @@ export function SwipeableCard({
             style={{ opacity: 0.4 + strength * 0.6 }}
           >
             <span className="flex items-center gap-2 text-sm font-medium">
-              {leftLabel} <SendIcon />
+              {leftLabel} <OmnivoreIcon />
             </span>
           </div>
         ) : null}
@@ -144,7 +144,8 @@ export function BookmarkIcon({ size = 16 }: { size?: number }) {
   );
 }
 
-export function SendIcon({ size = 16 }: { size?: number }) {
+// Stylized open "O" with a dot, nodding to the Omnivore logo.
+export function OmnivoreIcon({ size = 16 }: { size?: number }) {
   return (
     <svg
       width={size}
@@ -152,13 +153,12 @@ export function SendIcon({ size = 16 }: { size?: number }) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="2"
+      strokeWidth="2.2"
       strokeLinecap="round"
-      strokeLinejoin="round"
       aria-hidden
     >
-      <path d="M22 2L11 13" />
-      <path d="M22 2l-7 20-4-9-9-4z" />
+      <path d="M20.2 15.3A9 9 0 1 1 21 12" />
+      <circle cx="20" cy="11.2" r="1.6" fill="currentColor" stroke="none" />
     </svg>
   );
 }
