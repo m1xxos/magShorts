@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { type ArticleDto, feedTone, timeAgo } from "@/lib/types";
 import { saveToReadingList, sendToOmnivore, unlockUrl } from "@/lib/actions";
 import { FeedAvatar } from "./FeedAvatar";
@@ -8,8 +8,34 @@ import {
   BookmarkIcon,
   OmnivoreIcon,
   SwipeableCard,
+  type SwipeableCardHandle,
   UnlockIcon,
 } from "./SwipeableCard";
+
+function ActionButton({
+  label,
+  onClick,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      title={label}
+      aria-label={label}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onClick();
+      }}
+      className="flex h-8 w-8 items-center justify-center rounded-full border border-line bg-paper-raised/95 text-ink-soft shadow-sm backdrop-blur transition hover:text-clay"
+    >
+      {children}
+    </button>
+  );
+}
 
 export function ArticleCard({
   article,
@@ -20,6 +46,7 @@ export function ArticleCard({
 }) {
   const [imageFailed, setImageFailed] = useState(false);
   const showImage = article.image_url && !imageFailed;
+  const swipeRef = useRef<SwipeableCardHandle>(null);
 
   async function handleSave() {
     const result = await saveToReadingList(article);
@@ -31,29 +58,17 @@ export function ArticleCard({
     onToast(result.message, !result.ok);
   }
 
-  function actionButton(
-    label: string,
-    onClick: () => void,
-    icon: React.ReactNode
-  ) {
-    return (
-      <button
-        title={label}
-        aria-label={label}
-        onClick={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          onClick();
-        }}
-        className="flex h-8 w-8 items-center justify-center rounded-full border border-line bg-paper-raised/95 text-ink-soft shadow-sm backdrop-blur transition hover:text-clay"
-      >
-        {icon}
-      </button>
-    );
+  function swipeSave() {
+    swipeRef.current?.swipe("right");
+  }
+
+  function swipeOmnivore() {
+    swipeRef.current?.swipe("left");
   }
 
   return (
     <SwipeableCard
+      ref={swipeRef}
       onSwipeRight={handleSave}
       onSwipeLeft={handleOmnivore}
       rightLabel="Read later"
@@ -91,17 +106,18 @@ export function ArticleCard({
             </div>
           )}
           <div className="absolute top-2 right-2 flex gap-1.5 opacity-0 transition group-hover:opacity-100">
-            {actionButton("Read later", handleSave, <BookmarkIcon size={14} />)}
-            {actionButton(
-              "Send to Omnivore",
-              handleOmnivore,
+            <ActionButton label="Read later" onClick={swipeSave}>
+              <BookmarkIcon size={14} />
+            </ActionButton>
+            <ActionButton label="Send to Omnivore" onClick={swipeOmnivore}>
               <OmnivoreIcon size={14} />
-            )}
-            {actionButton(
-              "Read without paywall",
-              () => window.open(unlockUrl(article.link), "_blank"),
+            </ActionButton>
+            <ActionButton
+              label="Read without paywall"
+              onClick={() => window.open(unlockUrl(article.link), "_blank")}
+            >
               <UnlockIcon size={14} />
-            )}
+            </ActionButton>
           </div>
         </div>
         <div className="flex gap-3 p-4">

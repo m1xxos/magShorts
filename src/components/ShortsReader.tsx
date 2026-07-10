@@ -4,8 +4,13 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type ArticleDto } from "@/lib/types";
-import { saveToReadingList, sendToOmnivore } from "@/lib/actions";
 import { ShortCard } from "./ShortCard";
+import {
+  BookmarkIcon,
+  OmnivoreIcon,
+  type SwipeableCardHandle,
+  UnlockIcon,
+} from "./SwipeableCard";
 import { Toast, useToast } from "./Toast";
 
 export function ShortsReader() {
@@ -17,6 +22,7 @@ export function ShortsReader() {
   const [loading, setLoading] = useState(true);
   const [current, setCurrent] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
+  const cardHandles = useRef<Map<number, SwipeableCardHandle>>(new Map());
 
   useEffect(() => {
     const query = feedParam ? `?feed=${feedParam}` : "?mix=1";
@@ -33,16 +39,6 @@ export function ShortsReader() {
   }, []);
 
   useEffect(() => {
-    async function swipeCurrent(direction: "right" | "left") {
-      const article = articles[current];
-      if (!article) return;
-      const result =
-        direction === "right"
-          ? await saveToReadingList(article)
-          : await sendToOmnivore(article);
-      showToast(result.message, !result.ok);
-    }
-
     function onKey(event: KeyboardEvent) {
       if (event.key === "ArrowDown" || event.key === "j" || event.key === " ") {
         event.preventDefault();
@@ -60,15 +56,15 @@ export function ShortsReader() {
         });
       } else if (event.key === "ArrowRight") {
         event.preventDefault();
-        swipeCurrent("right");
+        cardHandles.current.get(current)?.swipe("right");
       } else if (event.key === "ArrowLeft") {
         event.preventDefault();
-        swipeCurrent("left");
+        cardHandles.current.get(current)?.swipe("left");
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [articles, current, scrollToIndex, showToast]);
+  }, [articles.length, current, scrollToIndex]);
 
   // Track which card is in view while the user scrolls freely.
   useEffect(() => {
@@ -154,11 +150,59 @@ export function ShortsReader() {
               article={article}
               index={index}
               onToast={showToast}
+              ref={(handle) => {
+                if (handle) cardHandles.current.set(index, handle);
+                else cardHandles.current.delete(index);
+              }}
             />
           ))}
+        </div>
+      )}
+
+      {/* Legend for buttons and keyboard shortcuts */}
+      {articles.length > 0 && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex justify-center md:hidden">
+          <div className="flex items-center gap-2 rounded-full border border-line bg-paper-raised/90 px-4 py-2 text-[12px] text-ink-faint backdrop-blur">
+            swipe <BookmarkIcon size={12} /> save →
+            <Dot />← <OmnivoreIcon size={12} /> Omnivore
+          </div>
+        </div>
+      )}
+      {articles.length > 0 && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-5 z-30 hidden justify-center md:flex">
+          <div className="flex items-center gap-4 rounded-full border border-line bg-paper-raised/90 px-5 py-2.5 text-[12px] text-ink-faint backdrop-blur">
+            <span className="flex items-center gap-1.5">
+              <Key>↑</Key>
+              <Key>↓</Key> browse
+            </span>
+            <Dot />
+            <span className="flex items-center gap-1.5">
+              <BookmarkIcon size={12} /> or <Key>→</Key> read later
+            </span>
+            <Dot />
+            <span className="flex items-center gap-1.5">
+              <OmnivoreIcon size={12} /> or <Key>←</Key> send to Omnivore
+            </span>
+            <Dot />
+            <span className="flex items-center gap-1.5">
+              <UnlockIcon size={12} /> open without paywall
+            </span>
+          </div>
         </div>
       )}
       <Toast toast={toast} />
     </div>
   );
+}
+
+function Key({ children }: { children: React.ReactNode }) {
+  return (
+    <kbd className="rounded-md border border-line bg-paper px-1.5 py-0.5 font-sans text-[11px] text-ink-soft">
+      {children}
+    </kbd>
+  );
+}
+
+function Dot() {
+  return <span className="text-line">·</span>;
 }

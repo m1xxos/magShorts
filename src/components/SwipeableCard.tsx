@@ -1,11 +1,16 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useImperativeHandle, useRef, useState } from "react";
 
 const THRESHOLD = 90;
 const MAX_DRAG = 160;
+const FLY_MS = 300;
 
 type Intent = "none" | "horizontal" | "vertical";
+
+export interface SwipeableCardHandle {
+  swipe: (direction: "left" | "right") => void;
+}
 
 export function SwipeableCard({
   onSwipeRight,
@@ -14,6 +19,7 @@ export function SwipeableCard({
   leftLabel,
   className,
   children,
+  ref,
 }: {
   onSwipeRight: () => void;
   onSwipeLeft: () => void;
@@ -21,12 +27,33 @@ export function SwipeableCard({
   leftLabel: string;
   className?: string;
   children: React.ReactNode;
+  ref?: React.Ref<SwipeableCardHandle>;
 }) {
   const [offset, setOffset] = useState(0);
   const [dragging, setDragging] = useState(false);
   const start = useRef<{ x: number; y: number } | null>(null);
   const intent = useRef<Intent>("none");
   const suppressClick = useRef(false);
+  const flyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useImperativeHandle(ref, () => ({
+    swipe(direction) {
+      if (flyTimer.current) return;
+      setOffset(direction === "right" ? MAX_DRAG : -MAX_DRAG);
+      flyTimer.current = setTimeout(() => {
+        flyTimer.current = null;
+        setOffset(0);
+        if (direction === "right") onSwipeRight();
+        else onSwipeLeft();
+      }, FLY_MS);
+    },
+  }));
+
+  useEffect(() => {
+    return () => {
+      if (flyTimer.current) clearTimeout(flyTimer.current);
+    };
+  }, []);
 
   function onPointerDown(event: React.PointerEvent) {
     if (event.button !== 0) return;
@@ -117,7 +144,9 @@ export function SwipeableCard({
         className="touch-pan-y"
         style={{
           transform: `translateX(${offset}px) rotate(${offset / 60}deg)`,
-          transition: dragging ? "none" : "transform 250ms ease",
+          transition: dragging
+            ? "none"
+            : "transform 300ms cubic-bezier(0.2, 0.8, 0.3, 1.1)",
         }}
       >
         {children}

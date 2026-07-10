@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useImperativeHandle, useRef, useState } from "react";
 import { type ArticleDto, feedTone, timeAgo } from "@/lib/types";
 import { saveToReadingList, sendToOmnivore, unlockUrl } from "@/lib/actions";
 import { FeedAvatar } from "./FeedAvatar";
@@ -8,6 +8,7 @@ import {
   BookmarkIcon,
   OmnivoreIcon,
   SwipeableCard,
+  type SwipeableCardHandle,
   UnlockIcon,
 } from "./SwipeableCard";
 
@@ -15,14 +16,21 @@ export function ShortCard({
   article,
   index,
   onToast,
+  ref,
 }: {
   article: ArticleDto;
   index: number;
   onToast: (message: string, error?: boolean) => void;
+  ref?: React.Ref<SwipeableCardHandle>;
 }) {
   const [imageFailed, setImageFailed] = useState(false);
   const showImage = article.image_url && !imageFailed;
   const tone = feedTone(article.feed_id);
+  const swipeRef = useRef<SwipeableCardHandle>(null);
+
+  useImperativeHandle(ref, () => ({
+    swipe: (direction) => swipeRef.current?.swipe(direction),
+  }));
 
   async function handleSave() {
     const result = await saveToReadingList(article);
@@ -40,6 +48,7 @@ export function ShortCard({
       className="flex h-full snap-start items-center justify-center px-4 py-20 md:px-8"
     >
       <SwipeableCard
+        ref={swipeRef}
         onSwipeRight={handleSave}
         onSwipeLeft={handleOmnivore}
         rightLabel="Read later"
@@ -112,7 +121,7 @@ export function ShortCard({
               </a>
               <span className="flex-1" />
               <button
-                onClick={handleSave}
+                onClick={() => swipeRef.current?.swipe("right")}
                 title="Read later"
                 aria-label="Read later"
                 className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line md:h-10 md:w-10 text-ink-soft transition hover:border-clay hover:text-clay"
@@ -120,7 +129,7 @@ export function ShortCard({
                 <BookmarkIcon size={16} />
               </button>
               <button
-                onClick={handleOmnivore}
+                onClick={() => swipeRef.current?.swipe("left")}
                 title="Send to Omnivore"
                 aria-label="Send to Omnivore"
                 className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line md:h-10 md:w-10 text-ink-soft transition hover:border-clay hover:text-clay"
