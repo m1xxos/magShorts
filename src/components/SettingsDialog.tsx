@@ -6,6 +6,7 @@ interface SettingsForm {
   omnivore_url: string;
   omnivore_api_key: string;
   marreta_url: string;
+  direct_domains: string;
 }
 
 export function SettingsDialog({
@@ -95,7 +96,13 @@ export function SettingsDialog({
             "Marreta URL",
             "marreta_url",
             "https://marreta.link",
-            "Used by “No paywall” — swap for your own instance if you host one."
+            "Articles open through this instance by default."
+          )}
+          {field(
+            "Open directly (skip Marreta)",
+            "direct_domains",
+            "habr.com, theverge.com",
+            "Comma-separated domains without a paywall — they open at the original site."
           )}
           <div className="flex justify-end gap-2 pt-2">
             <button

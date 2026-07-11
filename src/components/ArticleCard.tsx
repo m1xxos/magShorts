@@ -128,9 +128,14 @@ export function ArticleCard({
             size={32}
           />
           <div className="min-w-0">
-            <h3 className="line-clamp-2 font-serif text-[17px] leading-snug font-medium text-ink">
+            <h3 className="line-clamp-3 font-serif text-[15px] leading-snug font-medium text-ink">
               {article.title}
             </h3>
+            {article.summary && (
+              <p className="mt-1.5 line-clamp-2 text-[13px] leading-snug text-ink-soft">
+                {article.summary}
+              </p>
+            )}
             <p className="mt-1.5 text-[13px] text-ink-faint">
               {article.feed_title}
               {article.published_at && (

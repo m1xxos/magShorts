@@ -1,22 +1,43 @@
 import { getDb } from "./db";
 
-export type SettingKey = "omnivore_url" | "omnivore_api_key" | "marreta_url";
+export type SettingKey =
+  | "omnivore_url"
+  | "omnivore_api_key"
+  | "marreta_url"
+  | "direct_domains";
 
 export const SETTING_KEYS: SettingKey[] = [
   "omnivore_url",
   "omnivore_api_key",
   "marreta_url",
+  "direct_domains",
 ];
 
 const ENV_FALLBACKS: Record<SettingKey, string | undefined> = {
   omnivore_url: process.env.OMNIVORE_URL,
   omnivore_api_key: process.env.OMNIVORE_API_KEY,
   marreta_url: process.env.MARRETA_URL,
+  direct_domains: process.env.DIRECT_DOMAINS,
 };
 
 const DEFAULTS: Partial<Record<SettingKey, string>> = {
   marreta_url: "https://marreta.link",
+  direct_domains: "habr.com, theverge.com",
 };
+
+export function isDirectDomain(articleUrl: string): boolean {
+  let host: string;
+  try {
+    host = new URL(articleUrl).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  return getSetting("direct_domains")
+    .split(/[,\s]+/)
+    .map((domain) => domain.trim().toLowerCase().replace(/^www\./, ""))
+    .filter(Boolean)
+    .some((domain) => host === domain || host.endsWith(`.${domain}`));
+}
 
 export function getSetting(key: SettingKey): string {
   const row = getDb()
