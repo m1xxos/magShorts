@@ -4,13 +4,15 @@ export type SettingKey =
   | "omnivore_url"
   | "omnivore_api_key"
   | "marreta_url"
-  | "direct_domains";
+  | "direct_domains"
+  | "archive_domains";
 
 export const SETTING_KEYS: SettingKey[] = [
   "omnivore_url",
   "omnivore_api_key",
   "marreta_url",
   "direct_domains",
+  "archive_domains",
 ];
 
 const ENV_FALLBACKS: Record<SettingKey, string | undefined> = {
@@ -18,25 +20,35 @@ const ENV_FALLBACKS: Record<SettingKey, string | undefined> = {
   omnivore_api_key: process.env.OMNIVORE_API_KEY,
   marreta_url: process.env.MARRETA_URL,
   direct_domains: process.env.DIRECT_DOMAINS,
+  archive_domains: process.env.ARCHIVE_DOMAINS,
 };
 
 const DEFAULTS: Partial<Record<SettingKey, string>> = {
   marreta_url: "https://marreta.link",
-  direct_domains: "habr.com, theverge.com",
+  direct_domains: "habr.com",
+  archive_domains: "nytimes.com",
 };
 
-export function isDirectDomain(articleUrl: string): boolean {
+function matchesDomainList(articleUrl: string, key: SettingKey): boolean {
   let host: string;
   try {
     host = new URL(articleUrl).hostname.toLowerCase();
   } catch {
     return false;
   }
-  return getSetting("direct_domains")
+  return getSetting(key)
     .split(/[,\s]+/)
     .map((domain) => domain.trim().toLowerCase().replace(/^www\./, ""))
     .filter(Boolean)
     .some((domain) => host === domain || host.endsWith(`.${domain}`));
+}
+
+export function isDirectDomain(articleUrl: string): boolean {
+  return matchesDomainList(articleUrl, "direct_domains");
+}
+
+export function isArchiveDomain(articleUrl: string): boolean {
+  return matchesDomainList(articleUrl, "archive_domains");
 }
 
 export function getSetting(key: SettingKey): string {

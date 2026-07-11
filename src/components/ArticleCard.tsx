@@ -129,12 +129,14 @@ export function ArticleCard({
             size={32}
           />
           <div className="flex min-w-0 flex-1 flex-col">
-            <h3 className="line-clamp-3 min-h-[4.05em] font-serif text-[15px] leading-[1.35] font-medium text-ink">
+            <h3 className="line-clamp-3 font-serif text-[15px] leading-[1.35] font-medium text-ink">
               {article.title}
             </h3>
-            <p className="mt-1.5 line-clamp-2 min-h-[2.7em] text-[13px] leading-[1.35] text-ink-soft">
-              {article.summary ?? ""}
-            </p>
+            {article.summary && (
+              <p className="mt-1.5 line-clamp-2 text-[13px] leading-[1.35] text-ink-soft">
+                {article.summary}
+              </p>
+            )}
             <p className="mt-auto pt-1.5 text-[13px] text-ink-faint">
               {article.feed_title}
               {article.published_at && (

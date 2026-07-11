@@ -7,6 +7,7 @@ interface SettingsForm {
   omnivore_api_key: string;
   marreta_url: string;
   direct_domains: string;
+  archive_domains: string;
 }
 
 export function SettingsDialog({
@@ -101,8 +102,14 @@ export function SettingsDialog({
           {field(
             "Open directly (skip Marreta)",
             "direct_domains",
-            "habr.com, theverge.com",
+            "habr.com",
             "Comma-separated domains without a paywall — they open at the original site."
+          )}
+          {field(
+            "Open via archive.today",
+            "archive_domains",
+            "nytimes.com",
+            "Domains Marreta can't fetch — they open as the latest archive.today snapshot."
           )}
           <div className="flex justify-end gap-2 pt-2">
             <button
