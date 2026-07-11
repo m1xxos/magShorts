@@ -6,10 +6,10 @@ import { saveToReadingList, sendToOmnivore, unlockUrl } from "@/lib/actions";
 import { FeedAvatar } from "./FeedAvatar";
 import {
   BookmarkIcon,
+  ExternalIcon,
   OmnivoreIcon,
   SwipeableCard,
   type SwipeableCardHandle,
-  UnlockIcon,
 } from "./SwipeableCard";
 
 export function ShortCard({
@@ -112,9 +112,10 @@ export function ShortCard({
 
             <div className="mt-auto flex flex-nowrap items-center gap-1.5 pt-2 md:gap-2">
               <a
-                href={article.link}
+                href={unlockUrl(article.link)}
                 target="_blank"
                 rel="noopener noreferrer"
+                title="Opens paywall-free via Marreta"
                 className="inline-flex shrink-0 items-center gap-2 rounded-full bg-clay px-4 py-2.5 text-sm font-medium text-white transition hover:brightness-95 md:px-5"
               >
                 Read the article →
@@ -137,14 +138,14 @@ export function ShortCard({
                 <OmnivoreIcon size={16} />
               </button>
               <a
-                href={unlockUrl(article.link)}
+                href={article.link}
                 target="_blank"
                 rel="noopener noreferrer"
-                title="Read without paywall via Marreta"
-                aria-label="Read without paywall via Marreta"
+                title="Open the original"
+                aria-label="Open the original"
                 className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line md:h-10 md:w-10 text-ink-soft transition hover:border-clay hover:text-clay"
               >
-                <UnlockIcon size={16} />
+                <ExternalIcon size={16} />
               </a>
             </div>
           </div>

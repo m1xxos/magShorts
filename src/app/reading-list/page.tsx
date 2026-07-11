@@ -6,7 +6,7 @@ import { type ReadingItemDto, timeAgo } from "@/lib/types";
 import { unlockUrl } from "@/lib/actions";
 import { Toast, useToast } from "@/components/Toast";
 import { TopBar } from "@/components/TopBar";
-import { UnlockIcon } from "@/components/SwipeableCard";
+import { ExternalIcon } from "@/components/SwipeableCard";
 
 export default function ReadingListPage() {
   const [items, setItems] = useState<ReadingItemDto[]>([]);
@@ -65,9 +65,10 @@ export default function ReadingListPage() {
                 )}
                 <div className="min-w-0 flex-1">
                   <a
-                    href={item.link}
+                    href={unlockUrl(item.link)}
                     target="_blank"
                     rel="noopener noreferrer"
+                    title="Opens paywall-free via Marreta"
                     className="line-clamp-2 font-serif text-[16px] leading-snug font-medium text-ink hover:text-clay"
                   >
                     {item.title}
@@ -92,13 +93,13 @@ export default function ReadingListPage() {
                     ×
                   </button>
                   <a
-                    href={unlockUrl(item.link)}
+                    href={item.link}
                     target="_blank"
                     rel="noopener noreferrer"
-                    title="Read without paywall via Marreta"
+                    title="Open the original"
                     className="flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-[12px] text-ink-soft transition hover:border-clay hover:text-clay"
                   >
-                    <UnlockIcon size={12} /> No paywall
+                    <ExternalIcon size={12} /> Original
                   </a>
                 </div>
               </li>

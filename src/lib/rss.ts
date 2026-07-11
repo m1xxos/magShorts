@@ -22,17 +22,41 @@ const parser = new Parser<Record<string, unknown>, CustomItem>({
   },
 });
 
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  nbsp: " ",
+  mdash: "—",
+  ndash: "–",
+  hellip: "…",
+  rsquo: "’",
+  lsquo: "‘",
+  rdquo: "”",
+  ldquo: "“",
+  laquo: "«",
+  raquo: "»",
+  copy: "©",
+  reg: "®",
+  trade: "™",
+};
+
+export function decodeEntities(text: string): string {
+  return text
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) =>
+      String.fromCodePoint(parseInt(hex, 16))
+    )
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(Number(dec)))
+    .replace(
+      /&([a-z]+);/gi,
+      (match, name) => NAMED_ENTITIES[name.toLowerCase()] ?? match
+    );
+}
+
 function stripHtml(html: string): string {
-  return html
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#0?39;/g, "'")
-    .replace(/&mdash;/g, "—")
-    .replace(/&hellip;/g, "…")
+  return decodeEntities(html.replace(/<[^>]*>/g, " "))
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -66,7 +90,7 @@ function extractSummary(item: Parser.Item & CustomItem): string | null {
 export async function parseFeedMeta(url: string) {
   const parsed = await parser.parseURL(url);
   return {
-    title: parsed.title?.trim() || new URL(url).hostname,
+    title: decodeEntities(parsed.title?.trim() || new URL(url).hostname),
     site_url: parsed.link ?? null,
   };
 }
@@ -93,7 +117,7 @@ export function refreshFeedArticles(feed: Feed): Promise<void> {
         upsert.run({
           feed_id: feed.id,
           guid: item.guid ?? link,
-          title,
+          title: decodeEntities(title),
           link,
           summary: extractSummary(item),
           image_url: extractImage(item),

@@ -7,9 +7,9 @@ import { type ArticleDto } from "@/lib/types";
 import { ShortCard } from "./ShortCard";
 import {
   BookmarkIcon,
+  ExternalIcon,
   OmnivoreIcon,
   type SwipeableCardHandle,
-  UnlockIcon,
 } from "./SwipeableCard";
 import { Toast, useToast } from "./Toast";
 
@@ -185,7 +185,7 @@ export function ShortsReader() {
             </span>
             <Dot />
             <span className="flex items-center gap-1.5">
-              <UnlockIcon size={12} /> open without paywall
+              <ExternalIcon size={12} /> open the original
             </span>
           </div>
         </div>
