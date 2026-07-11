@@ -141,7 +141,7 @@ export function SwipeableCard({
             suppressClick.current = false;
           }
         }}
-        className="touch-pan-y"
+        className="h-full touch-pan-y"
         style={{
           transform: `translateX(${offset}px) rotate(${offset / 60}deg)`,
           transition: dragging

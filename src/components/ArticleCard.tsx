@@ -73,14 +73,15 @@ export function ArticleCard({
       onSwipeLeft={handleOmnivore}
       rightLabel="Read later"
       leftLabel="To Omnivore"
+      className="h-full"
     >
       <a
         href={unlockUrl(article.link)}
         target="_blank"
         rel="noopener noreferrer"
-        className="group flex flex-col overflow-hidden rounded-2xl border border-line bg-paper-raised transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_24px_-12px_rgba(31,30,27,0.25)]"
+        className="group flex h-full flex-col overflow-hidden rounded-2xl border border-line bg-paper-raised transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_24px_-12px_rgba(31,30,27,0.25)]"
       >
-        <div className="relative aspect-video w-full overflow-hidden bg-paper-sunken">
+        <div className="relative aspect-video w-full shrink-0 overflow-hidden bg-paper-sunken">
           {showImage ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -120,23 +121,21 @@ export function ArticleCard({
             </ActionButton>
           </div>
         </div>
-        <div className="flex gap-3 p-4">
+        <div className="flex flex-1 gap-3 p-4">
           <FeedAvatar
             feedId={article.feed_id}
             title={article.feed_title}
             siteUrl={article.link}
             size={32}
           />
-          <div className="min-w-0">
-            <h3 className="line-clamp-3 font-serif text-[15px] leading-snug font-medium text-ink">
+          <div className="flex min-w-0 flex-1 flex-col">
+            <h3 className="line-clamp-3 min-h-[4.05em] font-serif text-[15px] leading-[1.35] font-medium text-ink">
               {article.title}
             </h3>
-            {article.summary && (
-              <p className="mt-1.5 line-clamp-2 text-[13px] leading-snug text-ink-soft">
-                {article.summary}
-              </p>
-            )}
-            <p className="mt-1.5 text-[13px] text-ink-faint">
+            <p className="mt-1.5 line-clamp-2 min-h-[2.7em] text-[13px] leading-[1.35] text-ink-soft">
+              {article.summary ?? ""}
+            </p>
+            <p className="mt-auto pt-1.5 text-[13px] text-ink-faint">
               {article.feed_title}
               {article.published_at && (
                 <>
