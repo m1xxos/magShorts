@@ -107,7 +107,7 @@ export function Sidebar({
           <button
             title={`Unsubscribe from ${feed.title}`}
             onClick={() => onRemove(feed)}
-            className="hidden h-6 w-6 shrink-0 items-center justify-center rounded-full text-ink-faint hover:bg-line hover:text-ink group-hover:inline-flex"
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-ink-faint opacity-0 transition-opacity group-hover:opacity-100 hover:bg-line hover:text-ink"
           >
             ×
           </button>
