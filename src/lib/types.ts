@@ -4,6 +4,7 @@ export interface FeedDto {
   url: string;
   site_url: string | null;
   article_count: number;
+  enabled: number;
 }
 
 export interface ArticleDto {

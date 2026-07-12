@@ -135,7 +135,7 @@ export async function refreshStaleFeeds(feedId?: number): Promise<void> {
   const feeds = (
     feedId
       ? db.prepare("SELECT * FROM feeds WHERE id = ?").all(feedId)
-      : db.prepare("SELECT * FROM feeds").all()
+      : db.prepare("SELECT * FROM feeds WHERE enabled = 1").all()
   ) as Feed[];
 
   const now = Date.now();

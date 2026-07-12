@@ -9,6 +9,7 @@ export interface Feed {
   site_url: string | null;
   created_at: string;
   last_fetched_at: string | null;
+  enabled: number;
 }
 
 export interface Article {
@@ -98,6 +99,13 @@ export function getDb(): Database.Database {
     );
   `);
   db.pragma("foreign_keys = ON");
+
+  const feedColumns = db.prepare("PRAGMA table_info(feeds)").all() as Array<{
+    name: string;
+  }>;
+  if (!feedColumns.some((column) => column.name === "enabled")) {
+    db.exec("ALTER TABLE feeds ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1");
+  }
 
   const feedCount = db.prepare("SELECT COUNT(*) AS n FROM feeds").get() as {
     n: number;

@@ -61,6 +61,17 @@ export default function HomePage() {
     loadFeeds();
   }
 
+  async function toggleFeed(feed: FeedDto) {
+    await fetch(`/api/feeds/${feed.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: !feed.enabled }),
+    });
+    showToast(feed.enabled ? `${feed.title} paused` : `${feed.title} resumed`);
+    loadFeeds();
+    loadArticles(selectedFeedId);
+  }
+
   return (
     <div className="min-h-screen">
       <TopBar selectedFeedId={selectedFeedId} />
@@ -71,6 +82,7 @@ export default function HomePage() {
           readingCount={readingCount}
           onSelect={setSelectedFeedId}
           onRemove={removeFeed}
+          onToggle={toggleFeed}
           onAddClick={() => setDialogOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
         />

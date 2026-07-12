@@ -12,8 +12,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(url);
   }
   if (isArchiveDomain(url)) {
-    // Marreta can't fetch these sites; archive.today usually has a snapshot.
-    return NextResponse.redirect(`https://archive.ph/newest/${url}`);
+    // Marreta can't fetch these sites; a web archive usually has a snapshot.
+    const archiveUrl = getSetting("archive_url").replace(/\/+$/, "");
+    return NextResponse.redirect(`${archiveUrl}/${url}`);
   }
   const marretaUrl = getSetting("marreta_url").replace(/\/+$/, "");
   return NextResponse.redirect(`${marretaUrl}/p/${url}`);

@@ -4,6 +4,7 @@ export type SettingKey =
   | "omnivore_url"
   | "omnivore_api_key"
   | "marreta_url"
+  | "archive_url"
   | "direct_domains"
   | "archive_domains";
 
@@ -11,6 +12,7 @@ export const SETTING_KEYS: SettingKey[] = [
   "omnivore_url",
   "omnivore_api_key",
   "marreta_url",
+  "archive_url",
   "direct_domains",
   "archive_domains",
 ];
@@ -19,12 +21,14 @@ const ENV_FALLBACKS: Record<SettingKey, string | undefined> = {
   omnivore_url: process.env.OMNIVORE_URL,
   omnivore_api_key: process.env.OMNIVORE_API_KEY,
   marreta_url: process.env.MARRETA_URL,
+  archive_url: process.env.ARCHIVE_URL,
   direct_domains: process.env.DIRECT_DOMAINS,
   archive_domains: process.env.ARCHIVE_DOMAINS,
 };
 
 const DEFAULTS: Partial<Record<SettingKey, string>> = {
   marreta_url: "https://marreta.link",
+  archive_url: "https://web.archive.org/web/",
   direct_domains: "habr.com",
   archive_domains: "nytimes.com",
 };

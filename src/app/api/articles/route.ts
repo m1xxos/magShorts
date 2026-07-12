@@ -43,6 +43,7 @@ export async function GET(request: NextRequest) {
       : db.prepare(
           `SELECT a.*, f.title AS feed_title FROM articles a
            JOIN feeds f ON f.id = a.feed_id
+           WHERE f.enabled = 1
            ORDER BY a.published_at DESC LIMIT ? OFFSET ?`
         ).all(limit, offset)
   ) as Article[];

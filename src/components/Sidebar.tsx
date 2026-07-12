@@ -11,6 +11,7 @@ export function Sidebar({
   readingCount,
   onSelect,
   onRemove,
+  onToggle,
   onAddClick,
   onOpenSettings,
 }: {
@@ -19,6 +20,7 @@ export function Sidebar({
   readingCount: number;
   onSelect: (feedId: number | null) => void;
   onRemove: (feed: FeedDto) => void;
+  onToggle: (feed: FeedDto) => void;
   onAddClick: () => void;
   onOpenSettings: () => void;
 }) {
@@ -68,7 +70,9 @@ export function Sidebar({
         >
           <button
             onClick={() => onSelect(feed.id)}
-            className="flex min-w-0 flex-1 items-center gap-3 text-left"
+            className={`flex min-w-0 flex-1 items-center gap-3 text-left ${
+              feed.enabled ? "" : "opacity-40 grayscale"
+            }`}
           >
             <FeedAvatar
               feedId={feed.id}
@@ -84,6 +88,15 @@ export function Sidebar({
             >
               {feed.title}
             </span>
+          </button>
+          <button
+            title={feed.enabled ? "Pause this feed" : "Resume this feed"}
+            onClick={() => onToggle(feed)}
+            className={`h-6 w-6 shrink-0 items-center justify-center rounded-full text-ink-faint hover:bg-line hover:text-ink ${
+              feed.enabled ? "hidden group-hover:inline-flex" : "inline-flex"
+            }`}
+          >
+            {feed.enabled ? <PauseIcon /> : <PlayIcon />}
           </button>
           <button
             title={`Unsubscribe from ${feed.title}`}
@@ -126,5 +139,34 @@ export function Sidebar({
         Settings
       </button>
     </aside>
+  );
+}
+
+function PauseIcon() {
+  return (
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden
+    >
+      <rect x="5" y="4" width="5" height="16" rx="1.5" />
+      <rect x="14" y="4" width="5" height="16" rx="1.5" />
+    </svg>
+  );
+}
+
+function PlayIcon() {
+  return (
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden
+    >
+      <path d="M7 4.5v15a1 1 0 0 0 1.5.87l13-7.5a1 1 0 0 0 0-1.74l-13-7.5A1 1 0 0 0 7 4.5z" />
+    </svg>
   );
 }
