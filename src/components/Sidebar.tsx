@@ -90,13 +90,19 @@ export function Sidebar({
             </span>
           </button>
           <button
-            title={feed.enabled ? "Pause this feed" : "Resume this feed"}
+            role="switch"
+            aria-checked={Boolean(feed.enabled)}
+            title={feed.enabled ? "Turn off this feed" : "Turn on this feed"}
             onClick={() => onToggle(feed)}
-            className={`h-6 w-6 shrink-0 items-center justify-center rounded-full text-ink-faint hover:bg-line hover:text-ink ${
-              feed.enabled ? "hidden group-hover:inline-flex" : "inline-flex"
+            className={`relative h-[18px] w-8 shrink-0 rounded-full transition-colors ${
+              feed.enabled ? "bg-clay" : "bg-line"
             }`}
           >
-            {feed.enabled ? <PauseIcon /> : <PlayIcon />}
+            <span
+              className={`absolute top-[2px] h-[14px] w-[14px] rounded-full bg-white shadow-sm transition-all ${
+                feed.enabled ? "left-[16px]" : "left-[2px]"
+              }`}
+            />
           </button>
           <button
             title={`Unsubscribe from ${feed.title}`}
@@ -139,34 +145,5 @@ export function Sidebar({
         Settings
       </button>
     </aside>
-  );
-}
-
-function PauseIcon() {
-  return (
-    <svg
-      width="11"
-      height="11"
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      aria-hidden
-    >
-      <rect x="5" y="4" width="5" height="16" rx="1.5" />
-      <rect x="14" y="4" width="5" height="16" rx="1.5" />
-    </svg>
-  );
-}
-
-function PlayIcon() {
-  return (
-    <svg
-      width="11"
-      height="11"
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      aria-hidden
-    >
-      <path d="M7 4.5v15a1 1 0 0 0 1.5.87l13-7.5a1 1 0 0 0 0-1.74l-13-7.5A1 1 0 0 0 7 4.5z" />
-    </svg>
   );
 }

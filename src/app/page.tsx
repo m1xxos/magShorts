@@ -67,7 +67,9 @@ export default function HomePage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ enabled: !feed.enabled }),
     });
-    showToast(feed.enabled ? `${feed.title} paused` : `${feed.title} resumed`);
+    showToast(
+      feed.enabled ? `${feed.title} turned off` : `${feed.title} turned on`
+    );
     loadFeeds();
     loadArticles(selectedFeedId);
   }
