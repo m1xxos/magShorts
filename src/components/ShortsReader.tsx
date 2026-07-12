@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type ArticleDto } from "@/lib/types";
 import { ShortCard } from "./ShortCard";
@@ -15,6 +15,7 @@ import { Toast, useToast } from "./Toast";
 
 export function ShortsReader() {
   const { toast, showToast } = useToast();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const feedParam = searchParams.get("feed");
 
@@ -60,11 +61,13 @@ export function ShortsReader() {
       } else if (event.key === "ArrowLeft") {
         event.preventDefault();
         cardHandles.current.get(current)?.swipe("left");
+      } else if (event.key === "Escape") {
+        router.push("/");
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [articles.length, current, scrollToIndex]);
+  }, [articles.length, current, scrollToIndex, router]);
 
   // Track which card is in view while the user scrolls freely.
   useEffect(() => {
@@ -186,6 +189,10 @@ export function ShortsReader() {
             <Dot />
             <span className="flex items-center gap-1.5">
               <ExternalIcon size={12} /> open the original
+            </span>
+            <Dot />
+            <span className="flex items-center gap-1.5">
+              <Key>Esc</Key> exit
             </span>
           </div>
         </div>
