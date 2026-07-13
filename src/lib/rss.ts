@@ -91,7 +91,7 @@ export async function parseFeedMeta(url: string) {
   const parsed = await parser.parseURL(url);
   return {
     title: decodeEntities(parsed.title?.trim() || new URL(url).hostname),
-    site_url: parsed.link ?? null,
+    site_url: parsed.link?.trim() || new URL(url).origin,
   };
 }
 
