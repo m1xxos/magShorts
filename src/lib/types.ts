@@ -1,3 +1,10 @@
+export type Selection =
+  | { kind: "forYou" }
+  | { kind: "all" }
+  | { kind: "feed"; feedId: number };
+
+export type RecWindow = "day" | "week" | "month";
+
 export interface FeedDto {
   id: number;
   title: string;

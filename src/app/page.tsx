@@ -2,25 +2,52 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { type ArticleDto, type FeedDto } from "@/lib/types";
+import {
+  type ArticleDto,
+  type FeedDto,
+  type RecWindow,
+  type Selection,
+} from "@/lib/types";
 import { AddFeedDialog } from "@/components/AddFeedDialog";
 import { ArticleCard } from "@/components/ArticleCard";
 import { SettingsDialog } from "@/components/SettingsDialog";
-import { Sidebar } from "@/components/Sidebar";
+import { Sidebar, SparkleIcon } from "@/components/Sidebar";
 import { Toast, useToast } from "@/components/Toast";
 import { TopBar } from "@/components/TopBar";
 import { useUser } from "@/lib/useUser";
+
+const REC_WINDOWS: Array<{ value: RecWindow; label: string }> = [
+  { value: "day", label: "Day" },
+  { value: "week", label: "Week" },
+  { value: "month", label: "Month" },
+];
 
 export default function HomePage() {
   const user = useUser();
   const [feeds, setFeeds] = useState<FeedDto[]>([]);
   const [articles, setArticles] = useState<ArticleDto[]>([]);
-  const [selectedFeedId, setSelectedFeedId] = useState<number | null>(null);
+  const [selection, setSelection] = useState<Selection>({ kind: "all" });
+  const [recWindow, setRecWindow] = useState<RecWindow>("week");
+  const [coldStart, setColdStart] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [readingCount, setReadingCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const { toast, showToast } = useToast();
+  const selectedFeedId = selection.kind === "feed" ? selection.feedId : null;
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem("ms_rec_window");
+    if (saved === "day" || saved === "week" || saved === "month") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time localStorage read after hydration
+      setRecWindow(saved);
+    }
+  }, []);
+
+  function changeRecWindow(value: RecWindow) {
+    setRecWindow(value);
+    window.localStorage.setItem("ms_rec_window", value);
+  }
 
   const loadFeeds = useCallback(async () => {
     const response = await fetch("/api/feeds");
@@ -33,16 +60,30 @@ export default function HomePage() {
     setReadingCount(Array.isArray(items) ? items.length : 0);
   }, []);
 
-  const loadArticles = useCallback(async (feedId: number | null) => {
-    setLoading(true);
-    try {
-      const query = feedId ? `?feed=${feedId}` : "?mix=1";
-      const response = await fetch(`/api/articles${query}`);
-      setArticles(await response.json());
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const loadArticles = useCallback(
+    async (target: Selection, window: RecWindow) => {
+      setLoading(true);
+      try {
+        if (target.kind === "forYou") {
+          const response = await fetch(
+            `/api/recommendations?window=${window}&limit=40`
+          );
+          const data = await response.json();
+          setArticles(data.articles ?? []);
+          setColdStart(Boolean(data.coldStart));
+        } else {
+          const query =
+            target.kind === "feed" ? `?feed=${target.feedId}` : "?mix=1";
+          const response = await fetch(`/api/articles${query}`);
+          setArticles(await response.json());
+          setColdStart(false);
+        }
+      } finally {
+        setLoading(false);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     if (!user) return;
@@ -54,14 +95,14 @@ export default function HomePage() {
   useEffect(() => {
     if (!user) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- async data fetch, state updates happen after await
-    loadArticles(selectedFeedId);
-  }, [user, selectedFeedId, loadArticles]);
+    loadArticles(selection, recWindow);
+  }, [user, selection, recWindow, loadArticles]);
 
   async function removeFeed(feed: FeedDto) {
     if (!confirm(`Unsubscribe from “${feed.title}”?`)) return;
     await fetch(`/api/feeds/${feed.id}`, { method: "DELETE" });
-    if (selectedFeedId === feed.id) setSelectedFeedId(null);
-    else loadArticles(selectedFeedId);
+    if (selectedFeedId === feed.id) setSelection({ kind: "all" });
+    else loadArticles(selection, recWindow);
     loadFeeds();
   }
 
@@ -75,7 +116,7 @@ export default function HomePage() {
       feed.enabled ? `${feed.title} turned off` : `${feed.title} turned on`
     );
     loadFeeds();
-    loadArticles(selectedFeedId);
+    loadArticles(selection, recWindow);
   }
 
   return (
@@ -84,9 +125,9 @@ export default function HomePage() {
       <div className="mx-auto flex max-w-[1500px]">
         <Sidebar
           feeds={feeds}
-          selectedFeedId={selectedFeedId}
+          selection={selection}
           readingCount={readingCount}
-          onSelect={setSelectedFeedId}
+          onSelect={setSelection}
           onRemove={removeFeed}
           onToggle={toggleFeed}
           onAddClick={() => setDialogOpen(true)}
@@ -96,9 +137,19 @@ export default function HomePage() {
           {/* Mobile feed chips */}
           <div className="no-scrollbar -mx-5 mb-4 flex gap-2 overflow-x-auto px-5 md:hidden">
             <button
-              onClick={() => setSelectedFeedId(null)}
+              onClick={() => setSelection({ kind: "forYou" })}
+              className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[13px] ${
+                selection.kind === "forYou"
+                  ? "border-ink bg-ink text-paper"
+                  : "border-line bg-paper-raised text-ink-soft"
+              }`}
+            >
+              <SparkleIcon size={11} /> For you
+            </button>
+            <button
+              onClick={() => setSelection({ kind: "all" })}
               className={`shrink-0 rounded-full border px-3.5 py-1.5 text-[13px] ${
-                selectedFeedId === null
+                selection.kind === "all"
                   ? "border-ink bg-ink text-paper"
                   : "border-line bg-paper-raised text-ink-soft"
               }`}
@@ -108,7 +159,7 @@ export default function HomePage() {
             {feeds.map((feed) => (
               <button
                 key={feed.id}
-                onClick={() => setSelectedFeedId(feed.id)}
+                onClick={() => setSelection({ kind: "feed", feedId: feed.id })}
                 className={`shrink-0 rounded-full border px-3.5 py-1.5 text-[13px] ${
                   selectedFeedId === feed.id
                     ? "border-ink bg-ink text-paper"
@@ -131,6 +182,39 @@ export default function HomePage() {
               Read later{readingCount > 0 ? ` (${readingCount})` : ""}
             </Link>
           </div>
+
+          {selection.kind === "forYou" && (
+            <div className="mb-5 flex flex-wrap items-center gap-3">
+              <h2 className="flex items-center gap-2 font-serif text-lg text-ink">
+                <span className="text-clay">
+                  <SparkleIcon size={15} />
+                </span>
+                For you
+              </h2>
+              <div className="flex rounded-full border border-line p-0.5">
+                {REC_WINDOWS.map((option) => (
+                  <button
+                    key={option.value}
+                    onClick={() => changeRecWindow(option.value)}
+                    className={`rounded-full px-3 py-1 text-[12px] transition ${
+                      recWindow === option.value
+                        ? "bg-clay text-white"
+                        : "text-ink-faint hover:text-ink"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              {coldStart && !loading && (
+                <p className="w-full rounded-xl border border-dashed border-line bg-paper-raised px-4 py-2.5 text-[13px] text-ink-soft">
+                  Still learning your taste — save, like or open a few articles
+                  and this feed will tune itself. Showing the freshest mix for
+                  now.
+                </p>
+              )}
+            </div>
+          )}
 
           {loading ? (
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -178,7 +262,7 @@ export default function HomePage() {
           onClose={() => setDialogOpen(false)}
           onAdded={() => {
             loadFeeds();
-            loadArticles(selectedFeedId);
+            loadArticles(selection, recWindow);
           }}
         />
       )}

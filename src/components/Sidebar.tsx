@@ -1,13 +1,28 @@
 "use client";
 
 import Link from "next/link";
-import { type FeedDto } from "@/lib/types";
+import { type FeedDto, type Selection } from "@/lib/types";
 import { FeedAvatar } from "./FeedAvatar";
 import { BookmarkIcon } from "./SwipeableCard";
 
+export function SparkleIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden
+    >
+      <path d="M12 2l1.9 5.7a2 2 0 0 0 1.27 1.26L20.8 11l-5.63 2.04a2 2 0 0 0-1.27 1.26L12 20l-1.9-5.7a2 2 0 0 0-1.27-1.26L3.2 11l5.63-2.04a2 2 0 0 0 1.27-1.26z" />
+      <path d="M19.5 15.5l.8 2.4 2.2.8-2.2.8-.8 2.4-.8-2.4-2.2-.8 2.2-.8z" />
+    </svg>
+  );
+}
+
 export function Sidebar({
   feeds,
-  selectedFeedId,
+  selection,
   readingCount,
   onSelect,
   onRemove,
@@ -16,9 +31,9 @@ export function Sidebar({
   onOpenSettings,
 }: {
   feeds: FeedDto[];
-  selectedFeedId: number | null;
+  selection: Selection;
   readingCount: number;
-  onSelect: (feedId: number | null) => void;
+  onSelect: (selection: Selection) => void;
   onRemove: (feed: FeedDto) => void;
   onToggle: (feed: FeedDto) => void;
   onAddClick: () => void;
@@ -46,9 +61,23 @@ export function Sidebar({
       </p>
 
       <button
-        onClick={() => onSelect(null)}
+        onClick={() => onSelect({ kind: "forYou" })}
         className={`flex items-center gap-3 rounded-xl px-3 py-2 text-left text-sm transition ${
-          selectedFeedId === null
+          selection.kind === "forYou"
+            ? "bg-paper-sunken font-medium text-ink"
+            : "text-ink-soft hover:bg-paper-sunken/60"
+        }`}
+      >
+        <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-clay-soft text-clay">
+          <SparkleIcon size={14} />
+        </span>
+        For you
+      </button>
+
+      <button
+        onClick={() => onSelect({ kind: "all" })}
+        className={`flex items-center gap-3 rounded-xl px-3 py-2 text-left text-sm transition ${
+          selection.kind === "all"
             ? "bg-paper-sunken font-medium text-ink"
             : "text-ink-soft hover:bg-paper-sunken/60"
         }`}
@@ -63,13 +92,13 @@ export function Sidebar({
         <div
           key={feed.id}
           className={`group flex items-center gap-3 rounded-xl px-3 py-2 transition ${
-            selectedFeedId === feed.id
+            selection.kind === "feed" && selection.feedId === feed.id
               ? "bg-paper-sunken"
               : "hover:bg-paper-sunken/60"
           }`}
         >
           <button
-            onClick={() => onSelect(feed.id)}
+            onClick={() => onSelect({ kind: "feed", feedId: feed.id })}
             className={`flex min-w-0 flex-1 items-center gap-3 text-left ${
               feed.enabled ? "" : "opacity-40 grayscale"
             }`}
@@ -81,7 +110,7 @@ export function Sidebar({
             />
             <span
               className={`truncate text-sm ${
-                selectedFeedId === feed.id
+                selection.kind === "feed" && selection.feedId === feed.id
                   ? "font-medium text-ink"
                   : "text-ink-soft"
               }`}
