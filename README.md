@@ -14,7 +14,8 @@ docker compose up --build
 ```
 
 Open http://localhost:3000. The SQLite database is stored in `./data`, so
-subscriptions and cached articles survive restarts.
+subscriptions, cached articles, accounts and the recommendation model survive
+restarts.
 
 > On Linux, make sure `./data` is writable by the container user:
 > `mkdir -p data && chmod 777 data` (or chown it to the container UID).
@@ -25,6 +26,33 @@ subscriptions and cached articles survive restarts.
 npm install
 npm run dev
 ```
+
+## Accounts (v2)
+
+The first visit takes you to `/login` — create an account (username +
+password, stored locally in SQLite with scrypt hashing). The first account
+inherits the pre-accounts reading list. Each user gets their own Read later
+list and their own recommendation profile.
+
+## For you — recommendations (v2)
+
+The sidebar's **For you** feed ranks fresh articles against your taste:
+
+- **Signals**: saving to Read later, 👍/👎 in Shorts, opening an article, the
+  "Did you like it?" survey when you remove something from Read later, and an
+  implicit *skip* when you scroll past a Shorts card without touching it.
+- **Embeddings**: every article title+summary is embedded locally with
+  `multilingual-e5-small` (works across English and Russian). The model
+  (~120 MB) downloads once on first run into `./data/models` — the first
+  batch of recommendations needs internet and a couple of minutes.
+- **Ranking**: your profile is a time-decayed weighted average of the
+  articles you reacted to; candidates from the selected window
+  (**Day / Week / Month**) are ranked by cosine similarity with a per-feed
+  diversity penalty and a pinch of exploration so you don't end up in a
+  bubble.
+- Under 5 positive signals the feed shows a fresh mix and keeps learning.
+
+Both the home grid and Shorts scroll infinitely.
 
 ## Swipes, reading list & integrations
 
@@ -37,23 +65,33 @@ npm run dev
   The cloud omnivore.app shut down in Nov 2024 — only self-hosted works.
 - **No paywall** opens the article through a [Marreta](https://github.com/manualdousuario/marreta)
   instance (`https://marreta.link` by default; change it in Settings or with
-  `MARRETA_URL` if you host your own).
+  `MARRETA_URL` if you host your own). Per-feed routing (Marreta / direct /
+  web archive) is configurable in Settings.
 
 ## How it works
 
 - **Next.js (App Router)** serves both the UI and the API.
 - Feeds live in **SQLite** (`better-sqlite3`); articles are ingested with
   `rss-parser` and refreshed lazily (15-minute TTL) whenever they're requested.
+  Embeddings are backfilled in the background after each refresh.
 - `GET /api/articles?mix=1` interleaves feeds round-robin so one prolific
   source doesn't drown out the others.
 - Shorts mode is a CSS scroll-snap column with keyboard navigation
-  (↑/↓, j/k, space).
+  (↑/↓, j/k, space, ←/→ to swipe, Esc to exit).
 
 ## API
 
+All data routes require a session cookie (sign in at `/login`).
+
 | Method | Route | Description |
 | --- | --- | --- |
+| POST | `/api/auth/register` | Create account: `{ "username", "password" }` |
+| POST | `/api/auth/login` | Sign in (sets `ms_session` cookie) |
+| POST | `/api/auth/logout` | Sign out |
+| GET | `/api/me` | Current user |
 | GET | `/api/feeds` | List subscriptions with article counts |
 | POST | `/api/feeds` | Add a feed: `{ "url": "https://…/feed.xml" }` |
 | DELETE | `/api/feeds/:id` | Unsubscribe (removes its articles) |
 | GET | `/api/articles` | Articles; `?feed=ID`, `?mix=1`, `?limit=`, `?offset=` |
+| GET | `/api/recommendations` | Personalized feed; `?window=day\|week\|month`, `?limit=`, `?offset=` |
+| POST | `/api/events` | Taste signal: `{ "link", "action": like\|dislike\|skip\|open\|save }` |
