@@ -7,18 +7,21 @@ import { unlockUrl } from "@/lib/actions";
 import { Toast, useToast } from "@/components/Toast";
 import { TopBar } from "@/components/TopBar";
 import { ExternalIcon } from "@/components/SwipeableCard";
+import { useUser } from "@/lib/useUser";
 
 export default function ReadingListPage() {
+  const user = useUser();
   const [items, setItems] = useState<ReadingItemDto[]>([]);
   const [loading, setLoading] = useState(true);
   const { toast, showToast } = useToast();
 
   useEffect(() => {
+    if (!user) return;
     fetch("/api/reading-list")
       .then((response) => response.json())
       .then(setItems)
       .finally(() => setLoading(false));
-  }, []);
+  }, [user]);
 
   async function removeItem(item: ReadingItemDto) {
     await fetch(`/api/reading-list/${item.id}`, { method: "DELETE" });
@@ -28,7 +31,7 @@ export default function ReadingListPage() {
 
   return (
     <div className="min-h-screen">
-      <TopBar />
+      <TopBar username={user?.username} />
       <main className="mx-auto max-w-3xl px-5 py-8 md:px-8">
         <div className="flex items-baseline justify-between">
           <h1 className="font-serif text-3xl text-ink">Read later</h1>

@@ -9,8 +9,10 @@ import { SettingsDialog } from "@/components/SettingsDialog";
 import { Sidebar } from "@/components/Sidebar";
 import { Toast, useToast } from "@/components/Toast";
 import { TopBar } from "@/components/TopBar";
+import { useUser } from "@/lib/useUser";
 
 export default function HomePage() {
+  const user = useUser();
   const [feeds, setFeeds] = useState<FeedDto[]>([]);
   const [articles, setArticles] = useState<ArticleDto[]>([]);
   const [selectedFeedId, setSelectedFeedId] = useState<number | null>(null);
@@ -43,15 +45,17 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
+    if (!user) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- async data fetch, state updates happen after await
     loadFeeds();
     loadReadingCount();
-  }, [loadFeeds, loadReadingCount]);
+  }, [user, loadFeeds, loadReadingCount]);
 
   useEffect(() => {
+    if (!user) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- async data fetch, state updates happen after await
     loadArticles(selectedFeedId);
-  }, [selectedFeedId, loadArticles]);
+  }, [user, selectedFeedId, loadArticles]);
 
   async function removeFeed(feed: FeedDto) {
     if (!confirm(`Unsubscribe from “${feed.title}”?`)) return;
@@ -76,7 +80,7 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen">
-      <TopBar selectedFeedId={selectedFeedId} />
+      <TopBar selectedFeedId={selectedFeedId} username={user?.username} />
       <div className="mx-auto flex max-w-[1500px]">
         <Sidebar
           feeds={feeds}

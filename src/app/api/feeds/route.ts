@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { getSessionUser } from "@/lib/auth";
 import { parseFeedMeta, refreshStaleFeeds } from "@/lib/rss";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  if (!getSessionUser(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   const db = getDb();
   const feeds = db
     .prepare(
@@ -17,6 +21,9 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  if (!getSessionUser(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   let url: string;
   try {
     const body = await request.json();

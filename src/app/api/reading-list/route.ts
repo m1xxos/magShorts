@@ -1,16 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { getSessionUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const user = getSessionUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   const items = getDb()
-    .prepare("SELECT * FROM reading_list ORDER BY added_at DESC, id DESC")
-    .all();
+    .prepare(
+      "SELECT * FROM reading_list WHERE user_id = ? ORDER BY added_at DESC, id DESC"
+    )
+    .all(user.id);
   return NextResponse.json(items);
 }
 
 export async function POST(request: NextRequest) {
+  const user = getSessionUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   let body: Record<string, unknown>;
   try {
     body = await request.json();
@@ -29,10 +41,11 @@ export async function POST(request: NextRequest) {
 
   const db = getDb();
   db.prepare(
-    `INSERT INTO reading_list (link, title, summary, image_url, feed_title, published_at)
-     VALUES (@link, @title, @summary, @image_url, @feed_title, @published_at)
-     ON CONFLICT(link) DO UPDATE SET added_at = datetime('now')`
+    `INSERT INTO reading_list (user_id, link, title, summary, image_url, feed_title, published_at)
+     VALUES (@user_id, @link, @title, @summary, @image_url, @feed_title, @published_at)
+     ON CONFLICT(user_id, link) DO UPDATE SET added_at = datetime('now')`
   ).run({
+    user_id: user.id,
     link,
     title,
     summary: typeof body.summary === "string" ? body.summary : null,
@@ -43,7 +56,7 @@ export async function POST(request: NextRequest) {
   });
 
   const item = db
-    .prepare("SELECT * FROM reading_list WHERE link = ?")
-    .get(link);
+    .prepare("SELECT * FROM reading_list WHERE user_id = ? AND link = ?")
+    .get(user.id, link);
   return NextResponse.json(item, { status: 201 });
 }

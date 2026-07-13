@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getSessionUser } from "@/lib/auth";
 import { getSetting } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
@@ -13,6 +14,9 @@ const SAVE_URL_MUTATION = `
 `;
 
 export async function POST(request: NextRequest) {
+  if (!getSessionUser(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   let url: string;
   try {
     const body = await request.json();

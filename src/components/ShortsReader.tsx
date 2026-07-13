@@ -12,8 +12,10 @@ import {
   type SwipeableCardHandle,
 } from "./SwipeableCard";
 import { Toast, useToast } from "./Toast";
+import { useUser } from "@/lib/useUser";
 
 export function ShortsReader() {
+  const user = useUser();
   const { toast, showToast } = useToast();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -27,12 +29,13 @@ export function ShortsReader() {
   const cardHandles = useRef<Map<number, SwipeableCardHandle>>(new Map());
 
   useEffect(() => {
+    if (!user) return;
     const query = feedParam ? `?feed=${feedParam}` : "?mix=1";
     fetch(`/api/articles${query}`)
       .then((response) => response.json())
       .then(setArticles)
       .finally(() => setLoading(false));
-  }, [feedParam]);
+  }, [user, feedParam]);
 
   const loadReadingCount = useCallback(async () => {
     const response = await fetch("/api/reading-list");

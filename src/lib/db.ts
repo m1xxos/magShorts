@@ -97,6 +97,20 @@ export function getDb(): Database.Database {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      password_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      token TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      expires_at TEXT NOT NULL
+    );
   `);
   db.pragma("foreign_keys = ON");
 
@@ -105,6 +119,34 @@ export function getDb(): Database.Database {
   }>;
   if (!feedColumns.some((column) => column.name === "enabled")) {
     db.exec("ALTER TABLE feeds ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1");
+  }
+
+  // reading_list v1 was single-user with UNIQUE(link); rebuild it per-user.
+  // Legacy rows keep user_id NULL and are claimed by the first registered user.
+  const readingColumns = db
+    .prepare("PRAGMA table_info(reading_list)")
+    .all() as Array<{ name: string }>;
+  if (!readingColumns.some((column) => column.name === "user_id")) {
+    db.exec(`
+      CREATE TABLE reading_list_v2 (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        link TEXT NOT NULL,
+        title TEXT NOT NULL,
+        summary TEXT,
+        image_url TEXT,
+        feed_title TEXT,
+        published_at TEXT,
+        added_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(user_id, link)
+      );
+      INSERT INTO reading_list_v2
+        (id, user_id, link, title, summary, image_url, feed_title, published_at, added_at)
+      SELECT id, NULL, link, title, summary, image_url, feed_title, published_at, added_at
+      FROM reading_list;
+      DROP TABLE reading_list;
+      ALTER TABLE reading_list_v2 RENAME TO reading_list;
+    `);
   }
 
   const feedCount = db.prepare("SELECT COUNT(*) AS n FROM feeds").get() as {

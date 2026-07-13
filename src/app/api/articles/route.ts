@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb, type Article } from "@/lib/db";
+import { getSessionUser } from "@/lib/auth";
 import { refreshStaleFeeds } from "@/lib/rss";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +24,9 @@ function interleaveByFeed(articles: Article[]): Article[] {
 }
 
 export async function GET(request: NextRequest) {
+  if (!getSessionUser(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   const searchParams = request.nextUrl.searchParams;
   const feedId = searchParams.get("feed") ? Number(searchParams.get("feed")) : undefined;
   const limit = Math.min(Number(searchParams.get("limit") ?? 80), 200);
