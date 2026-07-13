@@ -111,6 +111,21 @@ export function getDb(): Database.Database {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       expires_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS user_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      article_id INTEGER,
+      link TEXT NOT NULL,
+      title TEXT,
+      feed_id INTEGER,
+      action TEXT NOT NULL,
+      embedding BLOB,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_user_events_user
+      ON user_events(user_id, created_at DESC);
   `);
   db.pragma("foreign_keys = ON");
 
@@ -119,6 +134,13 @@ export function getDb(): Database.Database {
   }>;
   if (!feedColumns.some((column) => column.name === "enabled")) {
     db.exec("ALTER TABLE feeds ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1");
+  }
+
+  const articleColumns = db
+    .prepare("PRAGMA table_info(articles)")
+    .all() as Array<{ name: string }>;
+  if (!articleColumns.some((column) => column.name === "embedding")) {
+    db.exec("ALTER TABLE articles ADD COLUMN embedding BLOB");
   }
 
   // reading_list v1 was single-user with UNIQUE(link); rebuild it per-user.

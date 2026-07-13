@@ -2,7 +2,12 @@
 
 import { useImperativeHandle, useRef, useState } from "react";
 import { type ArticleDto, feedTone, timeAgo } from "@/lib/types";
-import { saveToReadingList, sendToOmnivore, unlockUrl } from "@/lib/actions";
+import {
+  recordEvent,
+  saveToReadingList,
+  sendToOmnivore,
+  unlockUrl,
+} from "@/lib/actions";
 import { flyBoomerang } from "@/lib/boomerang";
 import { FeedAvatar } from "./FeedAvatar";
 import {
@@ -10,6 +15,8 @@ import {
   ExternalIcon,
   OmnivoreIcon,
   SwipeableCard,
+  ThumbsDownIcon,
+  ThumbsUpIcon,
   type SwipeableCardHandle,
 } from "./SwipeableCard";
 
@@ -18,14 +25,17 @@ export function ShortCard({
   index,
   onToast,
   onSaved,
+  onActed,
   ref,
 }: {
   article: ArticleDto;
   index: number;
   onToast: (message: string, error?: boolean) => void;
   onSaved?: () => void;
+  onActed?: () => void;
   ref?: React.Ref<SwipeableCardHandle>;
 }) {
+  const [vote, setVote] = useState<"like" | "dislike" | null>(null);
   const [imageFailed, setImageFailed] = useState(false);
   const showImage = article.image_url && !imageFailed;
   const tone = feedTone(article.feed_id);
@@ -37,6 +47,7 @@ export function ShortCard({
   }));
 
   async function handleSave() {
+    onActed?.();
     const target = document.getElementById("shorts-read-later");
     const flight =
       articleRef.current && target
@@ -49,8 +60,17 @@ export function ShortCard({
   }
 
   async function handleOmnivore() {
+    onActed?.();
     const result = await sendToOmnivore(article);
     onToast(result.message, !result.ok);
+  }
+
+  function handleVote(next: "like" | "dislike") {
+    if (vote === next) return;
+    setVote(next);
+    recordEvent(article.link, next);
+    onActed?.();
+    onToast(next === "like" ? "Noted — more like this" : "Noted — less like this");
   }
 
   return (
@@ -112,6 +132,34 @@ export function ShortCard({
                   · {timeAgo(article.published_at)}
                 </span>
               )}
+              <span className="ml-auto flex items-center gap-1">
+                <button
+                  onClick={() => handleVote("like")}
+                  title="More like this"
+                  aria-label="Like"
+                  aria-pressed={vote === "like"}
+                  className={`inline-flex h-8 w-8 items-center justify-center rounded-full border transition ${
+                    vote === "like"
+                      ? "border-clay bg-clay-soft text-clay"
+                      : "border-line text-ink-faint hover:border-clay hover:text-clay"
+                  }`}
+                >
+                  <ThumbsUpIcon size={14} />
+                </button>
+                <button
+                  onClick={() => handleVote("dislike")}
+                  title="Less like this"
+                  aria-label="Dislike"
+                  aria-pressed={vote === "dislike"}
+                  className={`inline-flex h-8 w-8 items-center justify-center rounded-full border transition ${
+                    vote === "dislike"
+                      ? "border-ink bg-paper-sunken text-ink"
+                      : "border-line text-ink-faint hover:border-ink hover:text-ink"
+                  }`}
+                >
+                  <ThumbsDownIcon size={14} />
+                </button>
+              </span>
             </div>
 
             <h2 className="font-serif text-2xl leading-snug text-ink md:text-[28px]">
@@ -130,6 +178,10 @@ export function ShortCard({
                 target="_blank"
                 rel="noopener noreferrer"
                 title="Opens paywall-free via Marreta"
+                onClick={() => {
+                  recordEvent(article.link, "open");
+                  onActed?.();
+                }}
                 className="inline-flex shrink-0 items-center gap-2 rounded-full bg-clay px-4 py-2.5 text-sm font-medium text-white transition hover:brightness-95 md:px-5"
               >
                 Read the article →

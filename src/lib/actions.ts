@@ -53,3 +53,19 @@ export async function sendToOmnivore(
 export function unlockUrl(articleLink: string): string {
   return `/api/unlock?url=${encodeURIComponent(articleLink)}`;
 }
+
+export type FeedbackAction = "like" | "dislike" | "skip" | "open";
+
+// Fire-and-forget taste signal; keepalive lets it survive navigation.
+export function recordEvent(
+  link: string,
+  action: FeedbackAction,
+  title?: string
+): void {
+  fetch("/api/events", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ link, action, title }),
+    keepalive: true,
+  }).catch(() => {});
+}

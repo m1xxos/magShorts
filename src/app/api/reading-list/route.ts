@@ -55,6 +55,26 @@ export async function POST(request: NextRequest) {
       typeof body.published_at === "string" ? body.published_at : null,
   });
 
+  // Saving is a positive taste signal for recommendations.
+  const article = db
+    .prepare(
+      "SELECT id, title, feed_id, embedding FROM articles WHERE link = ?"
+    )
+    .get(link) as
+    | { id: number; title: string; feed_id: number; embedding: Buffer | null }
+    | undefined;
+  db.prepare(
+    `INSERT INTO user_events (user_id, article_id, link, title, feed_id, action, embedding)
+     VALUES (?, ?, ?, ?, ?, 'save', ?)`
+  ).run(
+    user.id,
+    article?.id ?? null,
+    link,
+    article?.title ?? title,
+    article?.feed_id ?? null,
+    article?.embedding ?? null
+  );
+
   const item = db
     .prepare("SELECT * FROM reading_list WHERE user_id = ? AND link = ?")
     .get(user.id, link);

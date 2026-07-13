@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { recordEvent } from "@/lib/actions";
 import { type ArticleDto } from "@/lib/types";
 import { ShortCard } from "./ShortCard";
 import {
@@ -27,6 +28,31 @@ export function ShortsReader() {
   const [readingCount, setReadingCount] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const cardHandles = useRef<Map<number, SwipeableCardHandle>>(new Map());
+  const actedCards = useRef<Set<number>>(new Set());
+  const skippedCards = useRef<Set<number>>(new Set());
+  const prevIndex = useRef(0);
+  const enteredAt = useRef(0);
+
+  // A card the user watched for ≥2s and scrolled past without touching is a
+  // weak negative signal for recommendations.
+  useEffect(() => {
+    if (enteredAt.current === 0) enteredAt.current = Date.now();
+    const previous = prevIndex.current;
+    if (previous === current) return;
+    const dwellMs = Date.now() - enteredAt.current;
+    const article = articles[previous];
+    if (
+      article &&
+      dwellMs >= 2000 &&
+      !actedCards.current.has(previous) &&
+      !skippedCards.current.has(previous)
+    ) {
+      skippedCards.current.add(previous);
+      recordEvent(article.link, "skip");
+    }
+    prevIndex.current = current;
+    enteredAt.current = Date.now();
+  }, [current, articles]);
 
   useEffect(() => {
     if (!user) return;
@@ -180,6 +206,7 @@ export function ShortsReader() {
               index={index}
               onToast={showToast}
               onSaved={loadReadingCount}
+              onActed={() => actedCards.current.add(index)}
               ref={(handle) => {
                 if (handle) cardHandles.current.set(index, handle);
                 else cardHandles.current.delete(index);

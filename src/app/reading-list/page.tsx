@@ -3,16 +3,18 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { type ReadingItemDto, timeAgo } from "@/lib/types";
-import { unlockUrl } from "@/lib/actions";
+import { recordEvent, unlockUrl } from "@/lib/actions";
 import { Toast, useToast } from "@/components/Toast";
 import { TopBar } from "@/components/TopBar";
 import { ExternalIcon } from "@/components/SwipeableCard";
+import { SurveyDialog, type SurveyChoice } from "@/components/SurveyDialog";
 import { useUser } from "@/lib/useUser";
 
 export default function ReadingListPage() {
   const user = useUser();
   const [items, setItems] = useState<ReadingItemDto[]>([]);
   const [loading, setLoading] = useState(true);
+  const [surveyItem, setSurveyItem] = useState<ReadingItemDto | null>(null);
   const { toast, showToast } = useToast();
 
   useEffect(() => {
@@ -23,10 +25,18 @@ export default function ReadingListPage() {
       .finally(() => setLoading(false));
   }, [user]);
 
-  async function removeItem(item: ReadingItemDto) {
+  async function finishSurvey(item: ReadingItemDto, choice: SurveyChoice) {
+    setSurveyItem(null);
+    recordEvent(item.link, choice, item.title);
     await fetch(`/api/reading-list/${item.id}`, { method: "DELETE" });
     setItems((previous) => previous.filter((it) => it.id !== item.id));
-    showToast("Removed from Read later");
+    showToast(
+      choice === "like"
+        ? "Removed — glad you liked it"
+        : choice === "dislike"
+          ? "Removed — noted, less like this"
+          : "Removed from Read later"
+    );
   }
 
   return (
@@ -90,7 +100,7 @@ export default function ReadingListPage() {
                 <div className="flex shrink-0 flex-col items-end justify-between gap-2">
                   <button
                     title="Remove"
-                    onClick={() => removeItem(item)}
+                    onClick={() => setSurveyItem(item)}
                     className="flex h-7 w-7 items-center justify-center rounded-full text-ink-faint opacity-0 transition group-hover:opacity-100 hover:bg-paper-sunken hover:text-ink"
                   >
                     ×
@@ -110,6 +120,13 @@ export default function ReadingListPage() {
           </ul>
         )}
       </main>
+      {surveyItem && (
+        <SurveyDialog
+          item={surveyItem}
+          onChoose={(choice) => finishSurvey(surveyItem, choice)}
+          onClose={() => setSurveyItem(null)}
+        />
+      )}
       <Toast toast={toast} />
     </div>
   );

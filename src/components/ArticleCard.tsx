@@ -2,7 +2,12 @@
 
 import { useRef, useState } from "react";
 import { type ArticleDto, feedTone, timeAgo } from "@/lib/types";
-import { saveToReadingList, sendToOmnivore, unlockUrl } from "@/lib/actions";
+import {
+  recordEvent,
+  saveToReadingList,
+  sendToOmnivore,
+  unlockUrl,
+} from "@/lib/actions";
 import { FeedAvatar } from "./FeedAvatar";
 import {
   BookmarkIcon,
@@ -79,6 +84,7 @@ export function ArticleCard({
         href={unlockUrl(article.link)}
         target="_blank"
         rel="noopener noreferrer"
+        onClick={() => recordEvent(article.link, "open")}
         className="group flex h-full flex-col overflow-hidden rounded-2xl border border-line bg-paper-raised transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_24px_-12px_rgba(31,30,27,0.25)]"
       >
         <div className="relative aspect-video w-full shrink-0 overflow-hidden bg-paper-sunken">
