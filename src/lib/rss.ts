@@ -146,4 +146,9 @@ export async function refreshStaleFeeds(feedId?: number): Promise<void> {
 
   // Refresh in parallel; a failing feed should not block the others.
   await Promise.allSettled(stale.map((feed) => refreshFeedArticles(feed)));
+
+  // Drain the embedding backlog in the background; never blocks the request.
+  void import("./embeddings").then(({ backfillEmbeddings }) =>
+    backfillEmbeddings()
+  );
 }
