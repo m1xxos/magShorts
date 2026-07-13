@@ -3,6 +3,7 @@
 import { useImperativeHandle, useRef, useState } from "react";
 import { type ArticleDto, feedTone, timeAgo } from "@/lib/types";
 import { saveToReadingList, sendToOmnivore, unlockUrl } from "@/lib/actions";
+import { flyBoomerang } from "@/lib/boomerang";
 import { FeedAvatar } from "./FeedAvatar";
 import {
   BookmarkIcon,
@@ -16,25 +17,35 @@ export function ShortCard({
   article,
   index,
   onToast,
+  onSaved,
   ref,
 }: {
   article: ArticleDto;
   index: number;
   onToast: (message: string, error?: boolean) => void;
+  onSaved?: () => void;
   ref?: React.Ref<SwipeableCardHandle>;
 }) {
   const [imageFailed, setImageFailed] = useState(false);
   const showImage = article.image_url && !imageFailed;
   const tone = feedTone(article.feed_id);
   const swipeRef = useRef<SwipeableCardHandle>(null);
+  const articleRef = useRef<HTMLElement>(null);
 
   useImperativeHandle(ref, () => ({
     swipe: (direction) => swipeRef.current?.swipe(direction),
   }));
 
   async function handleSave() {
+    const target = document.getElementById("shorts-read-later");
+    const flight =
+      articleRef.current && target
+        ? flyBoomerang(articleRef.current, target)
+        : Promise.resolve();
     const result = await saveToReadingList(article);
+    await flight;
     onToast(result.message, !result.ok);
+    if (result.ok) onSaved?.();
   }
 
   async function handleOmnivore() {
@@ -55,7 +66,10 @@ export function ShortCard({
         leftLabel="To Omnivore"
         className="max-h-full w-full max-w-xl"
       >
-        <article className="flex max-h-[calc(100dvh-10rem)] w-full flex-col overflow-hidden rounded-3xl border border-line bg-paper-raised shadow-[0_20px_60px_-30px_rgba(31,30,27,0.35)]">
+        <article
+          ref={articleRef}
+          className="flex max-h-[calc(100dvh-10rem)] w-full flex-col overflow-hidden rounded-3xl border border-line bg-paper-raised shadow-[0_20px_60px_-30px_rgba(31,30,27,0.35)]"
+        >
           <div className="relative shrink-0">
             {showImage ? (
               // eslint-disable-next-line @next/next/no-img-element

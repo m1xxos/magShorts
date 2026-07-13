@@ -22,6 +22,7 @@ export function ShortsReader() {
   const [articles, setArticles] = useState<ArticleDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [current, setCurrent] = useState(0);
+  const [readingCount, setReadingCount] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const cardHandles = useRef<Map<number, SwipeableCardHandle>>(new Map());
 
@@ -32,6 +33,17 @@ export function ShortsReader() {
       .then(setArticles)
       .finally(() => setLoading(false));
   }, [feedParam]);
+
+  const loadReadingCount = useCallback(async () => {
+    const response = await fetch("/api/reading-list");
+    const items = await response.json();
+    setReadingCount(Array.isArray(items) ? items.length : 0);
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- async data fetch, state updates happen after await
+    loadReadingCount();
+  }, [loadReadingCount]);
 
   const scrollToIndex = useCallback((index: number) => {
     containerRef.current?.children[index]?.scrollIntoView({
@@ -100,11 +112,22 @@ export function ShortsReader() {
         >
           ← <span className="font-serif">magShorts</span>
         </Link>
-        {articles.length > 0 && (
-          <span className="rounded-full border border-line bg-paper-raised/90 px-3.5 py-2 text-[13px] tabular-nums text-ink-faint backdrop-blur">
-            {current + 1} / {articles.length}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          <Link
+            id="shorts-read-later"
+            href="/reading-list"
+            title="Read later"
+            className="pointer-events-auto flex items-center gap-2 rounded-full border border-line bg-paper-raised/90 px-3.5 py-2 text-[13px] text-ink-soft backdrop-blur transition hover:text-clay"
+          >
+            <BookmarkIcon size={13} />
+            <span className="tabular-nums">{readingCount}</span>
+          </Link>
+          {articles.length > 0 && (
+            <span className="rounded-full border border-line bg-paper-raised/90 px-3.5 py-2 text-[13px] tabular-nums text-ink-faint backdrop-blur">
+              {current + 1} / {articles.length}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Prev / next arrows */}
@@ -153,6 +176,7 @@ export function ShortsReader() {
               article={article}
               index={index}
               onToast={showToast}
+              onSaved={loadReadingCount}
               ref={(handle) => {
                 if (handle) cardHandles.current.set(index, handle);
                 else cardHandles.current.delete(index);
