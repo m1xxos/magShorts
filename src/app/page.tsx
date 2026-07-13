@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   type ArticleDto,
   type FeedDto,
@@ -22,6 +22,8 @@ const REC_WINDOWS: Array<{ value: RecWindow; label: string }> = [
   { value: "month", label: "Month" },
 ];
 
+const PAGE_SIZE = 40;
+
 export default function HomePage() {
   const user = useUser();
   const [feeds, setFeeds] = useState<FeedDto[]>([]);
@@ -33,6 +35,9 @@ export default function HomePage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [readingCount, setReadingCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [hasMore, setHasMore] = useState(true);
+  const loadingMore = useRef(false);
+  const sentinelRef = useRef<HTMLDivElement>(null);
   const { toast, showToast } = useToast();
   const selectedFeedId = selection.kind === "feed" ? selection.feedId : null;
 
@@ -60,30 +65,72 @@ export default function HomePage() {
     setReadingCount(Array.isArray(items) ? items.length : 0);
   }, []);
 
+  const fetchPage = useCallback(
+    async (
+      target: Selection,
+      window: RecWindow,
+      offset: number
+    ): Promise<ArticleDto[]> => {
+      if (target.kind === "forYou") {
+        const response = await fetch(
+          `/api/recommendations?window=${window}&limit=${PAGE_SIZE}&offset=${offset}`
+        );
+        const data = await response.json();
+        if (offset === 0) setColdStart(Boolean(data.coldStart));
+        return data.articles ?? [];
+      }
+      const query =
+        target.kind === "feed" ? `feed=${target.feedId}` : "mix=1";
+      const response = await fetch(
+        `/api/articles?${query}&limit=${PAGE_SIZE}&offset=${offset}`
+      );
+      if (offset === 0) setColdStart(false);
+      return response.json();
+    },
+    []
+  );
+
   const loadArticles = useCallback(
     async (target: Selection, window: RecWindow) => {
       setLoading(true);
       try {
-        if (target.kind === "forYou") {
-          const response = await fetch(
-            `/api/recommendations?window=${window}&limit=40`
-          );
-          const data = await response.json();
-          setArticles(data.articles ?? []);
-          setColdStart(Boolean(data.coldStart));
-        } else {
-          const query =
-            target.kind === "feed" ? `?feed=${target.feedId}` : "?mix=1";
-          const response = await fetch(`/api/articles${query}`);
-          setArticles(await response.json());
-          setColdStart(false);
-        }
+        const page = await fetchPage(target, window, 0);
+        setArticles(page);
+        setHasMore(page.length === PAGE_SIZE);
       } finally {
         setLoading(false);
       }
     },
-    []
+    [fetchPage]
   );
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore.current || !hasMore || loading) return;
+    loadingMore.current = true;
+    try {
+      const page = await fetchPage(selection, recWindow, articles.length);
+      setArticles((previous) => {
+        const seen = new Set(previous.map((article) => article.id));
+        return [...previous, ...page.filter((article) => !seen.has(article.id))];
+      });
+      setHasMore(page.length === PAGE_SIZE);
+    } finally {
+      loadingMore.current = false;
+    }
+  }, [selection, recWindow, articles.length, hasMore, loading, fetchPage]);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) loadMore();
+      },
+      { rootMargin: "600px" }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [loadMore]);
 
   useEffect(() => {
     if (!user) return;
@@ -241,18 +288,26 @@ export default function HomePage() {
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {articles.map((article) => (
-                <ArticleCard
-                  key={article.id}
-                  article={article}
-                  onToast={(message, error) => {
-                    showToast(message, error);
-                    if (!error) loadReadingCount();
-                  }}
-                />
-              ))}
-            </div>
+            <>
+              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {articles.map((article) => (
+                  <ArticleCard
+                    key={article.id}
+                    article={article}
+                    onToast={(message, error) => {
+                      showToast(message, error);
+                      if (!error) loadReadingCount();
+                    }}
+                  />
+                ))}
+              </div>
+              <div ref={sentinelRef} className="h-px" />
+              {hasMore && (
+                <p className="py-6 text-center text-[13px] text-ink-faint">
+                  Loading more…
+                </p>
+              )}
+            </>
           )}
         </main>
       </div>

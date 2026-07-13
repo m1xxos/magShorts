@@ -15,6 +15,8 @@ import {
 import { Toast, useToast } from "./Toast";
 import { useUser } from "@/lib/useUser";
 
+const SHORTS_PAGE = 40;
+
 export function ShortsReader() {
   const user = useUser();
   const { toast, showToast } = useToast();
@@ -54,14 +56,45 @@ export function ShortsReader() {
     enteredAt.current = Date.now();
   }, [current, articles]);
 
+  const hasMore = useRef(true);
+  const loadingMore = useRef(false);
+
   useEffect(() => {
     if (!user) return;
-    const query = feedParam ? `?feed=${feedParam}` : "?mix=1";
-    fetch(`/api/articles${query}`)
+    hasMore.current = true;
+    const query = feedParam ? `feed=${feedParam}` : "mix=1";
+    fetch(`/api/articles?${query}&limit=${SHORTS_PAGE}`)
       .then((response) => response.json())
-      .then(setArticles)
+      .then((page: ArticleDto[]) => {
+        hasMore.current = page.length === SHORTS_PAGE;
+        setArticles(page);
+      })
       .finally(() => setLoading(false));
   }, [user, feedParam]);
+
+  // Fetch the next page when the user is a few cards from the end.
+  useEffect(() => {
+    if (loading || articles.length === 0) return;
+    if (current < articles.length - 4) return;
+    if (loadingMore.current || !hasMore.current) return;
+    loadingMore.current = true;
+    const query = feedParam ? `feed=${feedParam}` : "mix=1";
+    fetch(`/api/articles?${query}&limit=${SHORTS_PAGE}&offset=${articles.length}`)
+      .then((response) => response.json())
+      .then((page: ArticleDto[]) => {
+        hasMore.current = page.length === SHORTS_PAGE;
+        setArticles((previous) => {
+          const seen = new Set(previous.map((article) => article.id));
+          return [
+            ...previous,
+            ...page.filter((article) => !seen.has(article.id)),
+          ];
+        });
+      })
+      .finally(() => {
+        loadingMore.current = false;
+      });
+  }, [current, articles.length, loading, feedParam]);
 
   const loadReadingCount = useCallback(async () => {
     const response = await fetch("/api/reading-list");
