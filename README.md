@@ -73,15 +73,17 @@ Both the home grid and Shorts scroll infinitely.
 
 - **Next.js (App Router)** serves both the UI and the API.
 - Feeds live in **SQLite** (`better-sqlite3`); articles are ingested with
-  `rss-parser` and refreshed lazily (15-minute TTL) whenever they're requested.
-  Embeddings are backfilled in the background after each refresh.
+  `rss-parser`. A background scheduler refreshes feeds every 10 minutes,
+  backfills embeddings and prefetches fresh covers, so pages never wait on
+  origin servers; request-time refresh (15-minute TTL) remains as a fallback.
 - `GET /api/articles?mix=1` interleaves feeds round-robin so one prolific
   source doesn't drown out the others.
-- Article covers are served through `/api/images`, a lazy disk cache in
-  `./data/images` (capped at ~1 GB, oldest evicted) — saved articles keep
-  their images even after publishers delete them, and Referer-based hotlink
-  blocks don't apply. On a cache failure the route just redirects to the
-  original image.
+- Article covers are served through `/api/images`, a disk cache in
+  `./data/images` (capped at ~1 GB, oldest evicted) — images are recompressed
+  to max-1280px WebP (roughly 10–20× smaller than typical originals), saved
+  articles keep their covers even after publishers delete them, and
+  Referer-based hotlink blocks don't apply. On a cache failure the route just
+  redirects to the original image.
 - Shorts mode is a CSS scroll-snap column with keyboard navigation
   (↑/↓, j/k, space, ←/→ to swipe, Esc to exit).
 
