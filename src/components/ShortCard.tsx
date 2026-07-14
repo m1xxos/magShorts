@@ -97,6 +97,7 @@ export function ShortCard({
               <img
                 src={cachedImageUrl(article.image_url!)}
                 alt=""
+                decoding="async"
                 onError={() => setImageFailed(true)}
                 className="h-52 w-full object-cover md:h-64"
               />

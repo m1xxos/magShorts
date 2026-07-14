@@ -2,12 +2,25 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { isIP } from "node:net";
+import { getDb } from "./db";
 
 const MAX_BYTES = 8 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 10_000;
 const NEGATIVE_TTL_MS = 60 * 60 * 1000;
 const PRUNE_ABOVE_BYTES = 1024 * 1024 * 1024;
 const PRUNE_TO_BYTES = 800 * 1024 * 1024;
+// Bump when the stored format changes so old entries can't be served.
+const CACHE_VERSION = "v2";
+const MAX_WIDTH = 1280;
+const WEBP_QUALITY = 78;
+// Formats sharp re-encodes; GIF (animation) and SVG pass through untouched.
+const TRANSFORMABLE = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/avif",
+  "image/tiff",
+]);
 
 export interface CachedImage {
   buffer: Buffer;
@@ -50,6 +63,35 @@ export function isCacheableImageUrl(url: string): boolean {
   }
 }
 
+function cacheKey(url: string): string {
+  return createHash("sha256").update(`${CACHE_VERSION}:${url}`).digest("hex");
+}
+
+export function isImageCached(url: string): boolean {
+  return fs.existsSync(path.join(imageDir(), `${cacheKey(url)}.json`));
+}
+
+async function transformImage(
+  buffer: Buffer,
+  contentType: string
+): Promise<{ buffer: Buffer; contentType: string }> {
+  if (!TRANSFORMABLE.has(contentType.split(";")[0].trim())) {
+    return { buffer, contentType };
+  }
+  try {
+    const sharp = (await import("sharp")).default;
+    const webp = await sharp(buffer)
+      .rotate()
+      .resize({ width: MAX_WIDTH, withoutEnlargement: true })
+      .webp({ quality: WEBP_QUALITY })
+      .toBuffer();
+    return { buffer: webp, contentType: "image/webp" };
+  } catch {
+    // Un-decodable image — keep the original bytes.
+    return { buffer, contentType };
+  }
+}
+
 export async function getCachedImage(url: string): Promise<CachedImage | null> {
   if (!isCacheableImageUrl(url)) return null;
 
@@ -58,7 +100,7 @@ export async function getCachedImage(url: string): Promise<CachedImage | null> {
   if (failedAt) negativeCache.delete(url);
 
   const dir = imageDir();
-  const key = createHash("sha256").update(url).digest("hex");
+  const key = cacheKey(url);
   const bodyPath = path.join(dir, key);
   const metaPath = path.join(dir, `${key}.json`);
 
@@ -82,27 +124,54 @@ export async function getCachedImage(url: string): Promise<CachedImage | null> {
       negativeCache.set(url, Date.now());
       return null;
     }
-    const buffer = Buffer.from(await response.arrayBuffer());
-    if (buffer.byteLength === 0 || buffer.byteLength > MAX_BYTES) {
+    const raw = Buffer.from(await response.arrayBuffer());
+    if (raw.byteLength === 0 || raw.byteLength > MAX_BYTES) {
       negativeCache.set(url, Date.now());
       return null;
     }
 
-    fs.writeFileSync(bodyPath, buffer);
+    const stored = await transformImage(raw, contentType);
+    fs.writeFileSync(bodyPath, stored.buffer);
     fs.writeFileSync(
       metaPath,
       JSON.stringify({
-        contentType,
+        contentType: stored.contentType,
         sourceUrl: url,
         fetchedAt: new Date().toISOString(),
       })
     );
     if (Math.random() < 0.02) pruneImages(dir);
-    return { buffer, contentType };
+    return stored;
   } catch {
     negativeCache.set(url, Date.now());
     return null;
   }
+}
+
+// Warm the cache for recent covers so first paint never waits on origin CDNs.
+export async function prefetchImages(limit = 200): Promise<number> {
+  const urls = (
+    getDb()
+      .prepare(
+        `SELECT DISTINCT image_url FROM articles
+         WHERE image_url IS NOT NULL
+           AND published_at >= datetime('now', '-7 days')
+         ORDER BY published_at DESC LIMIT ?`
+      )
+      .all(limit) as Array<{ image_url: string }>
+  )
+    .map((row) => row.image_url)
+    .filter((url) => isCacheableImageUrl(url) && !isImageCached(url));
+
+  let fetched = 0;
+  const CONCURRENCY = 4;
+  for (let i = 0; i < urls.length; i += CONCURRENCY) {
+    const results = await Promise.all(
+      urls.slice(i, i + CONCURRENCY).map((url) => getCachedImage(url))
+    );
+    fetched += results.filter(Boolean).length;
+  }
+  return fetched;
 }
 
 // Drop oldest files when the cache outgrows its budget.

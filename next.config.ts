@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
     "better-sqlite3",
     "@huggingface/transformers",
     "onnxruntime-node",
+    "sharp",
   ],
   images: {
     unoptimized: true,
