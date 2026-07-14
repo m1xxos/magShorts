@@ -38,9 +38,10 @@ list and their own recommendation profile.
 
 The sidebar's **For you** feed ranks fresh articles against your taste:
 
-- **Signals**: saving to Read later, 👍/👎 in Shorts, opening an article, the
-  "Did you like it?" survey when you remove something from Read later, and an
-  implicit *skip* when you scroll past a Shorts card without touching it.
+- **Signals**: saving to Read later, 👍/👎 on cards (grid and Shorts), opening
+  an article, the "Did you like it?" survey when you remove something from
+  Read later, an implicit *skip* when you scroll past a Shorts card within a
+  few seconds, and an implicit positive *dwell* when you stay on one for 15s+.
 - **Embeddings**: every article title+summary is embedded locally with
   `multilingual-e5-small` (works across English and Russian). The model
   (~120 MB) downloads once on first run into `./data/models` — the first
@@ -76,6 +77,11 @@ Both the home grid and Shorts scroll infinitely.
   Embeddings are backfilled in the background after each refresh.
 - `GET /api/articles?mix=1` interleaves feeds round-robin so one prolific
   source doesn't drown out the others.
+- Article covers are served through `/api/images`, a lazy disk cache in
+  `./data/images` (capped at ~1 GB, oldest evicted) — saved articles keep
+  their images even after publishers delete them, and Referer-based hotlink
+  blocks don't apply. On a cache failure the route just redirects to the
+  original image.
 - Shorts mode is a CSS scroll-snap column with keyboard navigation
   (↑/↓, j/k, space, ←/→ to swipe, Esc to exit).
 
