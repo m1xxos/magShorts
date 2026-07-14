@@ -3,6 +3,7 @@
 import { useImperativeHandle, useRef, useState } from "react";
 import { type ArticleDto, feedTone, timeAgo } from "@/lib/types";
 import {
+  cachedImageUrl,
   recordEvent,
   saveToReadingList,
   sendToOmnivore,
@@ -94,7 +95,7 @@ export function ShortCard({
             {showImage ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={article.image_url!}
+                src={cachedImageUrl(article.image_url!)}
                 alt=""
                 onError={() => setImageFailed(true)}
                 className="h-52 w-full object-cover md:h-64"

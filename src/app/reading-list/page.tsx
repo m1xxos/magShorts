@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { type ReadingItemDto, timeAgo } from "@/lib/types";
-import { recordEvent, unlockUrl } from "@/lib/actions";
+import { cachedImageUrl, recordEvent, unlockUrl } from "@/lib/actions";
 import { Toast, useToast } from "@/components/Toast";
 import { TopBar } from "@/components/TopBar";
 import { ExternalIcon } from "@/components/SwipeableCard";
@@ -70,7 +70,7 @@ export default function ReadingListPage() {
                 {item.image_url && (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={item.image_url}
+                    src={cachedImageUrl(item.image_url)}
                     alt=""
                     loading="lazy"
                     className="hidden h-20 w-32 shrink-0 rounded-xl object-cover sm:block"

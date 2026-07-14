@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { type ArticleDto, feedTone, timeAgo } from "@/lib/types";
 import {
+  cachedImageUrl,
   recordEvent,
   saveToReadingList,
   sendToOmnivore,
@@ -91,7 +92,7 @@ export function ArticleCard({
           {showImage ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={article.image_url!}
+              src={cachedImageUrl(article.image_url!)}
               alt=""
               loading="lazy"
               onError={() => setImageFailed(true)}

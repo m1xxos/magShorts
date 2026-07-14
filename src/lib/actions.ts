@@ -54,6 +54,12 @@ export function unlockUrl(articleLink: string): string {
   return `/api/unlock?url=${encodeURIComponent(articleLink)}`;
 }
 
+// Covers go through the local disk cache; the route 302s to the origin when
+// the image can't be cached, so this is always safe to use.
+export function cachedImageUrl(imageUrl: string): string {
+  return `/api/images?u=${encodeURIComponent(imageUrl)}`;
+}
+
 export type FeedbackAction = "like" | "dislike" | "skip" | "open";
 
 // Fire-and-forget taste signal; keepalive lets it survive navigation.
