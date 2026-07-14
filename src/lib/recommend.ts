@@ -16,6 +16,7 @@ const ACTION_WEIGHTS: Record<string, number> = {
   like: 1.5,
   save: 1.0,
   open: 0.4,
+  dwell: 0.3,
   skip: -0.2,
   dislike: -1.2,
 };

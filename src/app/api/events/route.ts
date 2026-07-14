@@ -4,7 +4,7 @@ import { getSessionUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
-const ACTIONS = new Set(["like", "dislike", "skip", "open", "save"]);
+const ACTIONS = new Set(["like", "dislike", "skip", "open", "save", "dwell"]);
 
 export async function POST(request: NextRequest) {
   const user = getSessionUser(request);

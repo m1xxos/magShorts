@@ -35,8 +35,9 @@ export function ShortsReader() {
   const prevIndex = useRef(0);
   const enteredAt = useRef(0);
 
-  // A card the user watched for ≥2s and scrolled past without touching is a
-  // weak negative signal for recommendations.
+  // Dwell time on a card the user scrolled past without touching:
+  // a quick pass (2–15s) is a weak negative, lingering ≥15s means they
+  // likely read it — a positive signal.
   useEffect(() => {
     if (enteredAt.current === 0) enteredAt.current = Date.now();
     const previous = prevIndex.current;
@@ -50,7 +51,7 @@ export function ShortsReader() {
       !skippedCards.current.has(previous)
     ) {
       skippedCards.current.add(previous);
-      recordEvent(article.link, "skip");
+      recordEvent(article.link, dwellMs >= 15_000 ? "dwell" : "skip");
     }
     prevIndex.current = current;
     enteredAt.current = Date.now();
@@ -129,12 +130,16 @@ export function ShortsReader() {
           scrollToIndex(prev);
           return prev;
         });
-      } else if (event.key === "ArrowRight") {
+      } else if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
         event.preventDefault();
-        cardHandles.current.get(current)?.swipe("right");
-      } else if (event.key === "ArrowLeft") {
-        event.preventDefault();
-        cardHandles.current.get(current)?.swipe("left");
+        cardHandles.current
+          .get(current)
+          ?.swipe(event.key === "ArrowRight" ? "right" : "left");
+        // Let the fly-out play, then move on to the next short.
+        const next = Math.min(current + 1, articles.length - 1);
+        if (next !== current) {
+          setTimeout(() => scrollToIndex(next), 320);
+        }
       } else if (event.key === "Escape") {
         router.push("/");
       }

@@ -60,7 +60,7 @@ export function cachedImageUrl(imageUrl: string): string {
   return `/api/images?u=${encodeURIComponent(imageUrl)}`;
 }
 
-export type FeedbackAction = "like" | "dislike" | "skip" | "open";
+export type FeedbackAction = "like" | "dislike" | "skip" | "open" | "dwell";
 
 // Fire-and-forget taste signal; keepalive lets it survive navigation.
 export function recordEvent(
