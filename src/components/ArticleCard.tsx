@@ -15,28 +15,37 @@ import {
   ExternalIcon,
   OmnivoreIcon,
   SwipeableCard,
+  ThumbsDownIcon,
+  ThumbsUpIcon,
   type SwipeableCardHandle,
 } from "./SwipeableCard";
 
 function ActionButton({
   label,
   onClick,
+  active,
   children,
 }: {
   label: string;
   onClick: () => void;
+  active?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <button
       title={label}
       aria-label={label}
+      aria-pressed={active}
       onClick={(event) => {
         event.preventDefault();
         event.stopPropagation();
         onClick();
       }}
-      className="flex h-8 w-8 items-center justify-center rounded-full border border-line bg-paper-raised/95 text-ink-soft shadow-sm backdrop-blur transition hover:text-clay"
+      className={`flex h-8 w-8 items-center justify-center rounded-full border shadow-sm backdrop-blur transition ${
+        active
+          ? "border-clay bg-clay-soft text-clay"
+          : "border-line bg-paper-raised/95 text-ink-soft hover:text-clay"
+      }`}
     >
       {children}
     </button>
@@ -51,12 +60,20 @@ export function ArticleCard({
   onToast: (message: string, error?: boolean) => void;
 }) {
   const [imageFailed, setImageFailed] = useState(false);
+  const [vote, setVote] = useState<"like" | "dislike" | null>(null);
   const showImage = article.image_url && !imageFailed;
   const swipeRef = useRef<SwipeableCardHandle>(null);
 
   async function handleSave() {
     const result = await saveToReadingList(article);
     onToast(result.message, !result.ok);
+  }
+
+  function handleVote(next: "like" | "dislike") {
+    if (vote === next) return;
+    setVote(next);
+    recordEvent(article.link, next);
+    onToast(next === "like" ? "Noted — more like this" : "Noted — less like this");
   }
 
   async function handleOmnivore() {
@@ -113,6 +130,26 @@ export function ArticleCard({
               </span>
             </div>
           )}
+          <div
+            className={`absolute top-2 left-2 flex gap-1.5 transition group-hover:opacity-100 ${
+              vote ? "opacity-100" : "opacity-0"
+            }`}
+          >
+            <ActionButton
+              label="More like this"
+              active={vote === "like"}
+              onClick={() => handleVote("like")}
+            >
+              <ThumbsUpIcon size={14} />
+            </ActionButton>
+            <ActionButton
+              label="Less like this"
+              active={vote === "dislike"}
+              onClick={() => handleVote("dislike")}
+            >
+              <ThumbsDownIcon size={14} />
+            </ActionButton>
+          </div>
           <div className="absolute top-2 right-2 flex gap-1.5 opacity-0 transition group-hover:opacity-100">
             <ActionButton label="Read later" onClick={swipeSave}>
               <BookmarkIcon size={14} />
