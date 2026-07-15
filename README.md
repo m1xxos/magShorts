@@ -85,7 +85,9 @@ Both the home grid and Shorts scroll infinitely.
   Referer-based hotlink blocks don't apply. On a cache failure the route just
   redirects to the original image.
 - Shorts mode is a CSS scroll-snap column with keyboard navigation
-  (↑/↓, j/k, space, ←/→ to swipe, Esc to exit).
+  (↑/↓, j/k, space, ←/→ to swipe, Esc to exit). The default Shorts feed is
+  personalized and never repeats: every card you're shown is marked seen
+  (a weightless `view` event) and won't come back next session.
 
 ## API
 

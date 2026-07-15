@@ -4,7 +4,17 @@ import { getSessionUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
-const ACTIONS = new Set(["like", "dislike", "skip", "open", "save", "dwell"]);
+// "view" is a pure impression: it never shapes the taste profile (no weight
+// in recommend.ts), it only marks the link as seen so Shorts never repeats.
+const ACTIONS = new Set([
+  "like",
+  "dislike",
+  "skip",
+  "open",
+  "save",
+  "dwell",
+  "view",
+]);
 
 export async function POST(request: NextRequest) {
   const user = getSessionUser(request);

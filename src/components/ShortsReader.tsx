@@ -32,8 +32,18 @@ export function ShortsReader() {
   const cardHandles = useRef<Map<number, SwipeableCardHandle>>(new Map());
   const actedCards = useRef<Set<number>>(new Set());
   const skippedCards = useRef<Set<number>>(new Set());
+  const viewedCards = useRef<Set<number>>(new Set());
   const prevIndex = useRef(0);
   const enteredAt = useRef(0);
+
+  // Every card that becomes current is marked seen (weightless "view" event),
+  // so the next Shorts session starts with articles you haven't been shown.
+  useEffect(() => {
+    const article = articles[current];
+    if (!article || viewedCards.current.has(current)) return;
+    viewedCards.current.add(current);
+    recordEvent(article.link, "view");
+  }, [current, articles]);
 
   // Dwell time on a card the user scrolled past without touching:
   // a quick pass (2–15s) is a weak negative, lingering ≥15s means they
@@ -63,10 +73,15 @@ export function ShortsReader() {
   useEffect(() => {
     if (!user) return;
     hasMore.current = true;
-    const query = feedParam ? `feed=${feedParam}` : "mix=1";
-    fetch(`/api/articles?${query}&limit=${SHORTS_PAGE}`)
+    // Default Shorts is the personalized feed (biggest window; the ranking
+    // handles freshness). A feed filter stays chronological.
+    const url = feedParam
+      ? `/api/articles?feed=${feedParam}&limit=${SHORTS_PAGE}`
+      : `/api/recommendations?window=month&limit=${SHORTS_PAGE}`;
+    fetch(url)
       .then((response) => response.json())
-      .then((page: ArticleDto[]) => {
+      .then((data: ArticleDto[] | { articles: ArticleDto[] }) => {
+        const page = Array.isArray(data) ? data : (data.articles ?? []);
         hasMore.current = page.length === SHORTS_PAGE;
         setArticles(page);
       })
@@ -74,22 +89,28 @@ export function ShortsReader() {
   }, [user, feedParam]);
 
   // Fetch the next page when the user is a few cards from the end.
+  // Recommendations are re-requested without an offset: view events shift the
+  // candidate set while scrolling, so we just take the current top and drop
+  // ids we already show.
   useEffect(() => {
     if (loading || articles.length === 0) return;
     if (current < articles.length - 4) return;
     if (loadingMore.current || !hasMore.current) return;
     loadingMore.current = true;
-    const query = feedParam ? `feed=${feedParam}` : "mix=1";
-    fetch(`/api/articles?${query}&limit=${SHORTS_PAGE}&offset=${articles.length}`)
+    const url = feedParam
+      ? `/api/articles?feed=${feedParam}&limit=${SHORTS_PAGE}&offset=${articles.length}`
+      : `/api/recommendations?window=month&limit=${SHORTS_PAGE}`;
+    fetch(url)
       .then((response) => response.json())
-      .then((page: ArticleDto[]) => {
-        hasMore.current = page.length === SHORTS_PAGE;
+      .then((data: ArticleDto[] | { articles: ArticleDto[] }) => {
+        const page = Array.isArray(data) ? data : (data.articles ?? []);
         setArticles((previous) => {
           const seen = new Set(previous.map((article) => article.id));
-          return [
-            ...previous,
-            ...page.filter((article) => !seen.has(article.id)),
-          ];
+          const fresh = page.filter((article) => !seen.has(article.id));
+          hasMore.current = feedParam
+            ? page.length === SHORTS_PAGE
+            : fresh.length > 0;
+          return [...previous, ...fresh];
         });
       })
       .finally(() => {
@@ -227,7 +248,14 @@ export function ShortsReader() {
         </div>
       ) : articles.length === 0 ? (
         <div className="flex h-full flex-col items-center justify-center gap-3">
-          <p className="font-serif text-xl text-ink">No articles yet</p>
+          <p className="font-serif text-xl text-ink">
+            {feedParam ? "No articles yet" : "You’re all caught up"}
+          </p>
+          {!feedParam && (
+            <p className="max-w-xs text-center text-sm text-ink-faint">
+              You’ve seen everything fresh — come back a bit later.
+            </p>
+          )}
           <Link href="/" className="text-sm text-clay hover:underline">
             Back to your subscriptions
           </Link>
