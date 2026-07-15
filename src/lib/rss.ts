@@ -90,7 +90,7 @@ function extractSummary(item: Parser.Item & CustomItem): string | null {
 export async function parseFeedMeta(url: string) {
   const parsed = await parser.parseURL(url);
   return {
-    title: decodeEntities(parsed.title?.trim() || new URL(url).hostname),
+    title: stripHtml(parsed.title ?? "") || new URL(url).hostname,
     site_url: parsed.link?.trim() || new URL(url).origin,
   };
 }
@@ -117,7 +117,8 @@ export function refreshFeedArticles(feed: Feed): Promise<void> {
         upsert.run({
           feed_id: feed.id,
           guid: item.guid ?? link,
-          title: decodeEntities(title),
+          // Some feeds (The Atlantic) put markup like <em> inside titles.
+          title: stripHtml(title),
           link,
           summary: extractSummary(item),
           image_url: extractImage(item),
