@@ -82,8 +82,8 @@ function FeedRow({
 }) {
   return (
     <div
-      className={`group flex items-center gap-3 rounded-xl px-3 py-2 transition ${
-        selected ? "bg-paper-sunken" : "hover:bg-paper-sunken/60"
+      className={`group relative flex items-center rounded-xl px-3 py-2 transition ${
+        selected ? "bg-paper-sunken" : "hover:bg-paper-sunken"
       }`}
     >
       <button
@@ -105,18 +105,22 @@ function FeedRow({
           {feed.title}
         </span>
       </button>
-      <Switch
-        checked={Boolean(feed.enabled)}
-        title={feed.enabled ? "Turn off this feed" : "Turn on this feed"}
-        onClick={onToggle}
-      />
-      <button
-        title={`Unsubscribe from ${feed.title}`}
-        onClick={onRemove}
-        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-ink-faint opacity-0 transition-opacity group-hover:opacity-100 hover:bg-line hover:text-ink"
-      >
-        ×
-      </button>
+      {/* Controls fade in over the title's tail on hover, so titles keep
+          the full row width the rest of the time. */}
+      <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center gap-1.5 rounded-r-xl bg-gradient-to-l from-paper-sunken via-paper-sunken to-transparent pr-3 pl-10 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
+        <Switch
+          checked={Boolean(feed.enabled)}
+          title={feed.enabled ? "Turn off this feed" : "Turn on this feed"}
+          onClick={onToggle}
+        />
+        <button
+          title={`Unsubscribe from ${feed.title}`}
+          onClick={onRemove}
+          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-ink-faint transition hover:bg-line hover:text-ink"
+        >
+          ×
+        </button>
+      </div>
     </div>
   );
 }
@@ -173,7 +177,7 @@ export function Sidebar({
   const rootFeeds = feeds.filter((feed) => feed.folder_id === null);
 
   return (
-    <aside className="sticky top-16 hidden h-[calc(100vh-4rem)] w-64 shrink-0 flex-col gap-1 overflow-y-auto px-3 py-5 md:flex">
+    <aside className="sticky top-16 hidden h-[calc(100vh-4rem)] w-72 shrink-0 flex-col gap-1 overflow-y-auto px-3 py-5 md:flex">
       <Link
         href="/reading-list"
         className="mb-4 flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-ink-soft transition hover:bg-paper-sunken/60"
@@ -286,7 +290,7 @@ export function Sidebar({
               />
             </div>
             {open && (
-              <div className="ml-4 border-l border-line/70 pl-1.5">
+              <div className="ml-2.5 border-l border-line/70 pl-1">
                 {folderFeeds.length === 0 ? (
                   <p className="px-3 py-2 text-[12px] text-ink-faint">
                     No feeds here yet
