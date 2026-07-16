@@ -2,7 +2,7 @@ import Parser from "rss-parser";
 import { getDb, type Feed } from "./db";
 
 const STALE_AFTER_MS = 15 * 60 * 1000;
-const MAX_ITEMS_PER_FEED = 60;
+const MAX_ITEMS_PER_FEED = 200;
 
 type CustomItem = {
   "media:content"?: { $?: { url?: string } } | Array<{ $?: { url?: string } }>;

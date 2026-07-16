@@ -103,38 +103,46 @@ function mulberry32(seed: number): () => number {
 
 type Candidate = Article & { embedding: Buffer };
 
+interface Scored {
+  article: Candidate;
+  score: number;
+}
+
 export interface Recommendations {
   articles: Article[];
   coldStart: boolean;
 }
 
-export function recommendArticles(
+function fetchCandidates(
   userId: number,
-  window: RecWindow,
-  limit: number,
-  offset: number
-): Recommendations {
-  const db = getDb();
-  const hours = WINDOW_HOURS[window];
-  const candidates = db
+  hours: number,
+  excludeViews: boolean
+): Candidate[] {
+  // For you keeps articles the user merely saw in Shorts (view); Shorts
+  // itself excludes everything ever shown or touched.
+  const exclusion = excludeViews
+    ? "SELECT link FROM user_events WHERE user_id = ?"
+    : "SELECT link FROM user_events WHERE user_id = ? AND action != 'view'";
+  return getDb()
     .prepare(
       `SELECT a.*, f.title AS feed_title FROM articles a
        JOIN feeds f ON f.id = a.feed_id
        WHERE f.enabled = 1
          AND a.embedding IS NOT NULL
          AND a.published_at >= datetime('now', ?)
-         AND a.link NOT IN (
-           SELECT link FROM user_events WHERE user_id = ?
-         )
+         AND a.link NOT IN (${exclusion})
        ORDER BY a.published_at DESC`
     )
     .all(`-${hours} hours`, userId) as Candidate[];
+}
 
-  const { vector: profile } = buildProfile(userId);
+function scoreCandidates(
+  candidates: Candidate[],
+  profile: Float32Array | null,
+  windowMs: number
+): Scored[] {
   const now = Date.now();
-  const windowMs = hours * 3_600_000;
-
-  const scored = candidates.map((article) => {
+  return candidates.map((article) => {
     const publishedMs = article.published_at
       ? new Date(article.published_at).getTime()
       : now - windowMs;
@@ -150,13 +158,14 @@ export function recommendArticles(
     }
     return { article, score };
   });
+}
 
-  // Greedy pick with a per-feed penalty so one publication can't flood the
-  // feed even when it dominates the taste profile.
-  scored.sort((a, b) => b.score - a.score);
+// Greedy pick with a per-feed penalty so one publication can't flood the
+// feed even when it dominates the taste profile.
+function diversify(scored: Scored[]): Candidate[] {
+  const pool = [...scored].sort((a, b) => b.score - a.score);
   const pickedPerFeed = new Map<number, number>();
   const ranked: Candidate[] = [];
-  const pool = [...scored];
   while (pool.length > 0) {
     let bestIndex = 0;
     let bestValue = -Infinity;
@@ -175,6 +184,26 @@ export function recommendArticles(
       (pickedPerFeed.get(chosen.article.feed_id) ?? 0) + 1
     );
   }
+  return ranked;
+}
+
+function stripEmbedding(candidate: Candidate): Article {
+  const article = { ...candidate } as Partial<Candidate>;
+  delete article.embedding;
+  return article as Article;
+}
+
+export function recommendArticles(
+  userId: number,
+  window: RecWindow,
+  limit: number,
+  offset: number
+): Recommendations {
+  const hours = WINDOW_HOURS[window];
+  const candidates = fetchCandidates(userId, hours, false);
+  const { vector: profile } = buildProfile(userId);
+  const scored = scoreCandidates(candidates, profile, hours * 3_600_000);
+  const ranked = diversify(scored);
 
   // Exploration: with a taste profile, every Nth slot surfaces a random
   // article from deeper in the ranking to avoid a filter bubble.
@@ -195,10 +224,54 @@ export function recommendArticles(
     }
   }
 
-  const page = ranked.slice(offset, offset + limit).map((candidate) => {
-    const article = { ...candidate } as Partial<Candidate>;
-    delete article.embedding;
-    return article as Article;
-  });
+  const page = ranked.slice(offset, offset + limit).map(stripEmbedding);
   return { articles: page, coldStart: !profile };
+}
+
+const SHORTS_MONTH_INSERT_EVERY = 5;
+
+// Shorts ordering: today's most interesting first, then the week's picks
+// with an older (7–30d) insert every few slots, then the remaining tail —
+// the transition happens seamlessly as the user scrolls.
+export function recommendShorts(
+  userId: number,
+  limit: number
+): Recommendations {
+  const candidates = fetchCandidates(userId, 24 * 30, true);
+  const { vector: profile } = buildProfile(userId);
+  const monthMs = 30 * 24 * 3_600_000;
+  const scored = scoreCandidates(candidates, profile, monthMs);
+
+  const now = Date.now();
+  const dayTier: Scored[] = [];
+  const weekTier: Scored[] = [];
+  const monthTier: Scored[] = [];
+  for (const entry of scored) {
+    const publishedMs = entry.article.published_at
+      ? new Date(entry.article.published_at).getTime()
+      : 0;
+    const ageMs = now - publishedMs;
+    if (ageMs < 24 * 3_600_000) dayTier.push(entry);
+    else if (ageMs < 7 * 24 * 3_600_000) weekTier.push(entry);
+    else monthTier.push(entry);
+  }
+
+  const result: Candidate[] = diversify(dayTier);
+  const week = diversify(weekTier);
+  const month = diversify(monthTier);
+  let slot = 0;
+  while (week.length > 0) {
+    slot++;
+    if (slot % SHORTS_MONTH_INSERT_EVERY === 0 && month.length > 0) {
+      result.push(month.shift()!);
+    } else {
+      result.push(week.shift()!);
+    }
+  }
+  result.push(...month);
+
+  return {
+    articles: result.slice(0, limit).map(stripEmbedding),
+    coldStart: !profile,
+  };
 }

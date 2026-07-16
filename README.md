@@ -85,9 +85,13 @@ Both the home grid and Shorts scroll infinitely.
   Referer-based hotlink blocks don't apply. On a cache failure the route just
   redirects to the original image.
 - Shorts mode is a CSS scroll-snap column with keyboard navigation
-  (↑/↓, j/k, space, ←/→ to swipe, Esc to exit). The default Shorts feed is
-  personalized and never repeats: every card you're shown is marked seen
-  (a weightless `view` event) and won't come back next session.
+  (↑/↓, j/k, space, ←/→ to swipe, Esc to exit). The default Shorts feed has
+  its own algorithm, separate from For you: today's most interesting articles
+  first, then the week's picks with an older (7–30 day) insert every few
+  cards, then the long tail. It never repeats — every card you're shown is
+  marked seen (a weightless `view` event). Views only affect Shorts; the
+  For you grid keeps an article until you act on it (save/like/dislike/
+  open/skip).
 
 ## API
 

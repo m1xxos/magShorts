@@ -73,11 +73,11 @@ export function ShortsReader() {
   useEffect(() => {
     if (!user) return;
     hasMore.current = true;
-    // Default Shorts is the personalized feed (biggest window; the ranking
-    // handles freshness). A feed filter stays chronological.
+    // Default Shorts has its own algorithm (today → week with older inserts
+    // → tail). A feed filter stays chronological.
     const url = feedParam
       ? `/api/articles?feed=${feedParam}&limit=${SHORTS_PAGE}`
-      : `/api/recommendations?window=month&limit=${SHORTS_PAGE}`;
+      : `/api/shorts?limit=${SHORTS_PAGE}`;
     fetch(url)
       .then((response) => response.json())
       .then((data: ArticleDto[] | { articles: ArticleDto[] }) => {
@@ -99,7 +99,7 @@ export function ShortsReader() {
     loadingMore.current = true;
     const url = feedParam
       ? `/api/articles?feed=${feedParam}&limit=${SHORTS_PAGE}&offset=${articles.length}`
-      : `/api/recommendations?window=month&limit=${SHORTS_PAGE}`;
+      : `/api/shorts?limit=${SHORTS_PAGE}`;
     fetch(url)
       .then((response) => response.json())
       .then((data: ArticleDto[] | { articles: ArticleDto[] }) => {
