@@ -100,6 +100,34 @@ const COMMON_FEED_PATHS = [
   "blog.rss",
 ];
 
+// Some hosts reset connections on bot-looking user agents.
+const DISCOVERY_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36 magShorts/1.0";
+
+// Cheap check that a URL serves an RSS/Atom document — a short-timeout fetch
+// and a content sniff, so probing a dozen well-known paths stays fast.
+async function sniffFeed(url: string): Promise<boolean> {
+  try {
+    const response = await fetch(url, {
+      headers: {
+        "User-Agent": DISCOVERY_UA,
+        Accept:
+          "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
+      },
+      redirect: "follow",
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!response.ok) return false;
+    const head = (await response.text()).slice(0, 4000).trimStart();
+    return (
+      /<(rss|feed|rdf:RDF)[\s>]/i.test(head) ||
+      (head.startsWith("<?xml") && /<(rss|feed|rdf)/i.test(head))
+    );
+  } catch {
+    return false;
+  }
+}
+
 // Given any page URL (a site home, a blog page or the feed itself), find a
 // working RSS/Atom feed: try the URL as-is, then <link rel="alternate">
 // tags in its HTML, then the usual well-known paths.
@@ -116,8 +144,7 @@ export async function discoverFeedUrl(url: string): Promise<string | null> {
   try {
     const response = await fetch(url, {
       headers: {
-        "User-Agent":
-          "Mozilla/5.0 (compatible; magShorts/1.0; +https://github.com/m1xxos/magShorts)",
+        "User-Agent": DISCOVERY_UA,
         Accept: "text/html,application/xhtml+xml,*/*",
       },
       redirect: "follow",
@@ -152,13 +179,8 @@ export async function discoverFeedUrl(url: string): Promise<string | null> {
     if (origin !== base) candidates.push(origin + path);
   }
 
-  for (const candidate of [...new Set(candidates)].slice(0, 16)) {
-    try {
-      await parser.parseURL(candidate);
-      return candidate;
-    } catch {
-      // Try the next candidate.
-    }
+  for (const candidate of [...new Set(candidates)].slice(0, 24)) {
+    if (await sniffFeed(candidate)) return candidate;
   }
   return null;
 }

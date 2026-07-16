@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { type FeedDto } from "@/lib/types";
 
-interface SettingsForm {
+export interface SettingsForm {
   omnivore_url: string;
   omnivore_api_key: string;
   marreta_url: string;
@@ -12,22 +12,22 @@ interface SettingsForm {
   archive_domains: string;
 }
 
-type Route = "marreta" | "direct" | "archive";
+export type Route = "marreta" | "direct" | "archive";
 
-const ROUTES: Array<{ value: Route; label: string }> = [
+export const ROUTES: Array<{ value: Route; label: string }> = [
   { value: "marreta", label: "Marreta" },
   { value: "direct", label: "Direct" },
   { value: "archive", label: "Archive" },
 ];
 
-function parseList(value: string): string[] {
+export function parseList(value: string): string[] {
   return value
     .split(/[,\s]+/)
     .map((domain) => domain.trim().toLowerCase().replace(/^www\./, ""))
     .filter(Boolean);
 }
 
-function feedDomain(feed: FeedDto): string | null {
+export function feedDomain(feed: FeedDto): string | null {
   try {
     return new URL(feed.site_url ?? feed.url).hostname
       .toLowerCase()
