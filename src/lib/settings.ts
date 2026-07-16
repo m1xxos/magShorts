@@ -6,7 +6,10 @@ export type SettingKey =
   | "marreta_url"
   | "archive_url"
   | "direct_domains"
-  | "archive_domains";
+  | "archive_domains"
+  // Which view the home page opens with: "" = All publications,
+  // "forYou", or "folder:<id>".
+  | "default_view";
 
 export const SETTING_KEYS: SettingKey[] = [
   "omnivore_url",
@@ -15,6 +18,7 @@ export const SETTING_KEYS: SettingKey[] = [
   "archive_url",
   "direct_domains",
   "archive_domains",
+  "default_view",
 ];
 
 const ENV_FALLBACKS: Record<SettingKey, string | undefined> = {
@@ -24,6 +28,7 @@ const ENV_FALLBACKS: Record<SettingKey, string | undefined> = {
   archive_url: process.env.ARCHIVE_URL,
   direct_domains: process.env.DIRECT_DOMAINS,
   archive_domains: process.env.ARCHIVE_DOMAINS,
+  default_view: undefined,
 };
 
 const DEFAULTS: Partial<Record<SettingKey, string>> = {

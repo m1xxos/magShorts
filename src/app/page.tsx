@@ -30,7 +30,8 @@ export default function HomePage() {
   const [feeds, setFeeds] = useState<FeedDto[]>([]);
   const [folders, setFolders] = useState<FolderDto[]>([]);
   const [articles, setArticles] = useState<ArticleDto[]>([]);
-  const [selection, setSelection] = useState<Selection>({ kind: "all" });
+  // Resolved from the default_view setting on first load; null until then.
+  const [selection, setSelection] = useState<Selection | null>(null);
   const [recWindow, setRecWindow] = useState<RecWindow>("week");
   const [coldStart, setColdStart] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -41,7 +42,8 @@ export default function HomePage() {
   const loadingMore = useRef(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const { toast, showToast } = useToast();
-  const selectedFeedId = selection.kind === "feed" ? selection.feedId : null;
+  const selectedFeedId =
+    selection?.kind === "feed" ? selection.feedId : null;
 
   useEffect(() => {
     const saved = window.localStorage.getItem("ms_rec_window");
@@ -62,8 +64,42 @@ export default function HomePage() {
       fetch("/api/folders"),
     ]);
     setFeeds(await feedsResponse.json());
-    setFolders(await foldersResponse.json());
+    const folderList: FolderDto[] = await foldersResponse.json();
+    setFolders(folderList);
+    // A stored default view may point at a folder that no longer exists.
+    setSelection((previous) =>
+      previous &&
+      previous.kind === "folder" &&
+      !folderList.some((folder) => folder.id === previous.folderId)
+        ? { kind: "all" }
+        : previous
+    );
   }, []);
+
+  // Open the view chosen in Settings (All publications / For you / a folder).
+  const viewInitialized = useRef(false);
+  useEffect(() => {
+    if (!user || viewInitialized.current) return;
+    viewInitialized.current = true;
+    fetch("/api/settings")
+      .then((response) => response.json())
+      .then((settings: { default_view?: string }) => {
+        const view = settings.default_view ?? "";
+        if (view === "forYou") {
+          setSelection({ kind: "forYou" });
+        } else if (view.startsWith("folder:")) {
+          const folderId = Number(view.slice("folder:".length));
+          setSelection(
+            Number.isInteger(folderId)
+              ? { kind: "folder", folderId }
+              : { kind: "all" }
+          );
+        } else {
+          setSelection({ kind: "all" });
+        }
+      })
+      .catch(() => setSelection({ kind: "all" }));
+  }, [user]);
 
   const loadReadingCount = useCallback(async () => {
     const response = await fetch("/api/reading-list");
@@ -115,7 +151,7 @@ export default function HomePage() {
   );
 
   const loadMore = useCallback(async () => {
-    if (loadingMore.current || !hasMore || loading) return;
+    if (!selection || loadingMore.current || !hasMore || loading) return;
     loadingMore.current = true;
     try {
       const page = await fetchPage(selection, recWindow, articles.length);
@@ -150,7 +186,7 @@ export default function HomePage() {
   }, [user, loadFeeds, loadReadingCount]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !selection) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- async data fetch, state updates happen after await
     loadArticles(selection, recWindow);
   }, [user, selection, recWindow, loadArticles]);
@@ -159,7 +195,7 @@ export default function HomePage() {
     if (!confirm(`Unsubscribe from “${feed.title}”?`)) return;
     await fetch(`/api/feeds/${feed.id}`, { method: "DELETE" });
     if (selectedFeedId === feed.id) setSelection({ kind: "all" });
-    else loadArticles(selection, recWindow);
+    else if (selection) loadArticles(selection, recWindow);
     loadFeeds();
   }
 
@@ -171,11 +207,11 @@ export default function HomePage() {
     });
     showToast(
       folder.include_in_main
-        ? `${folder.name} hidden from the main feed`
-        : `${folder.name} now shows in the main feed`
+        ? `${folder.name} won’t feed For you`
+        : `${folder.name} now feeds For you`
     );
     loadFeeds();
-    loadArticles(selection, recWindow);
+    if (selection) loadArticles(selection, recWindow);
   }
 
   async function toggleFeed(feed: FeedDto) {
@@ -188,7 +224,7 @@ export default function HomePage() {
       feed.enabled ? `${feed.title} turned off` : `${feed.title} turned on`
     );
     loadFeeds();
-    loadArticles(selection, recWindow);
+    if (selection) loadArticles(selection, recWindow);
   }
 
   return (
@@ -213,7 +249,7 @@ export default function HomePage() {
             <button
               onClick={() => setSelection({ kind: "forYou" })}
               className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[13px] ${
-                selection.kind === "forYou"
+                selection?.kind === "forYou"
                   ? "border-ink bg-ink text-paper"
                   : "border-line bg-paper-raised text-ink-soft"
               }`}
@@ -223,7 +259,7 @@ export default function HomePage() {
             <button
               onClick={() => setSelection({ kind: "all" })}
               className={`shrink-0 rounded-full border px-3.5 py-1.5 text-[13px] ${
-                selection.kind === "all"
+                selection?.kind === "all"
                   ? "border-ink bg-ink text-paper"
                   : "border-line bg-paper-raised text-ink-soft"
               }`}
@@ -252,7 +288,7 @@ export default function HomePage() {
                   setSelection({ kind: "folder", folderId: folder.id })
                 }
                 className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[13px] ${
-                  selection.kind === "folder" && selection.folderId === folder.id
+                  selection?.kind === "folder" && selection.folderId === folder.id
                     ? "border-ink bg-ink text-paper"
                     : "border-line bg-paper-raised text-ink-soft"
                 }`}
@@ -274,7 +310,7 @@ export default function HomePage() {
             </Link>
           </div>
 
-          {selection.kind === "forYou" && (
+          {selection?.kind === "forYou" && (
             <div className="mb-5 flex flex-wrap items-center gap-3">
               <h2 className="flex items-center gap-2 font-serif text-lg text-ink">
                 <span className="text-clay">
@@ -361,7 +397,7 @@ export default function HomePage() {
           onClose={() => setDialogOpen(false)}
           onAdded={() => {
             loadFeeds();
-            loadArticles(selection, recWindow);
+            if (selection) loadArticles(selection, recWindow);
           }}
         />
       )}

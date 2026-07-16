@@ -341,9 +341,9 @@ export function SourcesManager() {
         <section className="mt-8">
           <h2 className="font-serif text-lg text-ink">Folders</h2>
           <p className="mt-1 text-[13px] text-ink-faint">
-            The switch controls whether a folder’s articles appear in the main
-            feed and For you. Hidden folders stay reachable from the sidebar
-            and in Shorts.
+            The switch controls whether a folder’s articles feed your For you
+            picks. All publications always shows everything; every folder has
+            its own view in the sidebar and its own Shorts deck.
           </p>
           <ul className="mt-3 space-y-2">
             {folders.map((folder) => (
@@ -371,7 +371,7 @@ export function SourcesManager() {
                   Rename
                 </button>
                 <label className="flex shrink-0 items-center gap-2 text-[12px] text-ink-faint">
-                  In main feed
+                  In For you
                   <button
                     role="switch"
                     aria-checked={Boolean(folder.include_in_main)}

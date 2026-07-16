@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { type FeedDto } from "@/lib/types";
+import { type FeedDto, type FolderDto } from "@/lib/types";
 
 export interface SettingsForm {
   omnivore_url: string;
@@ -10,6 +10,7 @@ export interface SettingsForm {
   archive_url: string;
   direct_domains: string;
   archive_domains: string;
+  default_view: string;
 }
 
 export type Route = "marreta" | "direct" | "archive";
@@ -46,6 +47,7 @@ export function SettingsDialog({
 }) {
   const [form, setForm] = useState<SettingsForm | null>(null);
   const [feeds, setFeeds] = useState<FeedDto[]>([]);
+  const [folders, setFolders] = useState<FolderDto[]>([]);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -55,6 +57,11 @@ export function SettingsDialog({
     fetch("/api/feeds")
       .then((response) => response.json())
       .then(setFeeds);
+    fetch("/api/folders")
+      .then((response) => response.json())
+      .then((data: FolderDto[]) => {
+        if (Array.isArray(data)) setFolders(data);
+      });
   }, []);
 
   function routeFor(domain: string): Route {
@@ -145,7 +152,33 @@ export function SettingsDialog({
       >
         <h2 className="font-serif text-xl text-ink">Settings</h2>
         <form onSubmit={submit} className="mt-5 space-y-4">
-          <p className="text-[11px] font-medium tracking-[0.14em] text-ink-faint uppercase">
+          <label className="block">
+            <span className="text-[13px] font-medium text-ink-soft">
+              Default view
+            </span>
+            <select
+              value={form?.default_view ?? ""}
+              onChange={(event) =>
+                setForm((prev) =>
+                  prev ? { ...prev, default_view: event.target.value } : prev
+                )
+              }
+              className="mt-1.5 w-full rounded-xl border border-line bg-paper px-4 py-2.5 text-sm text-ink outline-none focus:border-clay"
+            >
+              <option value="">All publications</option>
+              <option value="forYou">For you</option>
+              {folders.map((folder) => (
+                <option key={folder.id} value={`folder:${folder.id}`}>
+                  {folder.name}
+                </option>
+              ))}
+            </select>
+            <span className="mt-1 block text-[12px] text-ink-faint">
+              What the home page opens with.
+            </span>
+          </label>
+
+          <p className="pt-2 text-[11px] font-medium tracking-[0.14em] text-ink-faint uppercase">
             How articles open
           </p>
           {feedsWithDomains.length > 0 && (

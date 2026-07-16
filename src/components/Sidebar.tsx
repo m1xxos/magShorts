@@ -139,7 +139,7 @@ export function Sidebar({
 }: {
   feeds: FeedDto[];
   folders: FolderDto[];
-  selection: Selection;
+  selection: Selection | null;
   readingCount: number;
   onSelect: (selection: Selection) => void;
   onRemove: (feed: FeedDto) => void;
@@ -200,7 +200,7 @@ export function Sidebar({
       <button
         onClick={() => onSelect({ kind: "forYou" })}
         className={`flex items-center gap-3 rounded-xl px-3 py-2 text-left text-sm transition ${
-          selection.kind === "forYou"
+          selection?.kind === "forYou"
             ? "bg-paper-sunken font-medium text-ink"
             : "text-ink-soft hover:bg-paper-sunken/60"
         }`}
@@ -214,7 +214,7 @@ export function Sidebar({
       <button
         onClick={() => onSelect({ kind: "all" })}
         className={`flex items-center gap-3 rounded-xl px-3 py-2 text-left text-sm transition ${
-          selection.kind === "all"
+          selection?.kind === "all"
             ? "bg-paper-sunken font-medium text-ink"
             : "text-ink-soft hover:bg-paper-sunken/60"
         }`}
@@ -229,7 +229,7 @@ export function Sidebar({
         <FeedRow
           key={feed.id}
           feed={feed}
-          selected={selection.kind === "feed" && selection.feedId === feed.id}
+          selected={selection?.kind === "feed" && selection.feedId === feed.id}
           onSelect={() => onSelect({ kind: "feed", feedId: feed.id })}
           onRemove={() => onRemove(feed)}
           onToggle={() => onToggle(feed)}
@@ -240,7 +240,7 @@ export function Sidebar({
         const folderFeeds = feeds.filter((feed) => feed.folder_id === folder.id);
         const open = openFolders.has(folder.id);
         const selected =
-          selection.kind === "folder" && selection.folderId === folder.id;
+          selection?.kind === "folder" && selection.folderId === folder.id;
         return (
           <div key={folder.id} className="mt-1">
             <div
@@ -283,8 +283,8 @@ export function Sidebar({
                 checked={Boolean(folder.include_in_main)}
                 title={
                   folder.include_in_main
-                    ? "Shown in the main feed — click to hide"
-                    : "Hidden from the main feed — click to show"
+                    ? "Feeds your For you picks — click to exclude"
+                    : "Excluded from For you — click to include"
                 }
                 onClick={() => onToggleFolder(folder)}
               />
@@ -301,7 +301,7 @@ export function Sidebar({
                       key={feed.id}
                       feed={feed}
                       selected={
-                        selection.kind === "feed" && selection.feedId === feed.id
+                        selection?.kind === "feed" && selection.feedId === feed.id
                       }
                       onSelect={() => onSelect({ kind: "feed", feedId: feed.id })}
                       onRemove={() => onRemove(feed)}

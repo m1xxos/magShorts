@@ -54,12 +54,12 @@ export async function GET(request: NextRequest) {
              WHERE f.enabled = 1 AND f.folder_id = ?
              ORDER BY a.published_at DESC LIMIT ? OFFSET ?`
           ).all(folderId, limit, offset)
-        : db.prepare(
+        : // All publications is genuinely all enabled feeds; folder
+          // visibility toggles only shape the For you recommendations.
+          db.prepare(
             `SELECT a.*, f.title AS feed_title FROM articles a
              JOIN feeds f ON f.id = a.feed_id
-             LEFT JOIN folders fo ON fo.id = f.folder_id
              WHERE f.enabled = 1
-               AND (f.folder_id IS NULL OR fo.include_in_main = 1)
              ORDER BY a.published_at DESC LIMIT ? OFFSET ?`
           ).all(limit, offset)
   ) as Article[];

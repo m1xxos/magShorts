@@ -118,8 +118,8 @@ interface CandidateFilter {
   // Restrict to one folder (explicit selection ignores the folder's
   // include_in_main toggle).
   folderId?: number;
-  // Hide folders toggled out of the main feed (For you honors this;
-  // the default all-folders Shorts doesn't).
+  // Hide folders whose visibility toggle is off — only the For you grid
+  // honors this; All publications and Shorts always span everything.
   respectIncludeInMain?: boolean;
 }
 

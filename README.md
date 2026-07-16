@@ -57,12 +57,13 @@ Both the home grid and Shorts scroll infinitely.
 
 ## Folders (v2.5)
 
-Feeds can be grouped into **folders** (e.g. keep magazines in the root and
-tech blogs in a "Blogs" folder). Each folder has a switch that controls
-whether its articles appear in the main feed and For you; hidden folders
-stay reachable from the sidebar (click the folder name for its own mixed
-feed) and from Shorts, where a pill switcher at the top flips the deck
-between **All** and any folder.
+Feeds can be grouped into **folders** (e.g. "Magazines" and "Blogs"). Each
+folder has a switch that controls whether its articles feed the **For you**
+recommendations; **All publications** always spans everything. Click a
+folder name in the sidebar for its own mixed feed, and in Shorts a pill
+switcher at the top flips the deck between **All** and any folder. The view
+the home page opens with (All / For you / a folder) is picked in Settings
+(**Default view**).
 
 **Manage sources** (in the sidebar, or `/sources`) is the admin surface:
 add a source by pasting *any* URL — a feed URL or just the site/blog address,
