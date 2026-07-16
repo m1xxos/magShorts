@@ -1,4 +1,5 @@
 import { refreshStaleFeeds } from "./rss";
+import { backfillArticleImages } from "./articleImages";
 import { prefetchImages } from "./imageCache";
 
 const TICK_MS = 10 * 60 * 1000;
@@ -10,9 +11,10 @@ async function tick(): Promise<void> {
   try {
     // Also kicks the embedding backfill in the background (see rss.ts).
     await refreshStaleFeeds();
+    const found = await backfillArticleImages();
     const prefetched = await prefetchImages();
     console.log(
-      `[scheduler] feeds refreshed, ${prefetched} cover(s) prefetched`
+      `[scheduler] feeds refreshed, ${found} page cover(s) found, ${prefetched} prefetched`
     );
   } catch (error) {
     console.error("[scheduler] tick failed:", error);

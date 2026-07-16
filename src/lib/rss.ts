@@ -101,7 +101,7 @@ const COMMON_FEED_PATHS = [
 ];
 
 // Some hosts reset connections on bot-looking user agents.
-const DISCOVERY_UA =
+export const DISCOVERY_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36 magShorts/1.0";
 
 // Cheap check that a URL serves an RSS/Atom document — a short-timeout fetch
@@ -246,8 +246,12 @@ export async function refreshStaleFeeds(feedId?: number): Promise<void> {
   // Refresh in parallel; a failing feed should not block the others.
   await Promise.allSettled(stale.map((feed) => refreshFeedArticles(feed)));
 
-  // Drain the embedding backlog in the background; never blocks the request.
+  // Drain the embedding and page-cover backlogs in the background;
+  // never blocks the request.
   void import("./embeddings").then(({ backfillEmbeddings }) =>
     backfillEmbeddings()
+  );
+  void import("./articleImages").then(({ backfillArticleImages }) =>
+    backfillArticleImages()
   );
 }

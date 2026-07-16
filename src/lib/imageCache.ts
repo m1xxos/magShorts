@@ -38,7 +38,7 @@ function imageDir(): string {
   return dir;
 }
 
-function isPrivateHost(hostname: string): boolean {
+export function isPrivateHost(hostname: string): boolean {
   const host = hostname.toLowerCase();
   if (host === "localhost" || host.endsWith(".local")) return true;
   if (isIP(host)) {
@@ -155,6 +155,7 @@ export async function prefetchImages(limit = 200): Promise<number> {
       .prepare(
         `SELECT DISTINCT image_url FROM articles
          WHERE image_url IS NOT NULL
+           AND image_url != ''
            AND published_at >= datetime('now', '-7 days')
          ORDER BY published_at DESC LIMIT ?`
       )
