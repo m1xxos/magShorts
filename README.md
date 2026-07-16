@@ -94,6 +94,10 @@ Archive) and create, rename, hide or delete folders.
   origin servers; request-time refresh (15-minute TTL) remains as a fallback.
 - `GET /api/articles?mix=1` interleaves feeds round-robin so one prolific
   source doesn't drown out the others.
+- When a feed item arrives without an image, the scheduler visits the
+  article page and adopts its `og:image` / `twitter:image` preview. Articles
+  that genuinely have no cover get a typographic card (the title set over the
+  feed's tint) instead of a blank block.
 - Article covers are served through `/api/images`, a disk cache in
   `./data/images` (capped at ~1 GB, oldest evicted) — images are recompressed
   to max-1280px WebP (roughly 10–20× smaller than typical originals), saved
