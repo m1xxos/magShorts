@@ -117,17 +117,19 @@ export function ArticleCard({
               className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
             />
           ) : (
+            // Typographic cover for articles that have no image at all.
             <div
-              className="flex h-full w-full items-center justify-center"
+              className="flex h-full w-full flex-col justify-end p-4"
               style={{
-                background: `linear-gradient(135deg, ${feedTone(article.feed_id)}22, ${feedTone(article.feed_id)}55)`,
+                background: `linear-gradient(135deg, ${feedTone(article.feed_id)}18, ${feedTone(article.feed_id)}42)`,
               }}
             >
               <span
-                className="font-serif text-6xl opacity-40"
-                style={{ color: feedTone(article.feed_id) }}
-              >
-                {article.feed_title.charAt(0)}
+                className="mb-2 h-1 w-8 rounded-full"
+                style={{ backgroundColor: feedTone(article.feed_id) }}
+              />
+              <span className="line-clamp-4 font-serif text-[19px] leading-snug text-ink">
+                {article.title}
               </span>
             </div>
           )}
