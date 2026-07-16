@@ -87,6 +87,82 @@ function extractSummary(item: Parser.Item & CustomItem): string | null {
   return text.length > 600 ? text.slice(0, 600).trimEnd() + "…" : text;
 }
 
+const COMMON_FEED_PATHS = [
+  "feed",
+  "feed/",
+  "rss",
+  "rss/",
+  "feed.xml",
+  "rss.xml",
+  "atom.xml",
+  "index.xml",
+  "feed.atom",
+  "blog.rss",
+];
+
+// Given any page URL (a site home, a blog page or the feed itself), find a
+// working RSS/Atom feed: try the URL as-is, then <link rel="alternate">
+// tags in its HTML, then the usual well-known paths.
+export async function discoverFeedUrl(url: string): Promise<string | null> {
+  try {
+    await parser.parseURL(url);
+    return url;
+  } catch {
+    // Not a feed — inspect the page.
+  }
+
+  let html = "";
+  let finalUrl = url;
+  try {
+    const response = await fetch(url, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (compatible; magShorts/1.0; +https://github.com/m1xxos/magShorts)",
+        Accept: "text/html,application/xhtml+xml,*/*",
+      },
+      redirect: "follow",
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) return null;
+    finalUrl = response.url;
+    html = (await response.text()).slice(0, 500_000);
+  } catch {
+    return null;
+  }
+
+  const candidates: string[] = [];
+  for (const tag of html.match(/<link\b[^>]*>/gi) ?? []) {
+    if (!/rel=["']?alternate/i.test(tag)) continue;
+    if (!/application\/(rss|atom)\+xml/i.test(tag)) continue;
+    // href value may be quoted or bare (some static generators skip quotes).
+    const href = tag.match(/href=(?:"([^"]+)"|'([^']+)'|([^\s>"']+))/i);
+    const value = href?.[1] ?? href?.[2] ?? href?.[3];
+    if (!value || /comment/i.test(value)) continue;
+    try {
+      candidates.push(new URL(value, finalUrl).toString());
+    } catch {
+      // Ignore malformed hrefs.
+    }
+  }
+
+  const base = finalUrl.endsWith("/") ? finalUrl : finalUrl + "/";
+  const origin = new URL(finalUrl).origin + "/";
+  for (const path of COMMON_FEED_PATHS) {
+    candidates.push(base + path);
+    if (origin !== base) candidates.push(origin + path);
+  }
+
+  for (const candidate of [...new Set(candidates)].slice(0, 16)) {
+    try {
+      await parser.parseURL(candidate);
+      return candidate;
+    } catch {
+      // Try the next candidate.
+    }
+  }
+  return null;
+}
+
 export async function parseFeedMeta(url: string) {
   const parsed = await parser.parseURL(url);
   return {

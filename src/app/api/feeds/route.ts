@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
-import { parseFeedMeta, refreshStaleFeeds } from "@/lib/rss";
+import { discoverFeedUrl, parseFeedMeta, refreshStaleFeeds } from "@/lib/rss";
 
 export const dynamic = "force-dynamic";
 
@@ -25,9 +25,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   let url: string;
+  let folderId: number | null = null;
   try {
     const body = await request.json();
     url = String(body.url ?? "").trim();
+    if (body.folder_id !== undefined && body.folder_id !== null) {
+      folderId = Number(body.folder_id);
+      if (!Number.isInteger(folderId)) {
+        return NextResponse.json({ error: "Invalid folder_id" }, { status: 400 });
+      }
+    }
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
@@ -40,7 +47,26 @@ export async function POST(request: NextRequest) {
   }
 
   const db = getDb();
-  const existing = db.prepare("SELECT id FROM feeds WHERE url = ?").get(url);
+  if (folderId !== null) {
+    const folder = db.prepare("SELECT id FROM folders WHERE id = ?").get(folderId);
+    if (!folder) {
+      return NextResponse.json({ error: "Folder not found" }, { status: 404 });
+    }
+  }
+
+  // Accept either a feed URL or a plain site/blog URL: discovery finds the
+  // actual RSS/Atom endpoint behind it.
+  const feedUrl = await discoverFeedUrl(url);
+  if (!feedUrl) {
+    return NextResponse.json(
+      { error: "Could not find an RSS/Atom feed at this URL" },
+      { status: 422 }
+    );
+  }
+
+  const existing = db
+    .prepare("SELECT id FROM feeds WHERE url IN (?, ?)")
+    .get(url, feedUrl);
   if (existing) {
     return NextResponse.json(
       { error: "This feed is already in your subscriptions" },
@@ -50,7 +76,7 @@ export async function POST(request: NextRequest) {
 
   let meta;
   try {
-    meta = await parseFeedMeta(url);
+    meta = await parseFeedMeta(feedUrl);
   } catch {
     return NextResponse.json(
       { error: "Could not read an RSS/Atom feed at this URL" },
@@ -59,8 +85,10 @@ export async function POST(request: NextRequest) {
   }
 
   const result = db
-    .prepare("INSERT INTO feeds (title, url, site_url) VALUES (?, ?, ?)")
-    .run(meta.title, url, meta.site_url);
+    .prepare(
+      "INSERT INTO feeds (title, url, site_url, folder_id) VALUES (?, ?, ?, ?)"
+    )
+    .run(meta.title, feedUrl, meta.site_url, folderId);
   const feedId = Number(result.lastInsertRowid);
 
   await refreshStaleFeeds(feedId);

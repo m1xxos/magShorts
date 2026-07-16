@@ -113,27 +113,47 @@ export interface Recommendations {
   coldStart: boolean;
 }
 
+interface CandidateFilter {
+  excludeViews: boolean;
+  // Restrict to one folder (explicit selection ignores the folder's
+  // include_in_main toggle).
+  folderId?: number;
+  // Hide folders toggled out of the main feed (For you honors this;
+  // the default all-folders Shorts doesn't).
+  respectIncludeInMain?: boolean;
+}
+
 function fetchCandidates(
   userId: number,
   hours: number,
-  excludeViews: boolean
+  filter: CandidateFilter
 ): Candidate[] {
   // For you keeps articles the user merely saw in Shorts (view); Shorts
   // itself excludes everything ever shown or touched.
-  const exclusion = excludeViews
+  const exclusion = filter.excludeViews
     ? "SELECT link FROM user_events WHERE user_id = ?"
     : "SELECT link FROM user_events WHERE user_id = ? AND action != 'view'";
+  const params: unknown[] = [`-${hours} hours`, userId];
+  let folderClause = "";
+  if (filter.folderId !== undefined) {
+    folderClause = "AND f.folder_id = ?";
+    params.push(filter.folderId);
+  } else if (filter.respectIncludeInMain) {
+    folderClause = "AND (f.folder_id IS NULL OR fo.include_in_main = 1)";
+  }
   return getDb()
     .prepare(
       `SELECT a.*, f.title AS feed_title FROM articles a
        JOIN feeds f ON f.id = a.feed_id
+       LEFT JOIN folders fo ON fo.id = f.folder_id
        WHERE f.enabled = 1
          AND a.embedding IS NOT NULL
          AND a.published_at >= datetime('now', ?)
          AND a.link NOT IN (${exclusion})
+         ${folderClause}
        ORDER BY a.published_at DESC`
     )
-    .all(`-${hours} hours`, userId) as Candidate[];
+    .all(...params) as Candidate[];
 }
 
 function scoreCandidates(
@@ -200,7 +220,10 @@ export function recommendArticles(
   offset: number
 ): Recommendations {
   const hours = WINDOW_HOURS[window];
-  const candidates = fetchCandidates(userId, hours, false);
+  const candidates = fetchCandidates(userId, hours, {
+    excludeViews: false,
+    respectIncludeInMain: true,
+  });
   const { vector: profile } = buildProfile(userId);
   const scored = scoreCandidates(candidates, profile, hours * 3_600_000);
   const ranked = diversify(scored);
@@ -235,9 +258,15 @@ const SHORTS_MONTH_INSERT_EVERY = 5;
 // the transition happens seamlessly as the user scrolls.
 export function recommendShorts(
   userId: number,
-  limit: number
+  limit: number,
+  folderId?: number
 ): Recommendations {
-  const candidates = fetchCandidates(userId, 24 * 30, true);
+  // Default Shorts spans every enabled feed regardless of folder toggles;
+  // a folder pill narrows it to that folder only.
+  const candidates = fetchCandidates(userId, 24 * 30, {
+    excludeViews: true,
+    folderId,
+  });
   const { vector: profile } = buildProfile(userId);
   const monthMs = 30 * 24 * 3_600_000;
   const scored = scoreCandidates(candidates, profile, monthMs);

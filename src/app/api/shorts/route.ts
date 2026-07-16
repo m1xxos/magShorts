@@ -15,8 +15,13 @@ export async function GET(request: NextRequest) {
     Number(request.nextUrl.searchParams.get("limit") ?? 40),
     200
   );
+  const folderParam = request.nextUrl.searchParams.get("folder");
+  const folderId = folderParam ? Number(folderParam) : undefined;
+  if (folderId !== undefined && !Number.isInteger(folderId)) {
+    return NextResponse.json({ error: "Invalid folder id" }, { status: 400 });
+  }
 
   await refreshStaleFeeds();
 
-  return NextResponse.json(recommendShorts(user.id, limit));
+  return NextResponse.json(recommendShorts(user.id, limit, folderId));
 }

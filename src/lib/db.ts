@@ -10,6 +10,15 @@ export interface Feed {
   created_at: string;
   last_fetched_at: string | null;
   enabled: number;
+  folder_id: number | null;
+}
+
+export interface Folder {
+  id: number;
+  name: string;
+  include_in_main: number;
+  position: number;
+  created_at: string;
 }
 
 export interface Article {
@@ -126,6 +135,14 @@ export function getDb(): Database.Database {
 
     CREATE INDEX IF NOT EXISTS idx_user_events_user
       ON user_events(user_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS folders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      include_in_main INTEGER NOT NULL DEFAULT 1,
+      position INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
   db.pragma("foreign_keys = ON");
 
@@ -134,6 +151,9 @@ export function getDb(): Database.Database {
   }>;
   if (!feedColumns.some((column) => column.name === "enabled")) {
     db.exec("ALTER TABLE feeds ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1");
+  }
+  if (!feedColumns.some((column) => column.name === "folder_id")) {
+    db.exec("ALTER TABLE feeds ADD COLUMN folder_id INTEGER REFERENCES folders(id)");
   }
 
   const articleColumns = db

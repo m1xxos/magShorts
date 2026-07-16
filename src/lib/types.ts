@@ -1,7 +1,8 @@
 export type Selection =
   | { kind: "forYou" }
   | { kind: "all" }
-  | { kind: "feed"; feedId: number };
+  | { kind: "feed"; feedId: number }
+  | { kind: "folder"; folderId: number };
 
 export type RecWindow = "day" | "week" | "month";
 
@@ -12,6 +13,15 @@ export interface FeedDto {
   site_url: string | null;
   article_count: number;
   enabled: number;
+  folder_id: number | null;
+}
+
+export interface FolderDto {
+  id: number;
+  name: string;
+  include_in_main: number;
+  position: number;
+  feed_count: number;
 }
 
 export interface ArticleDto {
