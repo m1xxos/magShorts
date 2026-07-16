@@ -55,6 +55,21 @@ The sidebar's **For you** feed ranks fresh articles against your taste:
 
 Both the home grid and Shorts scroll infinitely.
 
+## Folders (v2.5)
+
+Feeds can be grouped into **folders** (e.g. keep magazines in the root and
+tech blogs in a "Blogs" folder). Each folder has a switch that controls
+whether its articles appear in the main feed and For you; hidden folders
+stay reachable from the sidebar (click the folder name for its own mixed
+feed) and from Shorts, where a pill switcher at the top flips the deck
+between **All** and any folder.
+
+**Manage sources** (in the sidebar, or `/sources`) is the admin surface:
+add a source by pasting *any* URL — a feed URL or just the site/blog address,
+the RSS/Atom feed is discovered automatically — plus rename feeds, move them
+between folders, pause them, pick per-domain routing (Marreta / Direct /
+Archive) and create, rename, hide or delete folders.
+
 ## Swipes, reading list & integrations
 
 - **Swipe right** on any card (home grid or Shorts) — or use the bookmark
@@ -104,8 +119,14 @@ All data routes require a session cookie (sign in at `/login`).
 | POST | `/api/auth/logout` | Sign out |
 | GET | `/api/me` | Current user |
 | GET | `/api/feeds` | List subscriptions with article counts |
-| POST | `/api/feeds` | Add a feed: `{ "url": "https://…/feed.xml" }` |
+| POST | `/api/feeds` | Add a feed: `{ "url", "folder_id"? }` — any site URL works, the feed is auto-discovered |
+| PATCH | `/api/feeds/:id` | Update: `{ "enabled"?, "title"?, "folder_id"? }` |
 | DELETE | `/api/feeds/:id` | Unsubscribe (removes its articles) |
-| GET | `/api/articles` | Articles; `?feed=ID`, `?mix=1`, `?limit=`, `?offset=` |
+| GET | `/api/folders` | List folders with feed counts |
+| POST | `/api/folders` | Create: `{ "name", "include_in_main"? }` |
+| PATCH | `/api/folders/:id` | Update: `{ "name"?, "include_in_main"? }` |
+| DELETE | `/api/folders/:id` | Delete a folder (its feeds move to the root) |
+| GET | `/api/articles` | Articles; `?feed=ID`, `?folder=ID`, `?mix=1`, `?limit=`, `?offset=` |
 | GET | `/api/recommendations` | Personalized feed; `?window=day\|week\|month`, `?limit=`, `?offset=` |
+| GET | `/api/shorts` | The Shorts deck; `?limit=`, `?folder=ID` |
 | POST | `/api/events` | Taste signal: `{ "link", "action": like\|dislike\|skip\|open\|save }` |
