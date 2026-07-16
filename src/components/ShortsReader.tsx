@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { recordEvent } from "@/lib/actions";
-import { type ArticleDto } from "@/lib/types";
+import { type ArticleDto, type FolderDto } from "@/lib/types";
 import { ShortCard } from "./ShortCard";
 import {
   BookmarkIcon,
@@ -28,6 +28,9 @@ export function ShortsReader() {
   const [loading, setLoading] = useState(true);
   const [current, setCurrent] = useState(0);
   const [readingCount, setReadingCount] = useState(0);
+  const [folders, setFolders] = useState<FolderDto[]>([]);
+  // null = All: the default deck across every enabled feed and folder.
+  const [folderId, setFolderId] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const cardHandles = useRef<Map<number, SwipeableCardHandle>>(new Map());
   const actedCards = useRef<Set<number>>(new Set());
@@ -70,14 +73,36 @@ export function ShortsReader() {
   const hasMore = useRef(true);
   const loadingMore = useRef(false);
 
+  // Folder pills only make sense for the algorithmic deck, not a feed filter.
+  useEffect(() => {
+    if (!user || feedParam) return;
+    fetch("/api/folders")
+      .then((response) => response.json())
+      .then((data: FolderDto[]) => {
+        if (Array.isArray(data)) setFolders(data);
+      })
+      .catch(() => {});
+  }, [user, feedParam]);
+
   useEffect(() => {
     if (!user) return;
+    // Switching decks (mount or folder pill) starts a fresh session:
+    // drop cards and per-card bookkeeping.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- deck reset before an async fetch, same pattern as the data loads below
+    setLoading(true);
+    setArticles([]);
+    setCurrent(0);
+    viewedCards.current.clear();
+    skippedCards.current.clear();
+    actedCards.current.clear();
+    prevIndex.current = 0;
+    enteredAt.current = 0;
     hasMore.current = true;
     // Default Shorts has its own algorithm (today → week with older inserts
     // → tail). A feed filter stays chronological.
     const url = feedParam
       ? `/api/articles?feed=${feedParam}&limit=${SHORTS_PAGE}`
-      : `/api/shorts?limit=${SHORTS_PAGE}`;
+      : `/api/shorts?limit=${SHORTS_PAGE}${folderId ? `&folder=${folderId}` : ""}`;
     fetch(url)
       .then((response) => response.json())
       .then((data: ArticleDto[] | { articles: ArticleDto[] }) => {
@@ -86,7 +111,7 @@ export function ShortsReader() {
         setArticles(page);
       })
       .finally(() => setLoading(false));
-  }, [user, feedParam]);
+  }, [user, feedParam, folderId]);
 
   // Fetch the next page when the user is a few cards from the end.
   // Recommendations are re-requested without an offset: view events shift the
@@ -99,7 +124,7 @@ export function ShortsReader() {
     loadingMore.current = true;
     const url = feedParam
       ? `/api/articles?feed=${feedParam}&limit=${SHORTS_PAGE}&offset=${articles.length}`
-      : `/api/shorts?limit=${SHORTS_PAGE}`;
+      : `/api/shorts?limit=${SHORTS_PAGE}${folderId ? `&folder=${folderId}` : ""}`;
     fetch(url)
       .then((response) => response.json())
       .then((data: ArticleDto[] | { articles: ArticleDto[] }) => {
@@ -116,7 +141,7 @@ export function ShortsReader() {
       .finally(() => {
         loadingMore.current = false;
       });
-  }, [current, articles.length, loading, feedParam]);
+  }, [current, articles.length, loading, feedParam, folderId]);
 
   const loadReadingCount = useCallback(async () => {
     const response = await fetch("/api/reading-list");
@@ -217,6 +242,37 @@ export function ShortsReader() {
           )}
         </div>
       </div>
+
+      {/* Folder deck switcher (algorithmic mode only) */}
+      {!feedParam && folders.length > 0 && (
+        <div className="pointer-events-none absolute inset-x-0 top-[4.25rem] z-30 flex justify-center md:top-5">
+          <div className="pointer-events-auto no-scrollbar flex max-w-full gap-1 overflow-x-auto rounded-full border border-line bg-paper-raised/90 p-1 backdrop-blur">
+            <button
+              onClick={() => setFolderId(null)}
+              className={`shrink-0 rounded-full px-3.5 py-1.5 text-[13px] transition ${
+                folderId === null
+                  ? "bg-clay text-white"
+                  : "text-ink-soft hover:text-ink"
+              }`}
+            >
+              All
+            </button>
+            {folders.map((folder) => (
+              <button
+                key={folder.id}
+                onClick={() => setFolderId(folder.id)}
+                className={`shrink-0 rounded-full px-3.5 py-1.5 text-[13px] transition ${
+                  folderId === folder.id
+                    ? "bg-clay text-white"
+                    : "text-ink-soft hover:text-ink"
+                }`}
+              >
+                {folder.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Prev / next arrows */}
       {articles.length > 0 && (

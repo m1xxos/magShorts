@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { type FeedDto, type Selection } from "@/lib/types";
+import { useEffect, useState } from "react";
+import { type FeedDto, type FolderDto, type Selection } from "@/lib/types";
 import { FeedAvatar } from "./FeedAvatar";
 import { BookmarkIcon } from "./SwipeableCard";
 
@@ -20,25 +21,157 @@ export function SparkleIcon({ size = 14 }: { size?: number }) {
   );
 }
 
+export function FolderIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
+    </svg>
+  );
+}
+
+function Switch({
+  checked,
+  title,
+  onClick,
+}: {
+  checked: boolean;
+  title: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      role="switch"
+      aria-checked={checked}
+      title={title}
+      onClick={onClick}
+      className={`relative h-[18px] w-8 shrink-0 rounded-full transition-colors ${
+        checked ? "bg-clay" : "bg-line"
+      }`}
+    >
+      <span
+        className={`absolute top-[2px] h-[14px] w-[14px] rounded-full bg-white shadow-sm transition-all ${
+          checked ? "left-[16px]" : "left-[2px]"
+        }`}
+      />
+    </button>
+  );
+}
+
+function FeedRow({
+  feed,
+  selected,
+  onSelect,
+  onRemove,
+  onToggle,
+}: {
+  feed: FeedDto;
+  selected: boolean;
+  onSelect: () => void;
+  onRemove: () => void;
+  onToggle: () => void;
+}) {
+  return (
+    <div
+      className={`group flex items-center gap-3 rounded-xl px-3 py-2 transition ${
+        selected ? "bg-paper-sunken" : "hover:bg-paper-sunken/60"
+      }`}
+    >
+      <button
+        onClick={onSelect}
+        className={`flex min-w-0 flex-1 items-center gap-3 text-left ${
+          feed.enabled ? "" : "opacity-40 grayscale"
+        }`}
+      >
+        <FeedAvatar
+          feedId={feed.id}
+          title={feed.title}
+          siteUrl={feed.site_url ?? feed.url}
+        />
+        <span
+          className={`truncate text-sm ${
+            selected ? "font-medium text-ink" : "text-ink-soft"
+          }`}
+        >
+          {feed.title}
+        </span>
+      </button>
+      <Switch
+        checked={Boolean(feed.enabled)}
+        title={feed.enabled ? "Turn off this feed" : "Turn on this feed"}
+        onClick={onToggle}
+      />
+      <button
+        title={`Unsubscribe from ${feed.title}`}
+        onClick={onRemove}
+        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-ink-faint opacity-0 transition-opacity group-hover:opacity-100 hover:bg-line hover:text-ink"
+      >
+        ×
+      </button>
+    </div>
+  );
+}
+
 export function Sidebar({
   feeds,
+  folders,
   selection,
   readingCount,
   onSelect,
   onRemove,
   onToggle,
+  onToggleFolder,
   onAddClick,
   onOpenSettings,
 }: {
   feeds: FeedDto[];
+  folders: FolderDto[];
   selection: Selection;
   readingCount: number;
   onSelect: (selection: Selection) => void;
   onRemove: (feed: FeedDto) => void;
   onToggle: (feed: FeedDto) => void;
+  onToggleFolder: (folder: FolderDto) => void;
   onAddClick: () => void;
   onOpenSettings: () => void;
 }) {
+  const [openFolders, setOpenFolders] = useState<Set<number>>(new Set());
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(
+        window.localStorage.getItem("ms_open_folders") ?? "[]"
+      );
+      if (Array.isArray(saved)) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time localStorage read after hydration
+        setOpenFolders(new Set(saved.filter((id) => typeof id === "number")));
+      }
+    } catch {
+      // Ignore a corrupt value.
+    }
+  }, []);
+
+  function toggleOpen(folderId: number) {
+    setOpenFolders((previous) => {
+      const next = new Set(previous);
+      if (next.has(folderId)) next.delete(folderId);
+      else next.add(folderId);
+      window.localStorage.setItem("ms_open_folders", JSON.stringify([...next]));
+      return next;
+    });
+  }
+
+  const rootFeeds = feeds.filter((feed) => feed.folder_id === null);
+
   return (
     <aside className="sticky top-16 hidden h-[calc(100vh-4rem)] w-64 shrink-0 flex-col gap-1 overflow-y-auto px-3 py-5 md:flex">
       <Link
@@ -88,60 +221,95 @@ export function Sidebar({
         All publications
       </button>
 
-      {feeds.map((feed) => (
-        <div
+      {rootFeeds.map((feed) => (
+        <FeedRow
           key={feed.id}
-          className={`group flex items-center gap-3 rounded-xl px-3 py-2 transition ${
-            selection.kind === "feed" && selection.feedId === feed.id
-              ? "bg-paper-sunken"
-              : "hover:bg-paper-sunken/60"
-          }`}
-        >
-          <button
-            onClick={() => onSelect({ kind: "feed", feedId: feed.id })}
-            className={`flex min-w-0 flex-1 items-center gap-3 text-left ${
-              feed.enabled ? "" : "opacity-40 grayscale"
-            }`}
-          >
-            <FeedAvatar
-              feedId={feed.id}
-              title={feed.title}
-              siteUrl={feed.site_url ?? feed.url}
-            />
-            <span
-              className={`truncate text-sm ${
-                selection.kind === "feed" && selection.feedId === feed.id
-                  ? "font-medium text-ink"
-                  : "text-ink-soft"
+          feed={feed}
+          selected={selection.kind === "feed" && selection.feedId === feed.id}
+          onSelect={() => onSelect({ kind: "feed", feedId: feed.id })}
+          onRemove={() => onRemove(feed)}
+          onToggle={() => onToggle(feed)}
+        />
+      ))}
+
+      {folders.map((folder) => {
+        const folderFeeds = feeds.filter((feed) => feed.folder_id === folder.id);
+        const open = openFolders.has(folder.id);
+        const selected =
+          selection.kind === "folder" && selection.folderId === folder.id;
+        return (
+          <div key={folder.id} className="mt-1">
+            <div
+              className={`group flex items-center gap-2 rounded-xl px-3 py-2 transition ${
+                selected ? "bg-paper-sunken" : "hover:bg-paper-sunken/60"
               }`}
             >
-              {feed.title}
-            </span>
-          </button>
-          <button
-            role="switch"
-            aria-checked={Boolean(feed.enabled)}
-            title={feed.enabled ? "Turn off this feed" : "Turn on this feed"}
-            onClick={() => onToggle(feed)}
-            className={`relative h-[18px] w-8 shrink-0 rounded-full transition-colors ${
-              feed.enabled ? "bg-clay" : "bg-line"
-            }`}
-          >
-            <span
-              className={`absolute top-[2px] h-[14px] w-[14px] rounded-full bg-white shadow-sm transition-all ${
-                feed.enabled ? "left-[16px]" : "left-[2px]"
-              }`}
-            />
-          </button>
-          <button
-            title={`Unsubscribe from ${feed.title}`}
-            onClick={() => onRemove(feed)}
-            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-ink-faint opacity-0 transition-opacity group-hover:opacity-100 hover:bg-line hover:text-ink"
-          >
-            ×
-          </button>
-        </div>
-      ))}
+              <button
+                title={open ? "Collapse folder" : "Expand folder"}
+                onClick={() => toggleOpen(folder.id)}
+                className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-faint transition hover:text-ink"
+              >
+                <span
+                  className={`text-[10px] transition-transform ${
+                    open ? "rotate-90" : ""
+                  }`}
+                >
+                  ▶
+                </span>
+              </button>
+              <button
+                onClick={() => onSelect({ kind: "folder", folderId: folder.id })}
+                className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+              >
+                <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-paper-sunken text-ink-soft">
+                  <FolderIcon size={13} />
+                </span>
+                <span
+                  className={`truncate text-sm ${
+                    selected ? "font-medium text-ink" : "text-ink-soft"
+                  }`}
+                >
+                  {folder.name}
+                </span>
+                <span className="text-[11px] tabular-nums text-ink-faint">
+                  {folderFeeds.length}
+                </span>
+              </button>
+              <Switch
+                checked={Boolean(folder.include_in_main)}
+                title={
+                  folder.include_in_main
+                    ? "Shown in the main feed — click to hide"
+                    : "Hidden from the main feed — click to show"
+                }
+                onClick={() => onToggleFolder(folder)}
+              />
+            </div>
+            {open && (
+              <div className="ml-4 border-l border-line/70 pl-1.5">
+                {folderFeeds.length === 0 ? (
+                  <p className="px-3 py-2 text-[12px] text-ink-faint">
+                    No feeds here yet
+                  </p>
+                ) : (
+                  folderFeeds.map((feed) => (
+                    <FeedRow
+                      key={feed.id}
+                      feed={feed}
+                      selected={
+                        selection.kind === "feed" && selection.feedId === feed.id
+                      }
+                      onSelect={() => onSelect({ kind: "feed", feedId: feed.id })}
+                      onRemove={() => onRemove(feed)}
+                      onToggle={() => onToggle(feed)}
+                    />
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
 
       <button
         onClick={onAddClick}
@@ -152,6 +320,16 @@ export function Sidebar({
         </span>
         Add publication
       </button>
+
+      <Link
+        href="/sources"
+        className="flex items-center gap-3 rounded-xl px-3 py-2 text-left text-sm text-ink-soft transition hover:bg-paper-sunken/60"
+      >
+        <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-line bg-paper-raised text-ink-soft">
+          <FolderIcon size={13} />
+        </span>
+        Manage sources
+      </Link>
 
       <button
         onClick={onOpenSettings}

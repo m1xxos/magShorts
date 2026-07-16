@@ -5,13 +5,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   type ArticleDto,
   type FeedDto,
+  type FolderDto,
   type RecWindow,
   type Selection,
 } from "@/lib/types";
 import { AddFeedDialog } from "@/components/AddFeedDialog";
 import { ArticleCard } from "@/components/ArticleCard";
 import { SettingsDialog } from "@/components/SettingsDialog";
-import { Sidebar, SparkleIcon } from "@/components/Sidebar";
+import { FolderIcon, Sidebar, SparkleIcon } from "@/components/Sidebar";
 import { Toast, useToast } from "@/components/Toast";
 import { TopBar } from "@/components/TopBar";
 import { useUser } from "@/lib/useUser";
@@ -27,6 +28,7 @@ const PAGE_SIZE = 40;
 export default function HomePage() {
   const user = useUser();
   const [feeds, setFeeds] = useState<FeedDto[]>([]);
+  const [folders, setFolders] = useState<FolderDto[]>([]);
   const [articles, setArticles] = useState<ArticleDto[]>([]);
   const [selection, setSelection] = useState<Selection>({ kind: "all" });
   const [recWindow, setRecWindow] = useState<RecWindow>("week");
@@ -55,8 +57,12 @@ export default function HomePage() {
   }
 
   const loadFeeds = useCallback(async () => {
-    const response = await fetch("/api/feeds");
-    setFeeds(await response.json());
+    const [feedsResponse, foldersResponse] = await Promise.all([
+      fetch("/api/feeds"),
+      fetch("/api/folders"),
+    ]);
+    setFeeds(await feedsResponse.json());
+    setFolders(await foldersResponse.json());
   }, []);
 
   const loadReadingCount = useCallback(async () => {
@@ -80,7 +86,11 @@ export default function HomePage() {
         return data.articles ?? [];
       }
       const query =
-        target.kind === "feed" ? `feed=${target.feedId}` : "mix=1";
+        target.kind === "feed"
+          ? `feed=${target.feedId}`
+          : target.kind === "folder"
+            ? `folder=${target.folderId}&mix=1`
+            : "mix=1";
       const response = await fetch(
         `/api/articles?${query}&limit=${PAGE_SIZE}&offset=${offset}`
       );
@@ -153,6 +163,21 @@ export default function HomePage() {
     loadFeeds();
   }
 
+  async function toggleFolder(folder: FolderDto) {
+    await fetch(`/api/folders/${folder.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ include_in_main: !folder.include_in_main }),
+    });
+    showToast(
+      folder.include_in_main
+        ? `${folder.name} hidden from the main feed`
+        : `${folder.name} now shows in the main feed`
+    );
+    loadFeeds();
+    loadArticles(selection, recWindow);
+  }
+
   async function toggleFeed(feed: FeedDto) {
     await fetch(`/api/feeds/${feed.id}`, {
       method: "PATCH",
@@ -172,11 +197,13 @@ export default function HomePage() {
       <div className="mx-auto flex max-w-[1500px]">
         <Sidebar
           feeds={feeds}
+          folders={folders}
           selection={selection}
           readingCount={readingCount}
           onSelect={setSelection}
           onRemove={removeFeed}
           onToggle={toggleFeed}
+          onToggleFolder={toggleFolder}
           onAddClick={() => setDialogOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
         />
@@ -203,17 +230,34 @@ export default function HomePage() {
             >
               All
             </button>
-            {feeds.map((feed) => (
+            {feeds
+              .filter((feed) => feed.folder_id === null)
+              .map((feed) => (
+                <button
+                  key={feed.id}
+                  onClick={() => setSelection({ kind: "feed", feedId: feed.id })}
+                  className={`shrink-0 rounded-full border px-3.5 py-1.5 text-[13px] ${
+                    selectedFeedId === feed.id
+                      ? "border-ink bg-ink text-paper"
+                      : "border-line bg-paper-raised text-ink-soft"
+                  }`}
+                >
+                  {feed.title}
+                </button>
+              ))}
+            {folders.map((folder) => (
               <button
-                key={feed.id}
-                onClick={() => setSelection({ kind: "feed", feedId: feed.id })}
-                className={`shrink-0 rounded-full border px-3.5 py-1.5 text-[13px] ${
-                  selectedFeedId === feed.id
+                key={`folder-${folder.id}`}
+                onClick={() =>
+                  setSelection({ kind: "folder", folderId: folder.id })
+                }
+                className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[13px] ${
+                  selection.kind === "folder" && selection.folderId === folder.id
                     ? "border-ink bg-ink text-paper"
                     : "border-line bg-paper-raised text-ink-soft"
                 }`}
               >
-                {feed.title}
+                <FolderIcon size={11} /> {folder.name}
               </button>
             ))}
             <button
