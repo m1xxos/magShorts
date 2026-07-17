@@ -229,7 +229,23 @@ export function refreshFeedArticles(feed: Feed): Promise<void> {
   });
 }
 
-export async function refreshStaleFeeds(feedId?: number): Promise<void> {
+// Concurrent callers (several requests landing right after the Mac wakes
+// from sleep) share one full refresh instead of each fetching every feed.
+let fullRefreshInFlight: Promise<void> | null = null;
+
+export function refreshStaleFeeds(feedId?: number): Promise<void> {
+  if (feedId === undefined && fullRefreshInFlight) return fullRefreshInFlight;
+  const refresh = doRefreshStaleFeeds(feedId);
+  if (feedId === undefined) {
+    fullRefreshInFlight = refresh.finally(() => {
+      fullRefreshInFlight = null;
+    });
+    return fullRefreshInFlight;
+  }
+  return refresh;
+}
+
+async function doRefreshStaleFeeds(feedId?: number): Promise<void> {
   const db = getDb();
   const feeds = (
     feedId
@@ -244,7 +260,19 @@ export async function refreshStaleFeeds(feedId?: number): Promise<void> {
   });
 
   // Refresh in parallel; a failing feed should not block the others.
-  await Promise.allSettled(stale.map((feed) => refreshFeedArticles(feed)));
+  const results = await Promise.allSettled(
+    stale.map((feed) => refreshFeedArticles(feed))
+  );
+  results.forEach((result, index) => {
+    if (result.status === "rejected") {
+      // A failed feed keeps its old last_fetched_at and stays stale, so
+      // make the failure visible instead of silently retrying forever.
+      console.warn(
+        `[rss] refresh failed for ${stale[index].title}:`,
+        result.reason?.message ?? result.reason
+      );
+    }
+  });
 
   // Drain the embedding and page-cover backlogs in the background;
   // never blocks the request.

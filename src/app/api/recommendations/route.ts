@@ -26,7 +26,8 @@ export async function GET(request: NextRequest) {
   const limit = Math.min(Number(searchParams.get("limit") ?? 40), 200);
   const offset = Math.max(Number(searchParams.get("offset") ?? 0), 0);
 
-  await refreshStaleFeeds();
+  // Never block the response on feed fetches; the scheduler keeps us fresh.
+  void refreshStaleFeeds().catch(() => {});
 
   return NextResponse.json(
     recommendArticles(user.id, windowParam as RecWindow, limit, offset)

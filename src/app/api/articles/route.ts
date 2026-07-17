@@ -34,9 +34,19 @@ export async function GET(request: NextRequest) {
   const offset = Math.max(Number(searchParams.get("offset") ?? 0), 0);
   const mix = searchParams.get("mix") === "1";
 
-  await refreshStaleFeeds(feedId);
-
   const db = getDb();
+  const hasArticles = db
+    .prepare("SELECT EXISTS(SELECT 1 FROM articles) AS present")
+    .get() as { present: number };
+  if (hasArticles.present) {
+    // Serve what we have; freshness arrives via the scheduler or the next
+    // request. Blocking here made first paint wait on the slowest feed.
+    void refreshStaleFeeds(feedId).catch(() => {});
+  } else {
+    // First run with an empty database — worth the wait.
+    await refreshStaleFeeds(feedId);
+  }
+
   const rows = (
     feedId
       ? db.prepare(

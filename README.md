@@ -90,8 +90,10 @@ Archive) and create, rename, hide or delete folders.
 - **Next.js (App Router)** serves both the UI and the API.
 - Feeds live in **SQLite** (`better-sqlite3`); articles are ingested with
   `rss-parser`. A background scheduler refreshes feeds every 10 minutes,
-  backfills embeddings and prefetches fresh covers, so pages never wait on
-  origin servers; request-time refresh (15-minute TTL) remains as a fallback.
+  backfills embeddings and prefetches fresh covers. Requests never wait on
+  origin servers: data routes serve the database as-is and kick a
+  deduplicated background refresh when feeds have gone stale (e.g. after
+  the host slept) — only a completely empty first-run database blocks.
 - `GET /api/articles?mix=1` interleaves feeds round-robin so one prolific
   source doesn't drown out the others.
 - When a feed item arrives without an image, the scheduler visits the

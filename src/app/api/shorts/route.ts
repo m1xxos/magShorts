@@ -21,7 +21,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Invalid folder id" }, { status: 400 });
   }
 
-  await refreshStaleFeeds();
+  // Never block the response on feed fetches; the scheduler keeps us fresh.
+  void refreshStaleFeeds().catch(() => {});
 
   return NextResponse.json(recommendShorts(user.id, limit, folderId));
 }
