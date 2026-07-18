@@ -11,6 +11,7 @@ import {
 } from "@/lib/actions";
 import { flyBoomerang } from "@/lib/boomerang";
 import { FeedAvatar } from "./FeedAvatar";
+import { TagPills } from "./TagPills";
 import {
   BookmarkIcon,
   ExternalIcon,
@@ -167,6 +168,8 @@ export function ShortCard({
             <h2 className="font-serif text-2xl leading-snug text-ink md:text-[28px]">
               {article.title}
             </h2>
+
+            <TagPills tags={article.tags} />
 
             {article.summary && (
               <p className="text-[15px] leading-relaxed text-ink-soft">

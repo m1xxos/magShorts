@@ -10,6 +10,7 @@ import {
   unlockUrl,
 } from "@/lib/actions";
 import { FeedAvatar } from "./FeedAvatar";
+import { TagPills } from "./TagPills";
 import {
   BookmarkIcon,
   ExternalIcon,
@@ -193,6 +194,9 @@ export function ArticleCard({
                 </>
               )}
             </p>
+            <div className="pt-1.5">
+              <TagPills tags={article.tags} reserveRow />
+            </div>
           </div>
         </div>
       </a>

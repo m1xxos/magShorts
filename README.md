@@ -96,6 +96,14 @@ Archive) and create, rename, hide or delete folders.
   the host slept) — only a completely empty first-run database blocks.
 - `GET /api/articles?mix=1` interleaves feeds round-robin so one prolific
   source doesn't drown out the others.
+- Every article gets **auto-assigned topic tags** (k8s, ci/cd, ai, politics,
+  music, …) shown as pastel pills on cards. Classification is zero-shot on
+  the local embeddings: each tag is an e5 query description matched against
+  the article vector, plus regex force-matches for strong signals like
+  "kubernetes". The vocabulary lives in `src/lib/tags.ts`; after editing it,
+  re-tag with `UPDATE articles SET tags = NULL` (inside the container) and
+  let the scheduler sweep. `scripts/calibrate-tags.ts` prints proposed tags
+  for recent articles to tune thresholds by eye.
 - When a feed item arrives without an image, the scheduler visits the
   article page and adopts its `og:image` / `twitter:image` preview. Articles
   that genuinely have no cover get a typographic card (the title set over the
