@@ -38,12 +38,6 @@ function getEmbedder(): Promise<Embedder> {
   return embedderPromise;
 }
 
-// Embed arbitrary texts with the shared model (used for tag queries).
-export async function embedTexts(texts: string[]): Promise<Float32Array[]> {
-  const embed = await getEmbedder();
-  return embed(texts);
-}
-
 function articleText(title: string, summary: string | null): string {
   // e5 models expect a "passage: " prefix for indexed documents.
   return `passage: ${`${title}. ${summary ?? ""}`.slice(0, 512)}`;

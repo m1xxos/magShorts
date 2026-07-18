@@ -162,9 +162,6 @@ export function getDb(): Database.Database {
   if (!articleColumns.some((column) => column.name === "embedding")) {
     db.exec("ALTER TABLE articles ADD COLUMN embedding BLOB");
   }
-  if (!articleColumns.some((column) => column.name === "tags")) {
-    db.exec("ALTER TABLE articles ADD COLUMN tags TEXT");
-  }
 
   // reading_list v1 was single-user with UNIQUE(link); rebuild it per-user.
   // Legacy rows keep user_id NULL and are claimed by the first registered user.

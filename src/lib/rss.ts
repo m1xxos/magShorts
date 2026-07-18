@@ -274,12 +274,11 @@ async function doRefreshStaleFeeds(feedId?: number): Promise<void> {
     }
   });
 
-  // Drain the embedding, tagging and page-cover backlogs in the
-  // background; never blocks the request. Tags need embeddings first.
-  void import("./embeddings")
-    .then(({ backfillEmbeddings }) => backfillEmbeddings())
-    .then(() => import("./tags"))
-    .then(({ backfillTags }) => backfillTags());
+  // Drain the embedding and page-cover backlogs in the background;
+  // never blocks the request.
+  void import("./embeddings").then(({ backfillEmbeddings }) =>
+    backfillEmbeddings()
+  );
   void import("./articleImages").then(({ backfillArticleImages }) =>
     backfillArticleImages()
   );
