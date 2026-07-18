@@ -35,7 +35,7 @@ export const TAG_DEFS: TagDef[] = [
   { slug: "web", query: "web development, browsers, frontend frameworks, CSS, web standards", pattern: /browser|frontend|\bcss\b|react|next\.js|браузер/i },
   { slug: "hardware", query: "computer hardware, chips, electronics, gadgets, processors, devices", pattern: /процессор|видеокарт|печатн\w+ плат|микроконтроллер|raspberry pi|arduino/i },
   { slug: "performance", query: "software performance optimization, benchmarks, profiling, latency tuning", pattern: /benchmark|profiling|оптимизаци\w+ производительн/i },
-  { slug: "opensource", query: "open source projects, licenses, maintainers and community", pattern: /open.?source|открыт\w+ исходн/i },
+  { slug: "opensource", query: "open source projects, licenses, maintainers and community", pattern: /open.?sourc|открыт\w+ исходн/i },
   // — general —
   { slug: "politics", query: "politics, elections, government policy, geopolitics, world affairs" },
   { slug: "business", query: "business, companies, startups, markets, corporate strategy" },
@@ -61,11 +61,13 @@ export const TAG_DEFS: TagDef[] = [
   { slug: "crime", query: "crime, investigations, courts, law enforcement, justice" },
 ];
 
-// e5 cosines cluster tightly (~0.77–0.88): the best tag is reliable, but
-// runners-up a few thousandths behind are usually noise. So: take the top
-// tag when it clears the floor, and extras only in a near-tie.
-const ABS_FLOOR = 0.79;
-const NEAR_TOP_GAP = 0.004;
+// e5 cosines cluster tightly (~0.74–0.88) and their absolute level varies
+// per article, so confidence is measured against the article's own mean
+// across all tag queries: a real topic peaks ≥ +0.03 above it (Messi →
+// sports +0.058), while off-vocabulary articles stay flat (~+0.026) and
+// should get no tags at all.
+const MEAN_MARGIN = 0.03;
+const ABS_FLOOR = 0.775;
 const MAX_TAGS = 3;
 
 let tagVectorsPromise: Promise<Float32Array[]> | null = null;
@@ -105,13 +107,14 @@ export async function assignTags(
     (def) => def.slug
   );
   const scored = await scoreTags(embedding);
-  const top = scored[0]?.score ?? 0;
+  const mean =
+    scored.reduce((sum, entry) => sum + entry.score, 0) / (scored.length || 1);
   const semantic = scored
     .filter(
       (entry) =>
         !forced.includes(entry.slug) &&
         entry.score >= ABS_FLOOR &&
-        entry.score >= top - NEAR_TOP_GAP
+        entry.score - mean >= MEAN_MARGIN
     )
     .map((entry) => entry.slug);
   return [...forced, ...semantic].slice(0, MAX_TAGS);
