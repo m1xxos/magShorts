@@ -107,7 +107,7 @@ function FeedRow({
       </button>
       {/* Controls fade in over the title's tail on hover, so titles keep
           the full row width the rest of the time. */}
-      <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center gap-1.5 rounded-r-xl bg-gradient-to-l from-paper-sunken via-paper-sunken to-transparent pr-3 pl-10 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
+      <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center gap-1.5 rounded-r-xl bg-gradient-to-l from-paper-sunken via-paper-sunken to-transparent pr-3 pl-10 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100">
         <Switch
           checked={Boolean(feed.enabled)}
           title={feed.enabled ? "Turn off this feed" : "Turn on this feed"}

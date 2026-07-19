@@ -134,7 +134,7 @@ export function ArticleCard({
             </div>
           )}
           <div
-            className={`absolute top-2 left-2 flex gap-1.5 transition group-hover:opacity-100 ${
+            className={`absolute top-2 left-2 flex gap-1.5 transition group-hover:opacity-100 pointer-coarse:opacity-100 ${
               vote ? "opacity-100" : "opacity-0"
             }`}
           >
@@ -153,7 +153,7 @@ export function ArticleCard({
               <ThumbsDownIcon size={14} />
             </ActionButton>
           </div>
-          <div className="absolute top-2 right-2 flex gap-1.5 opacity-0 transition group-hover:opacity-100">
+          <div className="absolute top-2 right-2 flex gap-1.5 opacity-0 transition group-hover:opacity-100 pointer-coarse:opacity-100">
             <ActionButton label="Read later" onClick={swipeSave}>
               <BookmarkIcon size={14} />
             </ActionButton>

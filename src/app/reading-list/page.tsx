@@ -101,7 +101,7 @@ export default function ReadingListPage() {
                   <button
                     title="Remove"
                     onClick={() => setSurveyItem(item)}
-                    className="flex h-7 w-7 items-center justify-center rounded-full text-ink-faint opacity-0 transition group-hover:opacity-100 hover:bg-paper-sunken hover:text-ink"
+                    className="flex h-7 w-7 items-center justify-center rounded-full text-ink-faint opacity-0 transition group-hover:opacity-100 pointer-coarse:opacity-100 hover:bg-paper-sunken hover:text-ink"
                   >
                     ×
                   </button>
