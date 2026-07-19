@@ -13,6 +13,11 @@ you like with the *Add publication* button.
 docker compose up --build
 ```
 
+A prebuilt `linux/amd64` image is published to
+[`ghcr.io/m1xxos/magshorts`](https://github.com/m1xxos/magShorts/pkgs/container/magshorts)
+(`latest` from `main`, `sha-*` per commit, and version tags like `v2`) by the
+GitHub Actions workflow in `.github/workflows/docker.yml`.
+
 Open http://localhost:3000. The SQLite database is stored in `./data`, so
 subscriptions, cached articles, accounts and the recommendation model survive
 restarts.
