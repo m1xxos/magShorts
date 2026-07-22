@@ -121,11 +121,14 @@ export default function HomePage() {
         if (offset === 0) setColdStart(Boolean(data.coldStart));
         return data.articles ?? [];
       }
+      // A folder groups a handful of slow publications, so plain reverse
+      // chronology reads right; only All publications needs the per-feed
+      // round-robin that keeps a prolific feed from flooding the grid.
       const query =
         target.kind === "feed"
           ? `feed=${target.feedId}`
           : target.kind === "folder"
-            ? `folder=${target.folderId}&mix=1`
+            ? `folder=${target.folderId}`
             : "mix=1";
       const response = await fetch(
         `/api/articles?${query}&limit=${PAGE_SIZE}&offset=${offset}`
