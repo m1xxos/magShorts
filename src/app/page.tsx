@@ -10,6 +10,7 @@ import {
   type Selection,
 } from "@/lib/types";
 import { AddFeedDialog } from "@/components/AddFeedDialog";
+import { CreateFolderDialog } from "@/components/CreateFolderDialog";
 import { ArticleCard } from "@/components/ArticleCard";
 import { SettingsDialog } from "@/components/SettingsDialog";
 import { FolderIcon, Sidebar, SparkleIcon } from "@/components/Sidebar";
@@ -35,6 +36,7 @@ export default function HomePage() {
   const [recWindow, setRecWindow] = useState<RecWindow>("week");
   const [coldStart, setColdStart] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [folderDialogOpen, setFolderDialogOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [readingCount, setReadingCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -244,6 +246,7 @@ export default function HomePage() {
           onToggle={toggleFeed}
           onToggleFolder={toggleFolder}
           onAddClick={() => setDialogOpen(true)}
+          onNewFolder={() => setFolderDialogOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
         />
         <main className="min-w-0 flex-1 px-5 py-6 md:px-8">
@@ -402,6 +405,12 @@ export default function HomePage() {
             loadFeeds();
             if (selection) loadArticles(selection, recWindow);
           }}
+        />
+      )}
+      {folderDialogOpen && (
+        <CreateFolderDialog
+          onClose={() => setFolderDialogOpen(false)}
+          onCreated={() => loadFeeds()}
         />
       )}
       {settingsOpen && (

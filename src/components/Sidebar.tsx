@@ -135,6 +135,7 @@ export function Sidebar({
   onToggle,
   onToggleFolder,
   onAddClick,
+  onNewFolder,
   onOpenSettings,
 }: {
   feeds: FeedDto[];
@@ -146,6 +147,7 @@ export function Sidebar({
   onToggle: (feed: FeedDto) => void;
   onToggleFolder: (folder: FolderDto) => void;
   onAddClick: () => void;
+  onNewFolder: () => void;
   onOpenSettings: () => void;
 }) {
   const [openFolders, setOpenFolders] = useState<Set<number>>(new Set());
@@ -323,6 +325,16 @@ export function Sidebar({
           +
         </span>
         Add publication
+      </button>
+
+      <button
+        onClick={onNewFolder}
+        className="flex items-center gap-3 rounded-xl border border-dashed border-line px-3 py-2 text-left text-sm text-ink-soft transition hover:border-clay hover:text-clay"
+      >
+        <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-clay-soft text-clay">
+          <FolderIcon size={13} />
+        </span>
+        New folder
       </button>
 
       <Link
