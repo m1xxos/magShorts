@@ -43,10 +43,10 @@ list and their own recommendation profile.
 
 The sidebar's **For you** feed ranks fresh articles against your taste:
 
-- **Signals**: saving to Read later, 👍/👎 on cards (grid and Shorts), opening
-  an article, the "Did you like it?" survey when you remove something from
-  Read later, an implicit *skip* when you scroll past a Shorts card within a
-  few seconds, and an implicit positive *dwell* when you stay on one for 15s+.
+- **Signals**: saving to Read later, opening an article, the "Did you like
+  it?" survey when you remove something from Read later, an implicit *skip*
+  when you scroll past a Shorts card within a few seconds, and an implicit
+  positive *dwell* when you stay on one for 15s+.
 - **Embeddings**: every article title+summary is embedded locally with
   `multilingual-e5-small` (works across English and Russian). The model
   (~120 MB) downloads once on first run into `./data/models` — the first
@@ -117,8 +117,7 @@ Archive) and create, rename, hide or delete folders.
   first, then the week's picks with an older (7–30 day) insert every few
   cards, then the long tail. It never repeats — every card you're shown is
   marked seen (a weightless `view` event). Views only affect Shorts; the
-  For you grid keeps an article until you act on it (save/like/dislike/
-  open/skip).
+  For you grid keeps an article until you act on it (save/open/skip).
 
 ## API
 

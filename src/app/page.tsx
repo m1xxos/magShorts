@@ -341,7 +341,7 @@ export default function HomePage() {
               </div>
               {coldStart && !loading && (
                 <p className="w-full rounded-xl border border-dashed border-line bg-paper-raised px-4 py-2.5 text-[13px] text-ink-soft">
-                  Still learning your taste — save, like or open a few articles
+                  Still learning your taste — save or open a few articles
                   and this feed will tune itself. Showing the freshest mix for
                   now.
                 </p>
