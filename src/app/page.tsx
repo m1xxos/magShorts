@@ -38,7 +38,7 @@ const DENSITIES: Array<{ value: Density; label: string }> = [
 // instead of stepping at sizes picked in advance. The minimum is the only
 // knob — raise it for fewer, wider cards.
 const GRID_CLASSES: Record<Density, string> = {
-  cards: "grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-5",
+  cards: "grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-5",
   // The dense modes get their own, much wider minimum so a row never stretches
   // to a full window's worth of unreadably long summary lines.
   list: "grid grid-cols-[repeat(auto-fill,minmax(520px,1fr))] gap-3",
