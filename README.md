@@ -18,8 +18,8 @@ docker compose up --build
 
 A prebuilt `linux/amd64` image is published to
 [`ghcr.io/m1xxos/magshorts`](https://github.com/m1xxos/magShorts/pkgs/container/magshorts)
-(`latest` from `main`, `sha-*` per commit, and version tags like `v2`) by the
-GitHub Actions workflow in `.github/workflows/docker.yml`.
+(`latest` from `main`, `sha-*` per commit, and version tags like `v2.1`) by
+the GitHub Actions workflow in `.github/workflows/docker.yml`.
 
 Open http://localhost:3000. The SQLite database is stored in `./data`, so
 subscriptions, cached articles, accounts and the recommendation model survive
@@ -63,11 +63,14 @@ The sidebar's **For you** feed ranks fresh articles against your taste:
 
 Both the home grid and Shorts scroll infinitely.
 
-## The home grid
+## The home grid (v2.1)
 
 Every view is titled above the cards, and a **Cards / List / Compact** switch on
 the right sets how densely they are drawn — the choice is remembered in
-`localStorage`.
+`localStorage`. The grid runs the full width of the window and takes as many
+columns as fit, so a wide display shows more cards rather than wider ones. The
+sidebar appears from 1024px up; below that its navigation is the chip row above
+the grid, which leaves a portrait tablet room for three columns.
 
 Cards lead with a 2:1 cover, then the full headline (never truncated, so the
 row simply grows), three lines of summary and a metadata line pinned to the
@@ -77,7 +80,7 @@ falling back to the folder the feed lives in, and omitted when neither exists.
 Topics are derived when an article is ingested, so articles already stored
 before the feature landed stay untagged until their feed republishes them.
 
-## Folders (v2.5)
+## Folders (v2.1)
 
 Feeds can be grouped into **folders** (e.g. "Magazines" and "Blogs"). Each
 folder has a switch that controls whether its articles feed the **For you**
@@ -104,8 +107,8 @@ Archive) and create, rename, hide or delete folders.
   The cloud omnivore.app shut down in Nov 2024 — only self-hosted works.
 - **No paywall** opens the article through a [Marreta](https://github.com/manualdousuario/marreta)
   instance (`https://marreta.link` by default; change it in Settings or with
-  `MARRETA_URL` if you host your own). Per-feed routing (Marreta / direct /
-  web archive) is configurable in Settings.
+  `MARRETA_URL` if you host your own). Which route a given publication takes
+  (Marreta / Direct / Archive) is set per feed in **Manage sources**.
 
 ## How it works
 
