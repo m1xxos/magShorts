@@ -38,7 +38,11 @@ const DENSITIES: Array<{ value: Density; label: string }> = [
 // instead of stepping at sizes picked in advance. The minimum is the only
 // knob — raise it for fewer, wider cards.
 const GRID_CLASSES: Record<Density, string> = {
-  cards: "grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-5",
+  // Two floors, because no single one satisfies both ends: a portrait tablet
+  // needs <=238px to fit three columns, while five columns on a 2000px window
+  // need >258px.
+  cards:
+    "grid grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-5 min-[1536px]:grid-cols-[repeat(auto-fill,minmax(270px,1fr))]",
   // The dense modes get their own, much wider minimum so a row never stretches
   // to a full window's worth of unreadably long summary lines.
   list: "grid grid-cols-[repeat(auto-fill,minmax(520px,1fr))] gap-3",
@@ -332,7 +336,7 @@ export default function HomePage() {
         />
         <main className="min-w-0 flex-1 px-5 py-6 md:px-8">
           {/* Mobile feed chips */}
-          <div className="no-scrollbar -mx-5 mb-4 flex gap-2 overflow-x-auto px-5 md:hidden">
+          <div className="no-scrollbar -mx-5 mb-4 flex gap-2 overflow-x-auto px-5 lg:hidden">
             <button
               onClick={() => setSelection({ kind: "forYou" })}
               className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[13px] ${

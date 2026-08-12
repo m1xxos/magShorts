@@ -178,8 +178,11 @@ export function Sidebar({
 
   const rootFeeds = feeds.filter((feed) => feed.folder_id === null);
 
+  // Held back to lg: on a portrait tablet the 288px rail costs a third of the
+  // window, and the chip row on the home page already covers the same
+  // navigation.
   return (
-    <aside className="sticky top-16 hidden h-[calc(100vh-4rem)] w-72 shrink-0 flex-col gap-1 overflow-y-auto px-3 py-5 md:flex">
+    <aside className="sticky top-16 hidden h-[calc(100vh-4rem)] w-72 shrink-0 flex-col gap-1 overflow-y-auto px-3 py-5 lg:flex">
       <Link
         href="/reading-list"
         className="mb-4 flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-ink-soft transition hover:bg-paper-sunken/60"
