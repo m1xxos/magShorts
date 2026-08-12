@@ -1,42 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { type FeedDto, type FolderDto } from "@/lib/types";
+import { type FolderDto, type SettingsForm } from "@/lib/types";
 
-export interface SettingsForm {
-  omnivore_url: string;
-  omnivore_api_key: string;
-  marreta_url: string;
-  archive_url: string;
-  direct_domains: string;
-  archive_domains: string;
-  default_view: string;
-}
-
-export type Route = "marreta" | "direct" | "archive";
-
-export const ROUTES: Array<{ value: Route; label: string }> = [
-  { value: "marreta", label: "Marreta" },
-  { value: "direct", label: "Direct" },
-  { value: "archive", label: "Archive" },
+// Only these are edited here. Saving must not send the per-domain lists, or a
+// dialog opened before a change in Manage sources would write stale ones back
+// (the PUT handler applies whatever keys it receives).
+const EDITABLE: Array<keyof SettingsForm> = [
+  "default_view",
+  "marreta_url",
+  "archive_url",
+  "omnivore_url",
+  "omnivore_api_key",
 ];
-
-export function parseList(value: string): string[] {
-  return value
-    .split(/[,\s]+/)
-    .map((domain) => domain.trim().toLowerCase().replace(/^www\./, ""))
-    .filter(Boolean);
-}
-
-export function feedDomain(feed: FeedDto): string | null {
-  try {
-    return new URL(feed.site_url ?? feed.url).hostname
-      .toLowerCase()
-      .replace(/^www\./, "");
-  } catch {
-    return null;
-  }
-}
 
 export function SettingsDialog({
   onClose,
@@ -46,7 +22,6 @@ export function SettingsDialog({
   onSaved: (message: string) => void;
 }) {
   const [form, setForm] = useState<SettingsForm | null>(null);
-  const [feeds, setFeeds] = useState<FeedDto[]>([]);
   const [folders, setFolders] = useState<FolderDto[]>([]);
   const [busy, setBusy] = useState(false);
 
@@ -54,41 +29,12 @@ export function SettingsDialog({
     fetch("/api/settings")
       .then((response) => response.json())
       .then(setForm);
-    fetch("/api/feeds")
-      .then((response) => response.json())
-      .then(setFeeds);
     fetch("/api/folders")
       .then((response) => response.json())
       .then((data: FolderDto[]) => {
         if (Array.isArray(data)) setFolders(data);
       });
   }, []);
-
-  function routeFor(domain: string): Route {
-    if (!form) return "marreta";
-    if (parseList(form.direct_domains).includes(domain)) return "direct";
-    if (parseList(form.archive_domains).includes(domain)) return "archive";
-    return "marreta";
-  }
-
-  function setRoute(domain: string, route: Route) {
-    setForm((prev) => {
-      if (!prev) return prev;
-      const direct = parseList(prev.direct_domains).filter(
-        (entry) => entry !== domain
-      );
-      const archive = parseList(prev.archive_domains).filter(
-        (entry) => entry !== domain
-      );
-      if (route === "direct") direct.push(domain);
-      if (route === "archive") archive.push(domain);
-      return {
-        ...prev,
-        direct_domains: direct.join(", "),
-        archive_domains: archive.join(", "),
-      };
-    });
-  }
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -98,7 +44,9 @@ export function SettingsDialog({
       await fetch("/api/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(
+          Object.fromEntries(EDITABLE.map((key) => [key, form[key]]))
+        ),
       });
       onSaved("Settings saved");
       onClose();
@@ -134,12 +82,6 @@ export function SettingsDialog({
       </label>
     );
   }
-
-  const feedsWithDomains = feeds
-    .map((feed) => ({ feed, domain: feedDomain(feed) }))
-    .filter((entry): entry is { feed: FeedDto; domain: string } =>
-      Boolean(entry.domain)
-    );
 
   return (
     <div
@@ -181,43 +123,10 @@ export function SettingsDialog({
           <p className="pt-2 text-[11px] font-medium tracking-[0.14em] text-ink-faint uppercase">
             How articles open
           </p>
-          {feedsWithDomains.length > 0 && (
-            <div className="space-y-2">
-              {feedsWithDomains.map(({ feed, domain }) => (
-                <div
-                  key={feed.id}
-                  className="flex items-center justify-between gap-3"
-                >
-                  <span
-                    className="min-w-0 truncate text-sm text-ink"
-                    title={domain}
-                  >
-                    {feed.title}
-                  </span>
-                  <div className="flex shrink-0 rounded-full border border-line p-0.5">
-                    {ROUTES.map((route) => (
-                      <button
-                        key={route.value}
-                        type="button"
-                        onClick={() => setRoute(domain, route.value)}
-                        className={`rounded-full px-2.5 py-1 text-[12px] transition ${
-                          routeFor(domain) === route.value
-                            ? "bg-clay text-white"
-                            : "text-ink-faint hover:text-ink"
-                        }`}
-                      >
-                        {route.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ))}
-              <p className="text-[12px] text-ink-faint">
-                Marreta strips paywalls, Direct opens the original site,
-                Archive shows the latest web-archive snapshot.
-              </p>
-            </div>
-          )}
+          <p className="text-[12px] text-ink-faint">
+            Whether a publication opens through Marreta, directly or via the
+            archive is set per feed in Manage sources.
+          </p>
           {field(
             "Marreta URL",
             "marreta_url",
@@ -229,18 +138,6 @@ export function SettingsDialog({
             "archive_url",
             "https://web.archive.org/web/",
             "Snapshot service used for “Archive” domains; the article URL is appended."
-          )}
-          {field(
-            "Open directly (skip Marreta)",
-            "direct_domains",
-            "habr.com",
-            "Comma-separated domains — edited by the switches above, extra domains welcome."
-          )}
-          {field(
-            "Open via web archive",
-            "archive_domains",
-            "nytimes.com",
-            "Domains Marreta can't fetch."
           )}
 
           <p className="pt-2 text-[11px] font-medium tracking-[0.14em] text-ink-faint uppercase">

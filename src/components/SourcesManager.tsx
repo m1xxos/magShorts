@@ -2,19 +2,43 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { type FeedDto, type FolderDto } from "@/lib/types";
+import {
+  type FeedDto,
+  type FolderDto,
+  type SettingsForm,
+} from "@/lib/types";
 import { FeedAvatar } from "./FeedAvatar";
 import { FolderIcon } from "./Sidebar";
-import {
-  ROUTES,
-  type Route,
-  type SettingsForm,
-  feedDomain,
-  parseList,
-} from "./SettingsDialog";
 import { Toast, useToast } from "./Toast";
 import { TopBar } from "./TopBar";
 import { useUser } from "@/lib/useUser";
+
+// How a publication's articles open. Stored as two comma-separated domain
+// lists in settings; anything in neither list goes through Marreta.
+type Route = "marreta" | "direct" | "archive";
+
+const ROUTES: Array<{ value: Route; label: string }> = [
+  { value: "marreta", label: "Marreta" },
+  { value: "direct", label: "Direct" },
+  { value: "archive", label: "Archive" },
+];
+
+function parseList(value: string): string[] {
+  return value
+    .split(/[,\s]+/)
+    .map((domain) => domain.trim().toLowerCase().replace(/^www\./, ""))
+    .filter(Boolean);
+}
+
+function feedDomain(feed: FeedDto): string | null {
+  try {
+    return new URL(feed.site_url ?? feed.url).hostname
+      .toLowerCase()
+      .replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+}
 
 export function SourcesManager() {
   const user = useUser();
