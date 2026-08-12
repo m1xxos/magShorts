@@ -1,4 +1,7 @@
-# magShorts
+<h1>
+  <img src="src/app/icon.svg" alt="" width="30" align="top">
+  magShorts
+</h1>
 
 A cozy, YouTube-style reader for articles. Subscribe to publications (RSS/Atom
 feeds), browse them as a card grid like your YouTube subscriptions, or flip
