@@ -33,15 +33,16 @@ const DENSITIES: Array<{ value: Density; label: string }> = [
 
 // Cards keep the responsive 1/2/3/4 layout; the denser modes are single-column
 // rows. Shared by the skeleton and the real grid so the two cannot drift.
-// Without a max-width the columns have to keep pace with the window, or cards
-// grow absurdly wide; the steps hold each card near 270-300px.
+// auto-fill rather than fixed breakpoints: the row takes as many columns as
+// fit at the minimum width, so the count follows the window on any display
+// instead of stepping at sizes picked in advance. The minimum is the only
+// knob — raise it for fewer, wider cards.
 const GRID_CLASSES: Record<Density, string> = {
-  cards:
-    "grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 min-[1700px]:grid-cols-5 min-[2100px]:grid-cols-6 min-[2500px]:grid-cols-7",
-  // The dense modes split into columns rather than stretching one row to the
-  // full window, which would leave summaries unreadably long.
-  list: "grid grid-cols-1 gap-3 min-[1700px]:grid-cols-2",
-  compact: "grid grid-cols-1 gap-1.5 min-[1700px]:grid-cols-2",
+  cards: "grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-5",
+  // The dense modes get their own, much wider minimum so a row never stretches
+  // to a full window's worth of unreadably long summary lines.
+  list: "grid grid-cols-[repeat(auto-fill,minmax(520px,1fr))] gap-3",
+  compact: "grid grid-cols-[repeat(auto-fill,minmax(420px,1fr))] gap-1.5",
 };
 
 const PAGE_SIZE = 40;
