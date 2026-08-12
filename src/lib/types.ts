@@ -6,6 +6,9 @@ export type Selection =
 
 export type RecWindow = "day" | "week" | "month";
 
+// How densely the home grid draws its articles.
+export type Density = "cards" | "list" | "compact";
+
 export interface FeedDto {
   id: number;
   title: string;
@@ -32,6 +35,7 @@ export interface ArticleDto {
   summary: string | null;
   image_url: string | null;
   published_at: string | null;
+  topic: string | null;
   feed_title: string;
 }
 

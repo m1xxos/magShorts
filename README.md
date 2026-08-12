@@ -60,6 +60,20 @@ The sidebar's **For you** feed ranks fresh articles against your taste:
 
 Both the home grid and Shorts scroll infinitely.
 
+## The home grid
+
+Every view is titled above the cards, and a **Cards / List / Compact** switch on
+the right sets how densely they are drawn — the choice is remembered in
+`localStorage`.
+
+Cards lead with a 2:1 cover, then the full headline (never truncated, so the
+row simply grows), three lines of summary and a metadata line pinned to the
+bottom edge so neighbouring cards stay aligned. That line carries the source,
+the age and a **topic pill**: the first usable `<category>` the feed publishes,
+falling back to the folder the feed lives in, and omitted when neither exists.
+Topics are derived when an article is ingested, so articles already stored
+before the feature landed stay untagged until their feed republishes them.
+
 ## Folders (v2.5)
 
 Feeds can be grouped into **folders** (e.g. "Magazines" and "Blogs"). Each

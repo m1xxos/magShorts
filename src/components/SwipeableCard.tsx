@@ -18,6 +18,7 @@ export function SwipeableCard({
   rightLabel,
   leftLabel,
   className,
+  radiusClass = "rounded-2xl",
   children,
   ref,
 }: {
@@ -26,6 +27,9 @@ export function SwipeableCard({
   rightLabel: string;
   leftLabel: string;
   className?: string;
+  // Must match the child card's own radius or the reveal layer's corners
+  // show through behind it.
+  radiusClass?: string;
   children: React.ReactNode;
   ref?: React.Ref<SwipeableCardHandle>;
 }) {
@@ -104,12 +108,12 @@ export function SwipeableCard({
     <div className={`relative ${className ?? ""}`}>
       {/* Action layer revealed under the card */}
       <div
-        className="pointer-events-none absolute inset-0 flex items-center justify-between overflow-hidden rounded-2xl"
+        className={`pointer-events-none absolute inset-0 flex items-center justify-between overflow-hidden ${radiusClass}`}
         aria-hidden
       >
         {revealRight ? (
           <div
-            className="flex h-full w-full items-center rounded-2xl bg-clay-soft pl-6 text-clay transition-opacity"
+            className={`flex h-full w-full items-center ${radiusClass} bg-clay-soft pl-6 text-clay transition-opacity`}
             style={{ opacity: 0.4 + strength * 0.6 }}
           >
             <span className="flex items-center gap-2 text-sm font-medium">
@@ -118,7 +122,7 @@ export function SwipeableCard({
           </div>
         ) : revealLeft ? (
           <div
-            className="flex h-full w-full items-center justify-end rounded-2xl bg-[#e3ebe9] pr-6 text-[#42706a] transition-opacity"
+            className={`flex h-full w-full items-center justify-end ${radiusClass} bg-[#e3ebe9] pr-6 text-[#42706a] transition-opacity`}
             style={{ opacity: 0.4 + strength * 0.6 }}
           >
             <span className="flex items-center gap-2 text-sm font-medium">

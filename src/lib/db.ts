@@ -30,6 +30,7 @@ export interface Article {
   summary: string | null;
   image_url: string | null;
   published_at: string | null;
+  topic: string | null;
   feed_title?: string;
 }
 
@@ -161,6 +162,9 @@ export function getDb(): Database.Database {
     .all() as Array<{ name: string }>;
   if (!articleColumns.some((column) => column.name === "embedding")) {
     db.exec("ALTER TABLE articles ADD COLUMN embedding BLOB");
+  }
+  if (!articleColumns.some((column) => column.name === "topic")) {
+    db.exec("ALTER TABLE articles ADD COLUMN topic TEXT");
   }
 
   // reading_list v1 was single-user with UNIQUE(link); rebuild it per-user.

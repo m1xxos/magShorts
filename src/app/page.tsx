@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   type ArticleDto,
+  type Density,
   type FeedDto,
   type FolderDto,
   type RecWindow,
@@ -24,7 +25,54 @@ const REC_WINDOWS: Array<{ value: RecWindow; label: string }> = [
   { value: "month", label: "Month" },
 ];
 
+const DENSITIES: Array<{ value: Density; label: string }> = [
+  { value: "cards", label: "Cards" },
+  { value: "list", label: "List" },
+  { value: "compact", label: "Compact" },
+];
+
+// Cards keep the responsive 1/2/3/4 layout; the denser modes are single-column
+// rows. Shared by the skeleton and the real grid so the two cannot drift.
+const GRID_CLASSES: Record<Density, string> = {
+  cards: "grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4",
+  list: "grid grid-cols-1 gap-3",
+  compact: "grid grid-cols-1 gap-1.5",
+};
+
 const PAGE_SIZE = 40;
+
+function Skeleton({ density }: { density: Density }) {
+  if (density === "compact") {
+    return (
+      <div className="flex min-h-14 animate-pulse items-center gap-3 rounded-xl border border-line bg-paper-raised px-4">
+        <div className="h-6 w-6 shrink-0 rounded-full bg-paper-sunken" />
+        <div className="h-4 w-2/3 rounded bg-paper-sunken" />
+      </div>
+    );
+  }
+  if (density === "list") {
+    return (
+      <div className="flex animate-pulse gap-4 rounded-2xl border border-line bg-paper-raised p-3">
+        <div className="aspect-[4/3] w-[104px] shrink-0 rounded-[10px] bg-paper-sunken sm:w-[140px]" />
+        <div className="flex-1 space-y-2 py-1">
+          <div className="h-3 w-1/4 rounded bg-paper-sunken" />
+          <div className="h-4 w-10/12 rounded bg-paper-sunken" />
+          <div className="h-3 w-full rounded bg-paper-sunken" />
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="animate-pulse overflow-hidden rounded-2xl border border-line bg-paper-raised">
+      <div className="aspect-[2/1] bg-paper-sunken" />
+      <div className="space-y-2 p-4">
+        <div className="h-4 w-11/12 rounded bg-paper-sunken" />
+        <div className="h-4 w-2/3 rounded bg-paper-sunken" />
+        <div className="h-3 w-1/3 rounded bg-paper-sunken" />
+      </div>
+    </div>
+  );
+}
 
 export default function HomePage() {
   const user = useUser();
@@ -34,6 +82,7 @@ export default function HomePage() {
   // Resolved from the default_view setting on first load; null until then.
   const [selection, setSelection] = useState<Selection | null>(null);
   const [recWindow, setRecWindow] = useState<RecWindow>("week");
+  const [density, setDensity] = useState<Density>("cards");
   const [coldStart, setColdStart] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
@@ -46,6 +95,18 @@ export default function HomePage() {
   const { toast, showToast } = useToast();
   const selectedFeedId =
     selection?.kind === "feed" ? selection.feedId : null;
+  // Names the grid below; "All publications" also covers the brief null
+  // window before the default view resolves.
+  const sectionTitle =
+    selection?.kind === "forYou"
+      ? "For you"
+      : selection?.kind === "folder"
+        ? (folders.find((folder) => folder.id === selection.folderId)?.name ??
+          "Folder")
+        : selection?.kind === "feed"
+          ? (feeds.find((feed) => feed.id === selection.feedId)?.title ??
+            "Publication")
+          : "All publications";
 
   useEffect(() => {
     const saved = window.localStorage.getItem("ms_rec_window");
@@ -58,6 +119,19 @@ export default function HomePage() {
   function changeRecWindow(value: RecWindow) {
     setRecWindow(value);
     window.localStorage.setItem("ms_rec_window", value);
+  }
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem("ms_density");
+    if (saved === "cards" || saved === "list" || saved === "compact") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time localStorage read after hydration
+      setDensity(saved);
+    }
+  }, []);
+
+  function changeDensity(value: Density) {
+    setDensity(value);
+    window.localStorage.setItem("ms_density", value);
   }
 
   const loadFeeds = useCallback(async () => {
@@ -316,14 +390,16 @@ export default function HomePage() {
             </Link>
           </div>
 
-          {selection?.kind === "forYou" && (
-            <div className="mb-5 flex flex-wrap items-center gap-3">
-              <h2 className="flex items-center gap-2 font-serif text-lg text-ink">
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            <h2 className="flex items-center gap-2 font-serif text-[19px] text-ink">
+              {selection?.kind === "forYou" && (
                 <span className="text-clay">
                   <SparkleIcon size={15} />
                 </span>
-                For you
-              </h2>
+              )}
+              {sectionTitle}
+            </h2>
+            {selection?.kind === "forYou" && (
               <div className="flex rounded-full border border-line p-0.5">
                 {REC_WINDOWS.map((option) => (
                   <button
@@ -339,31 +415,38 @@ export default function HomePage() {
                   </button>
                 ))}
               </div>
-              {coldStart && !loading && (
-                <p className="w-full rounded-xl border border-dashed border-line bg-paper-raised px-4 py-2.5 text-[13px] text-ink-soft">
-                  Still learning your taste — save or open a few articles
-                  and this feed will tune itself. Showing the freshest mix for
-                  now.
-                </p>
-              )}
+            )}
+            <div className="ml-auto flex rounded-full border border-line p-0.5">
+              {DENSITIES.map((option) => (
+                <button
+                  key={option.value}
+                  onClick={() => changeDensity(option.value)}
+                  aria-pressed={density === option.value}
+                  className={`rounded-full px-3 py-1 text-[12px] transition ${
+                    density === option.value
+                      ? "bg-ink text-paper"
+                      : "text-ink-faint hover:text-ink"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
             </div>
-          )}
+            {selection?.kind === "forYou" && coldStart && !loading && (
+              <p className="w-full rounded-xl border border-dashed border-line bg-paper-raised px-4 py-2.5 text-[13px] text-ink-soft">
+                Still learning your taste — save or open a few articles and
+                this feed will tune itself. Showing the freshest mix for now.
+              </p>
+            )}
+          </div>
 
           {loading ? (
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {Array.from({ length: 8 }).map((_, index) => (
-                <div
-                  key={index}
-                  className="animate-pulse overflow-hidden rounded-2xl border border-line bg-paper-raised"
-                >
-                  <div className="aspect-video bg-paper-sunken" />
-                  <div className="space-y-2 p-4">
-                    <div className="h-4 w-11/12 rounded bg-paper-sunken" />
-                    <div className="h-4 w-2/3 rounded bg-paper-sunken" />
-                    <div className="h-3 w-1/3 rounded bg-paper-sunken" />
-                  </div>
-                </div>
-              ))}
+            <div className={GRID_CLASSES[density]}>
+              {Array.from({ length: density === "compact" ? 12 : 8 }).map(
+                (_, index) => (
+                  <Skeleton key={index} density={density} />
+                )
+              )}
             </div>
           ) : articles.length === 0 ? (
             <div className="flex flex-col items-center gap-3 py-24 text-center">
@@ -375,11 +458,12 @@ export default function HomePage() {
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              <div className={GRID_CLASSES[density]}>
                 {articles.map((article) => (
                   <ArticleCard
                     key={article.id}
                     article={article}
+                    density={density}
                     onToast={(message, error) => {
                       showToast(message, error);
                       if (!error) loadReadingCount();
