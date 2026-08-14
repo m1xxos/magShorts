@@ -10,4 +10,16 @@ services:
       - OMNIVORE_URL=${OMNIVORE_URL:-}
       - OMNIVORE_API_KEY=${OMNIVORE_API_KEY:-}
       - MARRETA_URL=${MARRETA_URL:-}
+      # Digest schedule; unset TZ means UTC, so set DIGEST_TZ.
+      - DIGEST_DAILY_AT=${DIGEST_DAILY_AT:-}
+      - DIGEST_WEEKLY_AT=${DIGEST_WEEKLY_AT:-}
+      - DIGEST_TZ=${DIGEST_TZ:-}
+      # Digest annotations. Empty = extractive summaries, no model involved.
+      # Ollama runs on the host, not in this stack: from a container it is
+      # http://host.docker.internal:11434/v1 (or the LAN address on Linux).
+      - LLM_PROVIDERS=${LLM_PROVIDERS:-}
+      - LLM_OLLAMA_URL=${LLM_OLLAMA_URL:-}
+      - LLM_OLLAMA_MODEL=${LLM_OLLAMA_MODEL:-}
+      - LLM_OLLAMA_TIMEOUT_MS=${LLM_OLLAMA_TIMEOUT_MS:-}
+      - LLM_GROQ_KEY=${LLM_GROQ_KEY:-}
     restart: unless-stopped

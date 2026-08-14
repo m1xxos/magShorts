@@ -41,13 +41,15 @@ type PageImageResult =
   // Fetch problem (403/429/5xx/timeout) — the page may still have one.
   | { kind: "failed" };
 
-async function fetchPageImage(link: string): Promise<PageImageResult> {
+// Fetch an article page as HTML. Shared with the digest, which reads the body
+// text out of the same document rather than opening a second connection.
+export async function fetchPageHtml(
+  link: string
+): Promise<{ html: string; url: string } | null> {
   try {
     const parsed = new URL(link);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      return { kind: "none" };
-    }
-    if (isPrivateHost(parsed.hostname)) return { kind: "none" };
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    if (isPrivateHost(parsed.hostname)) return null;
     const response = await fetch(link, {
       headers: {
         "User-Agent": DISCOVERY_UA,
@@ -56,13 +58,35 @@ async function fetchPageImage(link: string): Promise<PageImageResult> {
       redirect: "follow",
       signal: AbortSignal.timeout(10000),
     });
-    if (!response.ok) return { kind: "failed" };
-    const html = (await response.text()).slice(0, PAGE_BYTE_LIMIT);
-    const url = extractPageImage(html, response.url);
-    return url ? { kind: "found", url } : { kind: "none" };
+    if (!response.ok) return null;
+    return {
+      html: (await response.text()).slice(0, PAGE_BYTE_LIMIT),
+      url: response.url,
+    };
   } catch {
-    return { kind: "failed" };
+    return null;
   }
+}
+
+// A link we will never be able to fetch (mailto:, an intranet host). Worth
+// telling apart from a failed fetch: it deserves the permanent "nothing there"
+// marker rather than a retry with backoff.
+function unfetchable(link: string): boolean {
+  try {
+    const parsed = new URL(link);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return true;
+    return isPrivateHost(parsed.hostname);
+  } catch {
+    return true;
+  }
+}
+
+async function fetchPageImage(link: string): Promise<PageImageResult> {
+  if (unfetchable(link)) return { kind: "none" };
+  const page = await fetchPageHtml(link);
+  if (!page) return { kind: "failed" };
+  const url = extractPageImage(page.html, page.url);
+  return url ? { kind: "found", url } : { kind: "none" };
 }
 
 // Links whose page fetch keeps failing (bot walls like nytimes.com, rate

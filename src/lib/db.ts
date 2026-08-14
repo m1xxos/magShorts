@@ -31,8 +31,15 @@ export interface Article {
   image_url: string | null;
   published_at: string | null;
   topic: string | null;
+  content: string | null;
   feed_title?: string;
 }
+
+// The columns an article response may carry. `SELECT a.*` would also hand the
+// client the 1.5 KB embedding vector and the full article body — both are
+// server-side machinery, and together they dwarf the payload they ride on.
+export const ARTICLE_COLUMNS =
+  "a.id, a.feed_id, a.guid, a.title, a.link, a.summary, a.image_url, a.published_at, a.topic";
 
 const DEFAULT_FEEDS: Array<{ title: string; url: string; site_url: string }> = [
   {
@@ -144,6 +151,38 @@ export function getDb(): Database.Database {
       position INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    -- One frozen snapshot per user, kind and period: the digest page is a
+    -- read, never a rebuild. llm_provider is NULL when the annotations came
+    -- from the extractive fallback.
+    CREATE TABLE IF NOT EXISTS digests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      period_key TEXT NOT NULL,
+      period_start TEXT NOT NULL,
+      period_end TEXT NOT NULL,
+      built_at TEXT NOT NULL DEFAULT (datetime('now')),
+      three_lines TEXT NOT NULL,
+      total_articles INTEGER NOT NULL,
+      total_publications INTEGER NOT NULL,
+      llm_provider TEXT,
+      llm_model TEXT,
+      UNIQUE(user_id, kind, period_key)
+    );
+
+    CREATE TABLE IF NOT EXISTS digest_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      digest_id INTEGER NOT NULL REFERENCES digests(id) ON DELETE CASCADE,
+      article_id INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+      section TEXT NOT NULL,
+      position INTEGER NOT NULL,
+      summary TEXT,
+      reading_minutes INTEGER
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_digest_items_digest
+      ON digest_items(digest_id, section, position);
   `);
   db.pragma("foreign_keys = ON");
 
@@ -165,6 +204,11 @@ export function getDb(): Database.Database {
   }
   if (!articleColumns.some((column) => column.name === "topic")) {
     db.exec("ALTER TABLE articles ADD COLUMN topic TEXT");
+  }
+  // The article body as the feed shipped it, for the digest's annotations.
+  // Rows ingested before this landed stay NULL and fall back to a page fetch.
+  if (!articleColumns.some((column) => column.name === "content")) {
+    db.exec("ALTER TABLE articles ADD COLUMN content TEXT");
   }
 
   // reading_list v1 was single-user with UNIQUE(link); rebuild it per-user.

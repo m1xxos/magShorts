@@ -63,6 +63,47 @@ The sidebar's **For you** feed ranks fresh articles against your taste:
 
 Both the home grid and Shorts scroll infinitely.
 
+## Digest (v2.2)
+
+`/digest` is the five-minutes-in-the-morning read: a **finite** page instead of
+an infinite one. Once a day (and once a week) a background job takes the
+period's articles from the folders that feed **For you**, ranks them with the
+same taste profile, collapses duplicate stories, and freezes the result as a
+snapshot — one **lead** article, three **also worth it**, four **quick hits**,
+an **in three lines** prose summary of the period, and the rest behind
+*Show all N*. Opening the page recomputes nothing, so it reads the same twice,
+and **Daily / Weekly** is a switch between two stored snapshots.
+
+**Read here** opens the article (and counts as a taste signal), **Read later**
+saves it, and **Skip** removes it from the digest for good.
+
+The blurbs are written by a language model:
+
+- **Local by default.** Point `LLM_PROVIDERS` at an Ollama instance on the host
+  and nothing but the article's own public text leaves the machine — the taste
+  profile and the embeddings never do.
+- **Failover.** `LLM_PROVIDERS` is an ordered list; a provider that times out,
+  rate-limits or 5xxs hands over to the next one.
+- **No model, no problem.** With `LLM_PROVIDERS` empty (the default) the digest
+  still builds — the blurbs become the articles' own opening lines and the
+  three lines become counts. Nothing about the app requires an LLM.
+- **Five calls per digest**, all in the background scheduler. No request ever
+  waits on a model.
+
+Configure it with `DIGEST_DAILY_AT` (default `08:00`), `DIGEST_WEEKLY_AT`
+(default `Sun 19:00`), `DIGEST_TZ` and the `LLM_*` variables — see
+`.env.example`. `DIGEST_TZ` matters: a container's clock is UTC.
+
+To compare candidate models on a fixed corpus of ten real articles from your
+own database, using the digest's own prompt:
+
+```bash
+LLM_BENCH_PROVIDERS='ollama,groq' npm run llm-bench
+```
+
+It writes `docs/llm-bench.md` — a speed table plus every annotation side by
+side, one column per model, so quality is judged by eye.
+
 ## The home grid (v2.1)
 
 Every view is titled above the cards, and a **Cards / List / Compact** switch on
@@ -115,7 +156,8 @@ Archive) and create, rename, hide or delete folders.
 - **Next.js (App Router)** serves both the UI and the API.
 - Feeds live in **SQLite** (`better-sqlite3`); articles are ingested with
   `rss-parser`. A background scheduler refreshes feeds every 10 minutes,
-  backfills embeddings and prefetches fresh covers. Requests never wait on
+  backfills embeddings, prefetches fresh covers and builds any digest that has
+  come due. Requests never wait on
   origin servers: data routes serve the database as-is and kick a
   deduplicated background refresh when feeds have gone stale (e.g. after
   the host slept) — only a completely empty first-run database blocks.
@@ -161,3 +203,5 @@ All data routes require a session cookie (sign in at `/login`).
 | GET | `/api/recommendations` | Personalized feed; `?window=day\|week\|month`, `?limit=`, `?offset=` |
 | GET | `/api/shorts` | The Shorts deck; `?limit=`, `?folder=ID` |
 | POST | `/api/events` | Taste signal: `{ "link", "action": like\|dislike\|skip\|open\|save }` |
+| GET | `/api/digest` | The stored digest snapshot; `?kind=daily\|weekly` |
+| POST | `/api/digest/build` | Build it now: `{ "kind", "force"? }` — `force` discards the period's snapshot and rebuilds |

@@ -91,6 +91,20 @@ function extractSummary(item: Parser.Item & CustomItem): string | null {
   return text.length > 600 ? text.slice(0, 600).trimEnd() + "…" : text;
 }
 
+// The digest's annotations need more than the 600-char summary. Most feeds ship
+// the whole article in content:encoded, so keep it (capped) and save the digest
+// a page fetch; feeds that only publish a teaser store nothing here.
+const CONTENT_MAX_LENGTH = 6000;
+
+function extractContent(item: Parser.Item & CustomItem): string | null {
+  const raw = item["content:encoded"] ?? item.content;
+  if (!raw) return null;
+  const text = stripHtml(String(raw));
+  // Below this it is just the summary again, and a page fetch will do better.
+  if (text.length < 400) return null;
+  return text.slice(0, CONTENT_MAX_LENGTH);
+}
+
 // Feed categories range from one clean word ("Security") to a dozen tags or a
 // whole taxonomy path, so only short word-like ones become a topic; everything
 // else falls back to the folder the feed lives in.
@@ -239,13 +253,14 @@ export function refreshFeedArticles(feed: FeedWithFolder): Promise<void> {
   return parser.parseURL(feed.url).then((parsed) => {
     const db = getDb();
     const upsert = db.prepare(`
-      INSERT INTO articles (feed_id, guid, title, link, summary, image_url, published_at, topic)
-      VALUES (@feed_id, @guid, @title, @link, @summary, @image_url, @published_at, @topic)
+      INSERT INTO articles (feed_id, guid, title, link, summary, image_url, published_at, topic, content)
+      VALUES (@feed_id, @guid, @title, @link, @summary, @image_url, @published_at, @topic, @content)
       ON CONFLICT(feed_id, guid) DO UPDATE SET
         title = excluded.title,
         summary = excluded.summary,
         image_url = COALESCE(excluded.image_url, articles.image_url),
-        topic = COALESCE(excluded.topic, articles.topic)
+        topic = COALESCE(excluded.topic, articles.topic),
+        content = COALESCE(excluded.content, articles.content)
     `);
 
     const items = (parsed.items ?? []).slice(0, MAX_ITEMS_PER_FEED);
@@ -265,6 +280,7 @@ export function refreshFeedArticles(feed: FeedWithFolder): Promise<void> {
           image_url: extractImage(item),
           published_at: publishedAt,
           topic: extractTopic(item, feed),
+          content: extractContent(item),
         });
       }
       db.prepare("UPDATE feeds SET last_fetched_at = datetime('now') WHERE id = ?").run(feed.id);

@@ -251,6 +251,23 @@ export function recommendArticles(
   return { articles: page, coldStart: !profile };
 }
 
+export type DigestCandidate = Article & { embedding: Buffer };
+
+// The digest's candidate pool: the same folders, window and exclusions the For
+// you grid uses, ranked the same way, but returned whole and with embeddings
+// intact so the caller can cluster the stories before laying them out.
+export function rankForDigest(
+  userId: number,
+  hours: number
+): DigestCandidate[] {
+  const candidates = fetchCandidates(userId, hours, {
+    excludeViews: false,
+    respectIncludeInMain: true,
+  });
+  const { vector: profile } = buildProfile(userId);
+  return diversify(scoreCandidates(candidates, profile, hours * 3_600_000));
+}
+
 const SHORTS_MONTH_INSERT_EVERY = 5;
 
 // Shorts ordering: today's most interesting first, then the week's picks

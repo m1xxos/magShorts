@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, type Article } from "@/lib/db";
+import { ARTICLE_COLUMNS, getDb, type Article } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
 import { refreshStaleFeeds } from "@/lib/rss";
 
@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
   const rows = (
     feedId
       ? db.prepare(
-          `SELECT a.*, f.title AS feed_title FROM articles a
+          `SELECT ${ARTICLE_COLUMNS}, f.title AS feed_title FROM articles a
            JOIN feeds f ON f.id = a.feed_id
            WHERE a.feed_id = ?
            ORDER BY a.published_at DESC LIMIT ? OFFSET ?`
@@ -59,7 +59,7 @@ export async function GET(request: NextRequest) {
         ? // Explicitly selected folder: show it even when it's hidden from
           // the main feed (include_in_main = 0).
           db.prepare(
-            `SELECT a.*, f.title AS feed_title FROM articles a
+            `SELECT ${ARTICLE_COLUMNS}, f.title AS feed_title FROM articles a
              JOIN feeds f ON f.id = a.feed_id
              WHERE f.enabled = 1 AND f.folder_id = ?
              ORDER BY a.published_at DESC LIMIT ? OFFSET ?`
@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
         : // All publications is genuinely all enabled feeds; folder
           // visibility toggles only shape the For you recommendations.
           db.prepare(
-            `SELECT a.*, f.title AS feed_title FROM articles a
+            `SELECT ${ARTICLE_COLUMNS}, f.title AS feed_title FROM articles a
              JOIN feeds f ON f.id = a.feed_id
              WHERE f.enabled = 1
              ORDER BY a.published_at DESC LIMIT ? OFFSET ?`

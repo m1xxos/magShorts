@@ -1,6 +1,7 @@
 import { refreshStaleFeeds } from "./rss";
 import { backfillArticleImages } from "./articleImages";
 import { prefetchImages } from "./imageCache";
+import { runDueDigests } from "./digest";
 
 const TICK_MS = 10 * 60 * 1000;
 const STARTUP_DELAY_MS = 5_000;
@@ -16,6 +17,10 @@ async function tick(): Promise<void> {
     console.log(
       `[scheduler] feeds refreshed, ${found} page cover(s) found, ${prefetched} prefetched`
     );
+    // Last, and after the refresh: a digest should snapshot the freshest
+    // articles available. Builds whatever is due and missing — a period that
+    // already has one costs a single indexed lookup.
+    await runDueDigests();
   } catch (error) {
     console.error("[scheduler] tick failed:", error);
   }

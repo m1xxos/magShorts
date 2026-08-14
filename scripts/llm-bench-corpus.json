@@ -1,0 +1,15 @@
+{
+  "_comment": "Fixed benchmark corpus: article ids in ./data, five Russian and five English, mixed length and subject. Only the ids live here — the text is read from the local database (and the article page when the feed shipped no body) by the same articleFullText() the digest uses, so the bench measures what production actually sends.",
+  "articleIds": [
+    88595,
+    86984,
+    83938,
+    87781,
+    88763,
+    83432,
+    83483,
+    85441,
+    63172,
+    27086
+  ]
+}

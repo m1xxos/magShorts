@@ -51,6 +51,46 @@ export interface ArticleDto {
   feed_title: string;
 }
 
+export type DigestKind = "daily" | "weekly";
+
+// "rest" is everything the digest ranked but did not lay out — it backs the
+// "Show all N remaining" expansion, and storing it keeps that list part of the
+// frozen snapshot instead of a live re-query.
+export type DigestSection = "lead" | "also" | "quick" | "rest";
+
+export interface DigestItemDto {
+  article_id: number;
+  section: DigestSection;
+  position: number;
+  // Only lead and also carry an annotation; quick hits and the tail are
+  // headline-only by design.
+  summary: string | null;
+  reading_minutes: number | null;
+  title: string;
+  link: string;
+  image_url: string | null;
+  published_at: string | null;
+  topic: string | null;
+  feed_id: number;
+  feed_title: string;
+  site_url: string | null;
+}
+
+export interface DigestDto {
+  kind: DigestKind;
+  period_key: string;
+  period_start: string;
+  period_end: string;
+  built_at: string;
+  three_lines: string[];
+  total_articles: number;
+  total_publications: number;
+  // NULL on both when the annotations came from the extractive fallback.
+  llm_provider: string | null;
+  llm_model: string | null;
+  items: DigestItemDto[];
+}
+
 export interface ReadingItemDto {
   id: number;
   link: string;
