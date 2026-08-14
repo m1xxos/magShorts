@@ -69,7 +69,7 @@ Both the home grid and Shorts scroll infinitely.
 an infinite one. Once a day (and once a week) a background job takes the
 period's articles from the folders that feed **For you**, ranks them with the
 same taste profile, collapses duplicate stories, and freezes the result as a
-snapshot — one **lead** article, three **also worth it**, four **quick hits**,
+snapshot — one **lead** article, six **also worth it**, four **quick hits**,
 an **in three lines** prose summary of the period, and the rest behind
 *Show all N*. Opening the page recomputes nothing, so it reads the same twice,
 and **Daily / Weekly** is a switch between two stored snapshots.
@@ -91,8 +91,8 @@ The blurbs are written by a language model:
 - **No model, no problem.** With `LLM_PROVIDERS` empty (the default) the digest
   still builds — the blurbs become the articles' own opening lines and the
   three lines become counts. Nothing about the app requires an LLM.
-- **Five calls per digest**, all in the background scheduler. No request ever
-  waits on a model.
+- **Eight calls per digest** — one per annotated card plus the summary panel —
+  all in the background scheduler. No request ever waits on a model.
 
 Configure it with `DIGEST_DAILY_AT` (default `08:00`), `DIGEST_WEEKLY_AT`
 (default `Sun 19:00`), `DIGEST_TZ` and the `LLM_*` variables — see

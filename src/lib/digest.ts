@@ -13,11 +13,12 @@ import {
 
 const WINDOW_HOURS: Record<DigestKind, number> = { daily: 24, weekly: 24 * 7 };
 
-// The layout the design calls for: one lead, three runners-up, four quick
-// hits, and everything left over behind "Show all N".
+// One lead, the runners-up, four quick hits, and everything left over behind
+// "Show all N". Every lead and also card costs one LLM call, so `also` sets
+// the per-digest call count: 1 + also + 1 for the summary panel.
 const SECTION_SIZES: Record<Exclude<DigestSection, "rest">, number> = {
   lead: 1,
-  also: 3,
+  also: 6,
   quick: 4,
 };
 
