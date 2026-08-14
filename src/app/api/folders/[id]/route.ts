@@ -34,13 +34,20 @@ export async function PATCH(
     updates.push("include_in_main = ?");
     values.push(body.include_in_main ? 1 : 0);
   }
+  if (typeof body.include_in_digest === "boolean") {
+    updates.push("include_in_digest = ?");
+    values.push(body.include_in_digest ? 1 : 0);
+  }
   if (typeof body.position === "number" && Number.isInteger(body.position)) {
     updates.push("position = ?");
     values.push(body.position);
   }
   if (updates.length === 0) {
     return NextResponse.json(
-      { error: "Nothing to update: pass name, include_in_main or position" },
+      {
+        error:
+          "Nothing to update: pass name, include_in_main, include_in_digest or position",
+      },
       { status: 400 }
     );
   }

@@ -4,6 +4,7 @@ import { rankForDigest, type DigestCandidate } from "./recommend";
 import { fetchPageHtml } from "./articleImages";
 import { decodeEntities } from "./rss";
 import { complete, llmConfigured } from "./llm";
+import { getCountSetting, getSetting } from "./settings";
 import {
   type DigestDto,
   type DigestItemDto,
@@ -13,14 +14,20 @@ import {
 
 const WINDOW_HOURS: Record<DigestKind, number> = { daily: 24, weekly: 24 * 7 };
 
-// One lead, the runners-up, four quick hits, and everything left over behind
+// One lead, the runners-up, the quick hits, and everything left over behind
 // "Show all N". Every lead and also card costs one LLM call, so `also` sets
-// the per-digest call count: 1 + also + 1 for the summary panel.
-const SECTION_SIZES: Record<Exclude<DigestSection, "rest">, number> = {
-  lead: 1,
-  also: 6,
-  quick: 4,
-};
+// the per-digest call count: 1 + also + 1 for the summary panel. Capped
+// because that cost is paid sequentially on whatever box runs the model.
+const LEAD_COUNT = 1;
+const ALSO_MAX = 12;
+const QUICK_MAX = 20;
+
+export function digestSizes(): { also: number; quick: number } {
+  return {
+    also: getCountSetting("digest_also_count", 0, ALSO_MAX),
+    quick: getCountSetting("digest_quick_count", 0, QUICK_MAX),
+  };
+}
 
 // Cosine above which two articles are the same story and only the
 // better-ranked one reaches the page.
@@ -50,7 +57,15 @@ interface ZonedNow {
 const WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 
 export function digestTimeZone(): string {
-  return process.env.DIGEST_TZ?.trim() || process.env.TZ?.trim() || "UTC";
+  return getSetting("digest_tz") || "UTC";
+}
+
+export function digestSchedule(): { daily: string; weekly: string; timeZone: string } {
+  return {
+    daily: getSetting("digest_daily_at"),
+    weekly: getSetting("digest_weekly_at"),
+    timeZone: digestTimeZone(),
+  };
 }
 
 function zonedNow(now: Date, timeZone: string): ZonedNow {
@@ -95,10 +110,10 @@ function parseTime(value: string | undefined, fallback: number): number {
 export function duePeriodKey(kind: DigestKind, now = new Date()): string {
   const local = zonedNow(now, digestTimeZone());
   if (kind === "daily") {
-    const at = parseTime(process.env.DIGEST_DAILY_AT, 8 * 60);
+    const at = parseTime(getSetting("digest_daily_at"), 8 * 60);
     return local.minutes >= at ? local.date : shiftDate(local.date, -1);
   }
-  const spec = process.env.DIGEST_WEEKLY_AT?.trim() || "Sun 19:00";
+  const spec = getSetting("digest_weekly_at") || "Sun 19:00";
   const at = parseTime(spec, 19 * 60);
   const wanted = WEEKDAYS.indexOf(spec.toLowerCase().slice(0, 3));
   const target = wanted >= 0 ? wanted : 0;
@@ -388,19 +403,16 @@ async function doBuildDigest(
   const clusters = clusterStories(ranked);
   const publications = new Set(ranked.map((article) => article.feed_id)).size;
 
-  const leadCount = SECTION_SIZES.lead;
-  const alsoCount = SECTION_SIZES.also;
-  const quickCount = SECTION_SIZES.quick;
-
-  const lead = clusters.slice(0, leadCount);
-  const also = clusters.slice(leadCount, leadCount + alsoCount);
+  const { also: alsoCount, quick: quickCount } = digestSizes();
+  const lead = clusters.slice(0, LEAD_COUNT);
+  const also = clusters.slice(LEAD_COUNT, LEAD_COUNT + alsoCount);
   const quick = clusters.slice(
-    leadCount + alsoCount,
-    leadCount + alsoCount + quickCount
+    LEAD_COUNT + alsoCount,
+    LEAD_COUNT + alsoCount + quickCount
   );
-  const rest = clusters.slice(leadCount + alsoCount + quickCount);
+  const rest = clusters.slice(LEAD_COUNT + alsoCount + quickCount);
 
-  // Five calls, always: one lead, three cards, one summary panel.
+  // One call per annotated card, plus one for the summary panel.
   const annotated: Array<{ section: DigestSection; entry: Annotated }> = [];
   for (const cluster of lead) {
     annotated.push({

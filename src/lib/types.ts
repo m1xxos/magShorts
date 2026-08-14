@@ -16,6 +16,11 @@ export interface SettingsForm {
   direct_domains: string;
   archive_domains: string;
   default_view: string;
+  digest_also_count: string;
+  digest_quick_count: string;
+  digest_daily_at: string;
+  digest_weekly_at: string;
+  digest_tz: string;
 }
 
 // How densely the home grid draws its articles.
@@ -35,6 +40,7 @@ export interface FolderDto {
   id: number;
   name: string;
   include_in_main: number;
+  include_in_digest: number;
   position: number;
   feed_count: number;
 }

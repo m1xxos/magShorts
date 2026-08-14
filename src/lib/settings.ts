@@ -9,7 +9,14 @@ export type SettingKey =
   | "archive_domains"
   // Which view the home page opens with: "" = All publications,
   // "forYou", or "folder:<id>".
-  | "default_view";
+  | "default_view"
+  // Digest shape and schedule. Each falls back to its env var, so a deployment
+  // can still be configured entirely from the environment.
+  | "digest_also_count"
+  | "digest_quick_count"
+  | "digest_daily_at"
+  | "digest_weekly_at"
+  | "digest_tz";
 
 export const SETTING_KEYS: SettingKey[] = [
   "omnivore_url",
@@ -19,6 +26,11 @@ export const SETTING_KEYS: SettingKey[] = [
   "direct_domains",
   "archive_domains",
   "default_view",
+  "digest_also_count",
+  "digest_quick_count",
+  "digest_daily_at",
+  "digest_weekly_at",
+  "digest_tz",
 ];
 
 const ENV_FALLBACKS: Record<SettingKey, string | undefined> = {
@@ -29,6 +41,13 @@ const ENV_FALLBACKS: Record<SettingKey, string | undefined> = {
   direct_domains: process.env.DIRECT_DOMAINS,
   archive_domains: process.env.ARCHIVE_DOMAINS,
   default_view: undefined,
+  digest_also_count: undefined,
+  digest_quick_count: undefined,
+  digest_daily_at: process.env.DIGEST_DAILY_AT,
+  digest_weekly_at: process.env.DIGEST_WEEKLY_AT,
+  // A container's clock is UTC unless TZ says otherwise, and an 08:00 digest
+  // in the wrong zone is the whole feature landing at the wrong hour.
+  digest_tz: process.env.DIGEST_TZ ?? process.env.TZ,
 };
 
 const DEFAULTS: Partial<Record<SettingKey, string>> = {
@@ -36,6 +55,11 @@ const DEFAULTS: Partial<Record<SettingKey, string>> = {
   archive_url: "https://web.archive.org/web/",
   direct_domains: "habr.com",
   archive_domains: "nytimes.com",
+  digest_also_count: "6",
+  digest_quick_count: "4",
+  digest_daily_at: "08:00",
+  digest_weekly_at: "Sun 19:00",
+  digest_tz: "UTC",
 };
 
 function matchesDomainList(articleUrl: string, key: SettingKey): boolean {
@@ -65,6 +89,18 @@ export function getSetting(key: SettingKey): string {
     .prepare("SELECT value FROM settings WHERE key = ?")
     .get(key) as { value: string } | undefined;
   return row?.value ?? ENV_FALLBACKS[key] ?? DEFAULTS[key] ?? "";
+}
+
+// A count that a hand-edited setting can't push somewhere absurd — every extra
+// annotated card is another model call.
+export function getCountSetting(
+  key: SettingKey,
+  min: number,
+  max: number
+): number {
+  const parsed = Number.parseInt(getSetting(key), 10);
+  if (!Number.isFinite(parsed)) return Number(DEFAULTS[key] ?? min);
+  return Math.min(max, Math.max(min, parsed));
 }
 
 export function setSetting(key: SettingKey, value: string): void {

@@ -113,14 +113,18 @@ export interface Recommendations {
   coldStart: boolean;
 }
 
+// Each surface honors its own folder toggle: For you reads include_in_main,
+// the digest reads include_in_digest.
+type VisibilityColumn = "include_in_main" | "include_in_digest";
+
 interface CandidateFilter {
   excludeViews: boolean;
   // Restrict to one folder (explicit selection ignores the folder's
-  // include_in_main toggle).
+  // visibility toggles).
   folderId?: number;
-  // Hide folders whose visibility toggle is off — only the For you grid
-  // honors this; All publications and Shorts always span everything.
-  respectIncludeInMain?: boolean;
+  // Hide folders switched off for this surface. All publications and Shorts
+  // pass nothing here and always span everything.
+  visibleIn?: VisibilityColumn;
 }
 
 function fetchCandidates(
@@ -138,8 +142,9 @@ function fetchCandidates(
   if (filter.folderId !== undefined) {
     folderClause = "AND f.folder_id = ?";
     params.push(filter.folderId);
-  } else if (filter.respectIncludeInMain) {
-    folderClause = "AND (f.folder_id IS NULL OR fo.include_in_main = 1)";
+  } else if (filter.visibleIn) {
+    // Column name comes from a closed union, never from a request.
+    folderClause = `AND (f.folder_id IS NULL OR fo.${filter.visibleIn} = 1)`;
   }
   return getDb()
     .prepare(
@@ -222,7 +227,7 @@ export function recommendArticles(
   const hours = WINDOW_HOURS[window];
   const candidates = fetchCandidates(userId, hours, {
     excludeViews: false,
-    respectIncludeInMain: true,
+    visibleIn: "include_in_main",
   });
   const { vector: profile } = buildProfile(userId);
   const scored = scoreCandidates(candidates, profile, hours * 3_600_000);
@@ -262,7 +267,7 @@ export function rankForDigest(
 ): DigestCandidate[] {
   const candidates = fetchCandidates(userId, hours, {
     excludeViews: false,
-    respectIncludeInMain: true,
+    visibleIn: "include_in_digest",
   });
   const { vector: profile } = buildProfile(userId);
   return diversify(scoreCandidates(candidates, profile, hours * 3_600_000));

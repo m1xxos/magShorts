@@ -12,7 +12,49 @@ const EDITABLE: Array<keyof SettingsForm> = [
   "archive_url",
   "omnivore_url",
   "omnivore_api_key",
+  "digest_also_count",
+  "digest_quick_count",
+  "digest_daily_at",
+  "digest_weekly_at",
+  "digest_tz",
 ];
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+// "Sun 19:00" → ["Sun", "19:00"], tolerating whatever is in the setting.
+function splitWeekly(value: string): [string, string] {
+  const match = value.trim().match(/^([A-Za-z]{3})\w*\s*(\d{1,2}:\d{2})?/);
+  return [match?.[1] ?? "Sun", match?.[2] ?? "19:00"];
+}
+
+function Switch({
+  checked,
+  title,
+  onClick,
+}: {
+  checked: boolean;
+  title: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      title={title}
+      onClick={onClick}
+      className={`relative h-[18px] w-8 shrink-0 rounded-full transition-colors ${
+        checked ? "bg-clay" : "bg-line"
+      }`}
+    >
+      <span
+        className={`absolute top-[2px] h-[14px] w-[14px] rounded-full bg-white shadow-sm transition-all ${
+          checked ? "left-[16px]" : "left-[2px]"
+        }`}
+      />
+    </button>
+  );
+}
 
 export function SettingsDialog({
   onClose,
@@ -36,6 +78,31 @@ export function SettingsDialog({
       });
   }, []);
 
+  const [weeklyDay, weeklyTime] = splitWeekly(form?.digest_weekly_at ?? "");
+  // 1 lead + every "also" card + the three-lines panel.
+  const llmCalls = 2 + (Number.parseInt(form?.digest_also_count ?? "", 10) || 0);
+
+  function setField(key: keyof SettingsForm, value: string) {
+    setForm((prev) => (prev ? { ...prev, [key]: value } : prev));
+  }
+
+  // Folder toggles are written straight through rather than on save: they live
+  // on the folder, not in the settings blob, and the switch reading as applied
+  // is the whole point of a switch.
+  async function toggleDigestFolder(folder: FolderDto) {
+    const next = folder.include_in_digest ? 0 : 1;
+    setFolders((prev) =>
+      prev.map((entry) =>
+        entry.id === folder.id ? { ...entry, include_in_digest: next } : entry
+      )
+    );
+    await fetch(`/api/folders/${folder.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ include_in_digest: next === 1 }),
+    });
+  }
+
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!form) return;
@@ -53,6 +120,27 @@ export function SettingsDialog({
     } finally {
       setBusy(false);
     }
+  }
+
+  function count(
+    label: string,
+    key: keyof SettingsForm,
+    min: number,
+    max: number
+  ) {
+    return (
+      <label className="block">
+        <span className="text-[13px] font-medium text-ink-soft">{label}</span>
+        <input
+          type="number"
+          min={min}
+          max={max}
+          value={form?.[key] ?? ""}
+          onChange={(event) => setField(key, event.target.value)}
+          className="mt-1.5 w-full rounded-xl border border-line bg-paper px-4 py-2.5 text-sm text-ink outline-none focus:border-clay"
+        />
+      </label>
+    );
   }
 
   function field(
@@ -119,6 +207,102 @@ export function SettingsDialog({
               What the home page opens with.
             </span>
           </label>
+
+          <p className="pt-2 text-[11px] font-medium tracking-[0.14em] text-ink-faint uppercase">
+            Digest
+          </p>
+
+          <div>
+            <span className="text-[13px] font-medium text-ink-soft">Sources</span>
+            <span className="mt-1 mb-2 block text-[12px] text-ink-faint">
+              Which folders the digest reads. Separate from For you — a folder
+              can feed one and not the other. Feeds outside any folder always
+              count.
+            </span>
+            {folders.length === 0 ? (
+              <p className="text-[12px] text-ink-faint">No folders yet.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {folders.map((folder) => (
+                  <div
+                    key={folder.id}
+                    className="flex items-center gap-3 rounded-xl border border-line px-3 py-2"
+                  >
+                    <span className="min-w-0 flex-1 truncate text-sm text-ink-soft">
+                      {folder.name}
+                    </span>
+                    <span className="text-[11px] tabular-nums text-ink-faint">
+                      {folder.feed_count}
+                    </span>
+                    <Switch
+                      checked={Boolean(folder.include_in_digest)}
+                      title={
+                        folder.include_in_digest
+                          ? "In the digest — click to exclude"
+                          : "Excluded from the digest — click to include"
+                      }
+                      onClick={() => toggleDigestFolder(folder)}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            {count("Also worth it", "digest_also_count", 0, 12)}
+            {count("Quick hits", "digest_quick_count", 0, 20)}
+          </div>
+          <p className="-mt-2 text-[12px] text-ink-faint">
+            The lead and every “also” card is written by the model, so this
+            digest costs <strong className="font-medium">{llmCalls}</strong>{" "}
+            model call{llmCalls === 1 ? "" : "s"} a day. Quick hits are
+            headline-only and free.
+          </p>
+
+          <div className="grid grid-cols-2 gap-3">
+            {field("Daily at", "digest_daily_at", "08:00")}
+            <label className="block">
+              <span className="text-[13px] font-medium text-ink-soft">
+                Weekly on
+              </span>
+              <div className="mt-1.5 flex gap-2">
+                <select
+                  value={weeklyDay}
+                  onChange={(event) =>
+                    setField(
+                      "digest_weekly_at",
+                      `${event.target.value} ${weeklyTime}`
+                    )
+                  }
+                  className="w-full rounded-xl border border-line bg-paper px-3 py-2.5 text-sm text-ink outline-none focus:border-clay"
+                >
+                  {WEEKDAYS.map((day) => (
+                    <option key={day} value={day}>
+                      {day}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  value={weeklyTime}
+                  onChange={(event) =>
+                    setField(
+                      "digest_weekly_at",
+                      `${weeklyDay} ${event.target.value}`
+                    )
+                  }
+                  placeholder="19:00"
+                  className="w-24 rounded-xl border border-line bg-paper px-3 py-2.5 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-clay"
+                />
+              </div>
+            </label>
+          </div>
+          {field(
+            "Time zone",
+            "digest_tz",
+            "Europe/Moscow",
+            "An IANA name. A container's clock is UTC unless you say otherwise."
+          )}
 
           <p className="pt-2 text-[11px] font-medium tracking-[0.14em] text-ink-faint uppercase">
             How articles open

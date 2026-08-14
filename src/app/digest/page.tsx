@@ -20,6 +20,7 @@ import { FeedAvatar } from "@/components/FeedAvatar";
 import { TopBar } from "@/components/TopBar";
 import { Toast, useToast } from "@/components/Toast";
 import { BookmarkIcon } from "@/components/SwipeableCard";
+import { SettingsDialog } from "@/components/SettingsDialog";
 import { useUser } from "@/lib/useUser";
 
 interface Schedule {
@@ -102,6 +103,7 @@ export default function DigestPage() {
   const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [skipped, setSkipped] = useState<string[]>([]);
   const [showAll, setShowAll] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const { toast, showToast } = useToast();
 
   // A kind is "loaded" once its key exists, even when the value is null — a
@@ -432,23 +434,39 @@ export default function DigestPage() {
                 </div>
               )}
 
-              <div className="rounded-[14px] border border-dashed border-line p-[18px]">
+              <button
+                onClick={() => setSettingsOpen(true)}
+                className="rounded-[14px] border border-dashed border-line p-[18px] text-left transition hover:border-clay"
+              >
                 <p className="mb-2 text-[13px] font-medium text-ink">
                   Digest settings
                 </p>
                 <p className="text-[12.5px] leading-[1.5] text-ink-faint">
                   {schedule
-                    ? `Built at ${schedule.daily} from the folders that feed For you. Weekly lands ${schedule.weekly} (${schedule.timeZone}).`
-                    : "Built from the folders that feed For you."}
+                    ? `Built at ${schedule.daily}, weekly on ${schedule.weekly} (${schedule.timeZone}), from the folders you picked as sources.`
+                    : "Built from the folders you picked as sources."}
                   {digest.llm_provider
                     ? ` Annotations by ${digest.llm_model}.`
                     : " No model configured — annotations are the articles' own opening lines."}
                 </p>
-              </div>
+                <p className="mt-2 text-[12.5px] text-clay">Change →</p>
+              </button>
             </div>
           </div>
         )}
       </main>
+      {settingsOpen && (
+        <SettingsDialog
+          onClose={() => setSettingsOpen(false)}
+          onSaved={() => {
+            // Sources, size and schedule all shape the *next* build — this
+            // snapshot is frozen, so say so rather than let the page look
+            // broken for not changing.
+            setLoaded({});
+            showToast("Saved — applies to the next digest");
+          }}
+        />
+      )}
       <Toast toast={toast} />
     </div>
   );

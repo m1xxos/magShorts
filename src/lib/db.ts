@@ -17,6 +17,7 @@ export interface Folder {
   id: number;
   name: string;
   include_in_main: number;
+  include_in_digest: number;
   position: number;
   created_at: string;
 }
@@ -209,6 +210,20 @@ export function getDb(): Database.Database {
   // Rows ingested before this landed stay NULL and fall back to a page fetch.
   if (!articleColumns.some((column) => column.name === "content")) {
     db.exec("ALTER TABLE articles ADD COLUMN content TEXT");
+  }
+
+  // The digest picks its sources independently of For you: "what should I read
+  // now" and "what did I miss overnight" are different questions, and a folder
+  // of blogs can reasonably answer only the second. Seeded from the For you
+  // toggle so switching to two columns changes nothing until asked.
+  const folderColumns = db.prepare("PRAGMA table_info(folders)").all() as Array<{
+    name: string;
+  }>;
+  if (!folderColumns.some((column) => column.name === "include_in_digest")) {
+    db.exec(`
+      ALTER TABLE folders ADD COLUMN include_in_digest INTEGER NOT NULL DEFAULT 1;
+      UPDATE folders SET include_in_digest = include_in_main;
+    `);
   }
 
   // reading_list v1 was single-user with UNIQUE(link); rebuild it per-user.

@@ -47,9 +47,14 @@ export async function POST(request: NextRequest) {
       { status: 409 }
     );
   }
+  // A new folder starts with both toggles agreeing, the same way the
+  // include_in_digest migration seeded the existing ones; the digest's
+  // sources are then adjusted on their own in Settings.
   const result = db
-    .prepare("INSERT INTO folders (name, include_in_main) VALUES (?, ?)")
-    .run(name, includeInMain ? 1 : 0);
+    .prepare(
+      "INSERT INTO folders (name, include_in_main, include_in_digest) VALUES (?, ?, ?)"
+    )
+    .run(name, includeInMain ? 1 : 0, includeInMain ? 1 : 0);
   const folder = db
     .prepare("SELECT *, 0 AS feed_count FROM folders WHERE id = ?")
     .get(Number(result.lastInsertRowid));
