@@ -24,4 +24,7 @@ services:
       - LLM_GROQ_KEY=${LLM_GROQ_KEY:-}
       # Only provider calls go through this, and never one on localhost/LAN.
       - LLM_PROXY_URL=${LLM_PROXY_URL:-}
+      # Ranking gets its own model so it doesn't share the annotations' budget.
+      - LLM_RANK_PROVIDERS=${LLM_RANK_PROVIDERS:-}
+      - DIGEST_RERANK=${DIGEST_RERANK:-}
     restart: unless-stopped

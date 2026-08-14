@@ -77,6 +77,29 @@ and **Daily / Weekly** is a switch between two stored snapshots.
 **Read here** opens the article (and counts as a taste signal), **Read later**
 saves it, and **Skip** removes it from the digest for good.
 
+### How the seven get chosen
+
+Four layers, each of which degrades to the one below it:
+
+1. **Ranking** — the For-you taste profile (cosine over article embeddings),
+   a recency bonus and a per-feed repeat penalty, then duplicate stories are
+   collapsed by embedding similarity so one event can't take three slots.
+2. **Commercial roundups are demoted** — promo codes, coupons, "N Best …"
+   buying guides, sale posts. Embeddings put these right next to real
+   technology writing, so they're recognised by title shape instead, and the
+   patterns are narrow enough to leave "FTC Strikes Deals to Ignore Unlawful
+   Credit Discrimination" alone. Demoted rather than dropped, and never
+   allowed to be the lead.
+3. **Sources earn their place** — every feed gets a small score offset from
+   your own reactions to it (saves and opens against skips and dislikes),
+   smoothed toward the average so a couple of skips can't condemn a
+   publication and a feed you've never rated sits at exactly zero. A source
+   you keep skipping quietly fades instead of needing to be switched off.
+4. **The model picks the cards** — one call ranks the top 30 stories against
+   the titles you actually saved, with the lead going to the most significant
+   story and at least two slots to things you'd pick for yourself. It can only
+   reorder: an unparseable or failed answer leaves layers 1–3 in charge.
+
 The blurbs are written by a language model:
 
 - **Local by default.** Point `LLM_PROVIDERS` at an Ollama instance on the host
@@ -91,8 +114,14 @@ The blurbs are written by a language model:
 - **No model, no problem.** With `LLM_PROVIDERS` empty (the default) the digest
   still builds — the blurbs become the articles' own opening lines and the
   three lines become counts. Nothing about the app requires an LLM.
-- **Eight calls per digest** — one per annotated card plus the summary panel —
-  all in the background scheduler. No request ever waits on a model.
+- **Nine calls per digest** — one to rank, one per annotated card, one for the
+  summary panel — all in the background scheduler. No request ever waits on a
+  model.
+- **Paced.** Hosted providers meter tokens per minute and a digest spends its
+  budget in one burst, so the client reads each provider's `x-ratelimit-*`
+  headers and waits for the window to roll rather than walking into a 429.
+  Ranking can be pointed at a second model with `LLM_RANK_PROVIDERS`, giving
+  it a separate budget from the annotations.
 
 Configure it with `DIGEST_DAILY_AT` (default `08:00`), `DIGEST_WEEKLY_AT`
 (default `Sun 19:00`), `DIGEST_TZ` and the `LLM_*` variables — see

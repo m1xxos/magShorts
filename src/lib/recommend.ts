@@ -258,6 +258,93 @@ export function recommendArticles(
 
 export type DigestCandidate = Article & { embedding: Buffer };
 
+// Promo codes, buying guides and sale roundups. Embeddings put these right
+// next to real technology writing — the subject matter genuinely is the same —
+// so they have to be recognised by shape instead.
+//
+// Deliberately narrow, and tuned against 5 600 real titles: a bare \bdeals?\b
+// would swallow "FTC Strikes Deals to Ignore Unlawful Credit Discrimination"
+// and most of a month of Iran nuclear-deal coverage. Every pattern here needs
+// commerce context — a price, a discount, a month, a "best N" shape.
+const COMMERCE_PATTERNS = [
+  /\bpromo code/i,
+  /\bcoupons?\b/i,
+  /\bdiscount codes?\b/i,
+  /\d+% off\b/i,
+  /\$\d[\d,]* off\b/i,
+  /\bon sale\b/i,
+  /\bflash sale\b/i,
+  /\b(black friday|cyber monday|prime day)\b/i,
+  /^(the )?\d+ best\b/i,
+  /\bbest\b[^,]{0,45}\b(of|in|for) 20\d\d/i,
+  /^best\b[^,]{0,45}\bcodes?\b/i,
+  /,\s*ranked\b/i,
+  /\bgift guide\b/i,
+  /\bdeals?\s+20\d\d\b/i,
+  /\bdeals\b[^.]{0,30}\b(sale|off|discount|save)\b/i,
+  /^\d+ (great |top |best )?deals\b/i,
+  /\bdeals? (for|in) (january|february|march|april|may|june|july|august|september|october|november|december|20\d\d)/i,
+];
+
+// Exported so the digest can also keep these out of the lead slot: demoted is
+// enough to lose to real writing, but a slow news day should still never open
+// with a mattress roundup.
+export function isCommerceRoundup(title: string): boolean {
+  return COMMERCE_PATTERNS.some((pattern) => pattern.test(title));
+}
+
+// Twice the per-feed repeat penalty: enough to lose to any comparable article,
+// not enough to bury a roundup the user actually keeps opening.
+const COMMERCE_PENALTY = 0.06;
+
+// How a source's own track record shifts its articles. Smoothed toward the
+// global rate with a prior worth this many articles, so a couple of skips
+// can't condemn a publication.
+const FEED_PRIOR_ARTICLES = 10;
+const FEED_WEIGHT_STRENGTH = 0.3;
+const FEED_WEIGHT_CLAMP = 0.08;
+
+// Per-feed score offsets learned from the user's own reactions. A feed with no
+// history gets exactly 0 — on prod that is 79 of 86 feeds, and the layer stays
+// silent until it has something to say.
+export function feedWeights(userId: number): Map<number, number> {
+  const rows = getDb()
+    .prepare(
+      // Same "latest event per link wins" rule the taste profile uses, and
+      // 'view' stays weightless here too.
+      `SELECT e.feed_id AS feed_id,
+              SUM(e.action IN ('save','like','open','dwell')) AS plus,
+              SUM(e.action IN ('skip','dislike'))             AS minus
+       FROM user_events e
+       WHERE e.user_id = ? AND e.feed_id IS NOT NULL
+         AND e.id = (
+           SELECT MAX(e2.id) FROM user_events e2
+           WHERE e2.user_id = e.user_id AND e2.link = e.link
+         )
+       GROUP BY e.feed_id`
+    )
+    .all(userId) as Array<{ feed_id: number; plus: number; minus: number }>;
+
+  const totalPlus = rows.reduce((sum, row) => sum + row.plus, 0);
+  const totalRated = rows.reduce((sum, row) => sum + row.plus + row.minus, 0);
+  const weights = new Map<number, number>();
+  if (totalRated === 0) return weights;
+
+  const global = totalPlus / totalRated;
+  for (const row of rows) {
+    const rated = row.plus + row.minus;
+    if (rated === 0) continue;
+    const smoothed =
+      (row.plus + FEED_PRIOR_ARTICLES * global) / (rated + FEED_PRIOR_ARTICLES);
+    const offset = FEED_WEIGHT_STRENGTH * (smoothed - global);
+    weights.set(
+      row.feed_id,
+      Math.max(-FEED_WEIGHT_CLAMP, Math.min(FEED_WEIGHT_CLAMP, offset))
+    );
+  }
+  return weights;
+}
+
 // The digest's candidate pool: the same folders, window and exclusions the For
 // you grid uses, ranked the same way, but returned whole and with embeddings
 // intact so the caller can cluster the stories before laying them out.
@@ -270,7 +357,27 @@ export function rankForDigest(
     visibleIn: "include_in_digest",
   });
   const { vector: profile } = buildProfile(userId);
-  return diversify(scoreCandidates(candidates, profile, hours * 3_600_000));
+  const scored = scoreCandidates(candidates, profile, hours * 3_600_000);
+
+  // Two adjustments the grid and Shorts don't get: the digest has seven slots
+  // and can't afford to spend one on a coupon page or on a publication this
+  // reader has been rejecting for weeks.
+  const weights = feedWeights(userId);
+  let demoted = 0;
+  for (const entry of scored) {
+    entry.score += weights.get(entry.article.feed_id) ?? 0;
+    if (isCommerceRoundup(entry.article.title)) {
+      entry.score -= COMMERCE_PENALTY;
+      demoted++;
+    }
+  }
+  if (demoted > 0) {
+    console.log(
+      `[digest] demoted ${demoted} commercial roundup(s) of ${scored.length} candidates`
+    );
+  }
+
+  return diversify(scored);
 }
 
 const SHORTS_MONTH_INSERT_EVERY = 5;

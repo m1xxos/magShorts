@@ -16,7 +16,8 @@ export type SettingKey =
   | "digest_quick_count"
   | "digest_daily_at"
   | "digest_weekly_at"
-  | "digest_tz";
+  | "digest_tz"
+  | "digest_rerank";
 
 export const SETTING_KEYS: SettingKey[] = [
   "omnivore_url",
@@ -31,6 +32,7 @@ export const SETTING_KEYS: SettingKey[] = [
   "digest_daily_at",
   "digest_weekly_at",
   "digest_tz",
+  "digest_rerank",
 ];
 
 const ENV_FALLBACKS: Record<SettingKey, string | undefined> = {
@@ -48,6 +50,7 @@ const ENV_FALLBACKS: Record<SettingKey, string | undefined> = {
   // A container's clock is UTC unless TZ says otherwise, and an 08:00 digest
   // in the wrong zone is the whole feature landing at the wrong hour.
   digest_tz: process.env.DIGEST_TZ ?? process.env.TZ,
+  digest_rerank: process.env.DIGEST_RERANK,
 };
 
 const DEFAULTS: Partial<Record<SettingKey, string>> = {
@@ -60,6 +63,8 @@ const DEFAULTS: Partial<Record<SettingKey, string>> = {
   digest_daily_at: "08:00",
   digest_weekly_at: "Sun 19:00",
   digest_tz: "UTC",
+  // "off" keeps the scored order and saves the one ranking call.
+  digest_rerank: "on",
 };
 
 function matchesDomainList(articleUrl: string, key: SettingKey): boolean {

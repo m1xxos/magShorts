@@ -21,6 +21,7 @@ export interface SettingsForm {
   digest_daily_at: string;
   digest_weekly_at: string;
   digest_tz: string;
+  digest_rerank: string;
 }
 
 // How densely the home grid draws its articles.

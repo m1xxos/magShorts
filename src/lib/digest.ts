@@ -1,9 +1,13 @@
 import { getDb, type Article } from "./db";
 import { bufferToVector, EMBEDDING_DIM } from "./embeddings";
-import { rankForDigest, type DigestCandidate } from "./recommend";
+import {
+  isCommerceRoundup,
+  rankForDigest,
+  type DigestCandidate,
+} from "./recommend";
 import { fetchPageHtml } from "./articleImages";
 import { decodeEntities } from "./rss";
-import { complete, llmConfigured } from "./llm";
+import { complete, llmConfigured, rankProviders } from "./llm";
 import { getCountSetting, getSetting } from "./settings";
 import {
   type DigestDto,
@@ -229,6 +233,121 @@ const THREE_LINES_SYSTEM =
   "with exactly three lines, one sentence each, separated by newlines. Write " +
   "in English. No markdown, no numbering, no preamble.";
 
+// --------------------------------------------------------------- reranking
+
+// How many cluster representatives the model gets to choose from. Thirty with
+// one-line summaries is about 3 000 tokens — a quarter of a minute's budget,
+// where the whole day's pool with summaries would be 11 600 and a week's
+// 43 000.
+const SHORTLIST_SIZE = 30;
+
+const RERANK_SYSTEM =
+  "You are choosing the articles worth one reader's five minutes this " +
+  "morning, out of everything their feeds published. You are given the " +
+  "candidates and a sample of what this reader saved or liked recently.\n\n" +
+  "Position 1 is the lead: the single most significant thing here — " +
+  "something that happened, or a story several publications ran at once.\n" +
+  "Of the remaining picks, at least two must be ones this particular reader " +
+  "would choose for themselves even if they are not important news.\n" +
+  "Never pick shopping content: promo codes, deals, buying guides, product " +
+  "roundups, gift guides.\n" +
+  "Prefer variety of subject and of publication.\n\n" +
+  "Answer with the numbers only, separated by commas, best first. No words, " +
+  "no explanation, no formatting.";
+
+// The reader's taste, stated as evidence rather than as an adjective: the
+// titles they actually kept. Cheaper and far more specific than asking a model
+// to describe them first.
+function tasteTitles(userId: number, limit = 15): string[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT DISTINCT e.title FROM user_events e
+       WHERE e.user_id = ? AND e.title IS NOT NULL AND e.title != ''
+         AND e.action IN ('save','like')
+       ORDER BY e.id DESC LIMIT ?`
+    )
+    .all(userId, limit) as Array<{ title: string }>;
+  return rows.map((row) => row.title);
+}
+
+function shortlistLine(cluster: Cluster, index: number): string {
+  const article = cluster.lead;
+  const teaser = firstSentences(article.summary ?? "", 1).slice(0, 160);
+  return (
+    `[${index + 1}] ${article.feed_title ?? "?"} · ${article.title}` +
+    (teaser ? ` — ${teaser}` : "") +
+    (cluster.size > 1 ? ` (+${cluster.size - 1} similar)` : "")
+  );
+}
+
+// Reorders the clusters so the model's picks come first. It can only reorder:
+// an unparseable, empty or truncated answer leaves the ranking exactly as the
+// scoring layers left it, and every index is validated before use.
+async function rerankClusters(
+  clusters: Cluster[],
+  userId: number,
+  need: number
+): Promise<Cluster[]> {
+  if (getSetting("digest_rerank") === "off") return clusters;
+  const providers = rankProviders();
+  if (providers.length === 0 || clusters.length <= need) return clusters;
+
+  const shortlist = clusters.slice(0, SHORTLIST_SIZE);
+  const taste = tasteTitles(userId);
+  const prompt =
+    (taste.length > 0
+      ? `This reader recently saved or liked:\n${taste
+          .map((title) => `- ${title}`)
+          .join("\n")}\n\n`
+      : "") +
+    `Pick ${need} of these ${shortlist.length} candidates:\n` +
+    shortlist.map(shortlistLine).join("\n");
+
+  const result = await complete(RERANK_SYSTEM, prompt, 120, providers);
+  if (!result) return clusters;
+
+  const picked: Cluster[] = [];
+  const seen = new Set<number>();
+  for (const match of result.text.matchAll(/\d+/g)) {
+    const index = Number(match[0]) - 1;
+    if (index < 0 || index >= shortlist.length || seen.has(index)) continue;
+    seen.add(index);
+    picked.push(shortlist[index]);
+    if (picked.length === need) break;
+  }
+  if (picked.length === 0) {
+    console.warn(`[digest] rerank returned nothing usable: ${result.text.slice(0, 80)}`);
+    return clusters;
+  }
+
+  console.log(
+    `[digest] reranked by ${result.model}: picked ${[...seen].map((i) => i + 1).join(",")}`
+  );
+  // Anything it didn't pick keeps its scored order behind the picks, so a
+  // short answer still fills the digest.
+  return [...picked, ...clusters.filter((cluster) => !picked.includes(cluster))];
+}
+
+// Demotion alone can still leave a roundup on top of a quiet day, and the
+// digest should never *open* with a coupon page. Swaps in the best editorial
+// story instead, leaving everything else where it was.
+function promoteEditorialLead(clusters: Cluster[]): Cluster[] {
+  if (clusters.length === 0 || !isCommerceRoundup(clusters[0].lead.title)) {
+    return clusters;
+  }
+  const replacement = clusters.findIndex(
+    (cluster) => !isCommerceRoundup(cluster.lead.title)
+  );
+  if (replacement < 0) return clusters;
+  const reordered = [...clusters];
+  [reordered[0], reordered[replacement]] = [
+    reordered[replacement],
+    reordered[0],
+  ];
+  console.log(`[digest] lead was a roundup — promoted "${reordered[0].lead.title.slice(0, 50)}"`);
+  return reordered;
+}
+
 interface Annotated {
   article: DigestCandidate;
   summary: string;
@@ -400,10 +519,13 @@ async function doBuildDigest(
   const ranked = rankForDigest(userId, hours);
   if (ranked.length === 0) return null;
 
-  const clusters = clusterStories(ranked);
+  const scoredClusters = clusterStories(ranked);
   const publications = new Set(ranked.map((article) => article.feed_id)).size;
 
   const { also: alsoCount, quick: quickCount } = digestSizes();
+  const clusters = promoteEditorialLead(
+    await rerankClusters(scoredClusters, userId, LEAD_COUNT + alsoCount)
+  );
   const lead = clusters.slice(0, LEAD_COUNT);
   const also = clusters.slice(LEAD_COUNT, LEAD_COUNT + alsoCount);
   const quick = clusters.slice(

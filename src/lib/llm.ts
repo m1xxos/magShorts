@@ -125,6 +125,14 @@ export function llmProviders(): LlmProvider[] {
   return parseProviders(process.env.LLM_PROVIDERS);
 }
 
+// Providers for ranking, which is one big prompt rather than eight small ones.
+// Token budgets are metered per model, so pointing this at a different model
+// gives the rerank its own window and it never competes with the annotations.
+export function rankProviders(): LlmProvider[] {
+  const dedicated = parseProviders(process.env.LLM_RANK_PROVIDERS);
+  return dedicated.length > 0 ? dedicated : llmProviders();
+}
+
 export function llmConfigured(): boolean {
   return llmProviders().length > 0;
 }
@@ -186,6 +194,86 @@ function dispatcherFor(baseUrl: string): ProxyAgent | undefined {
   return agent;
 }
 
+// ------------------------------------------------------------------ pacing
+//
+// Hosted providers meter tokens per minute, and a digest spends its whole
+// budget in one burst — eight annotation calls took 7 890 input tokens in ten
+// seconds against Groq's 12 000/min. Rather than walk into a certain 429 and
+// fail over, wait for the window to roll.
+//
+// The budget is read from the provider's own response headers, so nothing has
+// to be configured and a plan change is picked up automatically. Providers
+// that send no headers (Ollama) can declare LLM_<NAME>_TPM instead, and with
+// neither there is simply no pacing.
+
+interface Budget {
+  remaining: number;
+  resetAt: number;
+}
+
+const budgets = new Map<string, Budget>();
+
+const MAX_PACING_WAIT_MS = 70_000;
+
+function budgetKey(provider: LlmProvider): string {
+  return `${provider.name}:${provider.model}`;
+}
+
+// "185ms" | "7.66s" | "1m26.4s" | "2h30m" → milliseconds.
+function parseDuration(value: string | null): number | null {
+  if (!value) return null;
+  if (/^\d+(\.\d+)?$/.test(value.trim())) return Number(value) * 1000;
+  let total = 0;
+  let matched = false;
+  for (const [, amount, unit] of value.matchAll(/(\d+(?:\.\d+)?)(ms|s|m|h)/g)) {
+    const factor = { ms: 1, s: 1000, m: 60_000, h: 3_600_000 }[unit] ?? 0;
+    total += Number(amount) * factor;
+    matched = true;
+  }
+  return matched ? total : null;
+}
+
+function recordBudget(provider: LlmProvider, response: Response): void {
+  const remaining = response.headers.get("x-ratelimit-remaining-tokens");
+  const reset = parseDuration(
+    response.headers.get("x-ratelimit-reset-tokens")
+  );
+  if (remaining === null || reset === null) return;
+  budgets.set(budgetKey(provider), {
+    remaining: Number(remaining),
+    resetAt: Date.now() + reset,
+  });
+}
+
+function staticTpm(provider: LlmProvider): number | null {
+  const raw = Number(envFor(provider.name, "TPM"));
+  return Number.isFinite(raw) && raw > 0 ? raw : null;
+}
+
+// Wait, if the next call plainly does not fit in what is left of the window.
+async function pace(provider: LlmProvider, needed: number): Promise<void> {
+  const budget = budgets.get(budgetKey(provider));
+  if (!budget) {
+    // No observed budget yet. A declared TPM still catches the case where one
+    // prompt alone is larger than a whole window.
+    const tpm = staticTpm(provider);
+    if (tpm && needed > tpm) {
+      console.warn(
+        `[llm] ${provider.name}: prompt needs ~${needed} tokens but the limit is ${tpm}/min`
+      );
+    }
+    return;
+  }
+  const waitMs = budget.resetAt - Date.now();
+  if (budget.remaining >= needed || waitMs <= 0) return;
+  const sleepMs = Math.min(waitMs, MAX_PACING_WAIT_MS);
+  console.log(
+    `[llm] ${provider.name}: ${budget.remaining} tokens left, need ~${needed} — waiting ${Math.ceil(sleepMs / 1000)}s`
+  );
+  await new Promise((resolve) => setTimeout(resolve, sleepMs));
+  budgets.delete(budgetKey(provider));
+}
+
 export interface LlmAttempt {
   result: LlmResult | null;
   // Why it failed. Purely for the log line and the bench's error column —
@@ -213,6 +301,8 @@ async function callProvider(
   // Ollama understands it; sending it elsewhere risks a 400.
   if (provider.kind === "ollama") body.keep_alive = "5m";
 
+  await pace(provider, estimateTokens(system + user) + maxTokens);
+
   const startedAt = Date.now();
   let response: Response;
   try {
@@ -238,8 +328,21 @@ async function callProvider(
     };
   }
 
+  recordBudget(provider, response);
+
   if (!response.ok) {
     const detail = (await response.text().catch(() => "")).slice(0, 200);
+    if (response.status === 429) {
+      // Believe Retry-After over our own bookkeeping — we evidently got it
+      // wrong, and the next attempt should not repeat the mistake.
+      const retry = parseDuration(response.headers.get("retry-after"));
+      if (retry !== null) {
+        budgets.set(budgetKey(provider), {
+          remaining: 0,
+          resetAt: Date.now() + retry,
+        });
+      }
+    }
     // 429 and 5xx are transient; anything else is almost always a bad key,
     // a wrong URL or a model name the provider doesn't serve.
     if (response.status !== 429 && response.status < 500) {
@@ -299,10 +402,11 @@ function serialize<T>(task: () => Promise<T>): Promise<T> {
 export function complete(
   system: string,
   user: string,
-  maxTokens = 400
+  maxTokens = 400,
+  from: LlmProvider[] = llmProviders()
 ): Promise<LlmResult | null> {
   return serialize(async () => {
-    const providers = llmProviders();
+    const providers = from;
     for (const provider of providers) {
       const attempt = await callProvider(provider, system, user, maxTokens);
       if (attempt.result) return attempt.result;
