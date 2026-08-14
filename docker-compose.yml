@@ -22,4 +22,6 @@ services:
       - LLM_OLLAMA_MODEL=${LLM_OLLAMA_MODEL:-}
       - LLM_OLLAMA_TIMEOUT_MS=${LLM_OLLAMA_TIMEOUT_MS:-}
       - LLM_GROQ_KEY=${LLM_GROQ_KEY:-}
+      # Only provider calls go through this, and never one on localhost/LAN.
+      - LLM_PROXY_URL=${LLM_PROXY_URL:-}
     restart: unless-stopped

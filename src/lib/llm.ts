@@ -1,3 +1,5 @@
+import { ProxyAgent } from "undici";
+
 // Provider-agnostic client for OpenAI-compatible /v1/chat/completions.
 // Used only by the background digest builder and the bench script — never in a
 // request path. With nothing configured every call returns null and callers
@@ -140,6 +142,50 @@ function estimateTokens(text: string): number {
   return Math.round(text.length / 4);
 }
 
+// Several providers geo-block outright (Groq answers 403 from some countries),
+// so LLM calls can be routed through a proxy. Node's fetch ignores the
+// HTTP_PROXY convention entirely, hence the explicit dispatcher. Only these
+// calls are routed — feeds and covers keep going out directly.
+function proxyUrl(): string | undefined {
+  return (
+    process.env.LLM_PROXY_URL?.trim() ||
+    process.env.HTTPS_PROXY?.trim() ||
+    process.env.https_proxy?.trim() ||
+    process.env.HTTP_PROXY?.trim() ||
+    process.env.http_proxy?.trim() ||
+    undefined
+  );
+}
+
+// A proxy is for reaching the outside world. Tunnelling a call to Ollama on
+// localhost or the LAN through one would simply break it.
+function isLocalHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "localhost" || host.endsWith(".local") || host === "::1") return true;
+  if (/^127\./.test(host) || /^10\./.test(host) || /^192\.168\./.test(host)) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return true;
+  return host === "host.docker.internal";
+}
+
+let agent: ProxyAgent | null = null;
+let agentUrl: string | null = null;
+
+function dispatcherFor(baseUrl: string): ProxyAgent | undefined {
+  const proxy = proxyUrl();
+  if (!proxy) return undefined;
+  try {
+    if (isLocalHost(new URL(baseUrl).hostname)) return undefined;
+  } catch {
+    return undefined;
+  }
+  if (!agent || agentUrl !== proxy) {
+    agent = new ProxyAgent(proxy);
+    agentUrl = proxy;
+    console.log(`[llm] routing provider calls through ${proxy}`);
+  }
+  return agent;
+}
+
 export interface LlmAttempt {
   result: LlmResult | null;
   // Why it failed. Purely for the log line and the bench's error column —
@@ -180,7 +226,10 @@ async function callProvider(
       },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(provider.timeoutMs),
-    });
+      // Not in the DOM RequestInit, but undici — which backs Node's fetch —
+      // reads it.
+      dispatcher: dispatcherFor(provider.baseUrl),
+    } as RequestInit & { dispatcher?: ProxyAgent });
   } catch (error) {
     const name = (error as Error)?.name;
     return {

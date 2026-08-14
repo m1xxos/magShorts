@@ -84,6 +84,10 @@ The blurbs are written by a language model:
   profile and the embeddings never do.
 - **Failover.** `LLM_PROVIDERS` is an ordered list; a provider that times out,
   rate-limits or 5xxs hands over to the next one.
+- **Geo-blocks.** Several hosted providers refuse whole countries outright
+  (Groq answers `403`). `LLM_PROXY_URL` routes the provider calls — and only
+  those — through a proxy; a provider on localhost or the LAN is never
+  proxied, so a local Ollama keeps working alongside it.
 - **No model, no problem.** With `LLM_PROVIDERS` empty (the default) the digest
   still builds — the blurbs become the articles' own opening lines and the
   three lines become counts. Nothing about the app requires an LLM.
