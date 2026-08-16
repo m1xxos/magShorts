@@ -327,17 +327,21 @@ export default function DigestPage() {
                         key={item.article_id}
                         className="flex gap-3.5 rounded-[14px] border border-line bg-paper-raised p-4"
                       >
+                        {/* 16:9, because that is the shape article covers
+                            actually come in — the square this used to be threw
+                            away two fifths of every frame and left the subject
+                            too small to read. */}
                         {item.image_url ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
                             src={cachedImageUrl(item.image_url)}
                             alt=""
                             loading="lazy"
-                            className="hidden aspect-square w-24 shrink-0 rounded-[10px] object-cover sm:block"
+                            className="hidden aspect-video w-44 shrink-0 self-start rounded-[10px] object-cover sm:block"
                           />
                         ) : (
                           <div
-                            className="hidden aspect-square w-24 shrink-0 rounded-[10px] sm:block"
+                            className="hidden aspect-video w-44 shrink-0 self-start rounded-[10px] sm:block"
                             style={{ background: toneGradient(item.feed_id) }}
                           />
                         )}
