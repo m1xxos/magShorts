@@ -158,6 +158,41 @@ export function SourcesManager() {
     reload();
   }
 
+  // The gentler alternative to unsubscribing: the publication keeps its
+  // recent articles and moves to the Discover catalog, where it can be picked
+  // up again, instead of being deleted outright.
+  async function moveToDiscover(feed: FeedDto) {
+    await fetch(`/api/feeds/${feed.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subscribed: false }),
+    });
+    showToast(`${feed.title} moved to Discover`);
+    reload();
+  }
+
+  async function moveFolderToDiscover(folder: FolderDto) {
+    const inFolder = feeds.filter((feed) => feed.folder_id === folder.id);
+    if (inFolder.length === 0) return;
+    if (
+      !confirm(
+        `Move all ${inFolder.length} publications in “${folder.name}” to Discover? ` +
+          "They stay in the catalog and keep their recent articles."
+      )
+    ) {
+      return;
+    }
+    for (const feed of inFolder) {
+      await fetch(`/api/feeds/${feed.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subscribed: false }),
+      });
+    }
+    showToast(`${inFolder.length} publications moved to Discover`);
+    reload();
+  }
+
   function routeFor(domain: string): Route {
     if (!settings) return "marreta";
     if (parseList(settings.direct_domains).includes(domain)) return "direct";
@@ -297,6 +332,14 @@ export function SourcesManager() {
         </button>
 
         <button
+          title={`Move ${feed.title} to the Discover catalog`}
+          onClick={() => moveToDiscover(feed)}
+          className="shrink-0 rounded-full border border-line px-2.5 py-1 text-[11px] text-ink-faint transition hover:border-clay hover:text-clay"
+        >
+          To Discover
+        </button>
+
+        <button
           title={`Unsubscribe from ${feed.title}`}
           onClick={() => removeFeed(feed)}
           className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-ink-faint transition hover:bg-line hover:text-ink"
@@ -415,6 +458,13 @@ export function SourcesManager() {
                     />
                   </button>
                 </label>
+                <button
+                  title={`Move every publication in ${folder.name} to the Discover catalog`}
+                  onClick={() => moveFolderToDiscover(folder)}
+                  className="shrink-0 rounded-full border border-line px-2.5 py-1 text-[11px] text-ink-faint transition hover:border-clay hover:text-clay"
+                >
+                  All to Discover
+                </button>
                 <button
                   title={`Delete folder ${folder.name}`}
                   onClick={() => removeFolder(folder)}

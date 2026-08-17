@@ -98,6 +98,37 @@ export interface DigestDto {
   items: DigestItemDto[];
 }
 
+// Discover: publications the user hasn't subscribed to. The article DTO adds
+// the publication's identity and subscription state, because in the articles
+// view the publication lives in the card footer next to Follow.
+export interface CatalogArticleDto {
+  id: number;
+  feed_id: number;
+  title: string;
+  link: string;
+  summary: string | null;
+  image_url: string | null;
+  published_at: string | null;
+  topic: string | null;
+  feed_title: string;
+  site_url: string | null;
+  is_subscribed: boolean;
+  score: number;
+}
+
+export interface CatalogPublicationDto {
+  id: number;
+  title: string;
+  site_url: string | null;
+  description: string | null;
+  posts_per_week: number | null;
+  topics: string[];
+  is_subscribed: boolean;
+  articles: CatalogArticleDto[];
+}
+
+export type DiscoverView = "publications" | "articles";
+
 export interface ReadingItemDto {
   id: number;
   link: string;

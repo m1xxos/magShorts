@@ -37,10 +37,18 @@ const PRESETS: Record<string, Omit<LlmProvider, "name" | "timeoutMs">> = {
     baseUrl: "http://localhost:11434/v1",
     model: "qwen3:4b",
   },
+  // Hosted catalogues change under you: the Llama models this used to default
+  // to vanished from the account mid-August 2026 and every call started
+  // answering 404. Check `GET /v1/models` before trusting a default here.
   groq: {
     kind: "openai",
     baseUrl: "https://api.groq.com/openai/v1",
-    model: "llama-3.3-70b-versatile",
+    model: "openai/gpt-oss-120b",
+  },
+  "groq-small": {
+    kind: "openai",
+    baseUrl: "https://api.groq.com/openai/v1",
+    model: "openai/gpt-oss-20b",
   },
   cerebras: {
     kind: "openai",
@@ -300,6 +308,12 @@ async function callProvider(
   // Keeps the weights resident between the five calls of one digest. Only
   // Ollama understands it; sending it elsewhere risks a 400.
   if (provider.kind === "ollama") body.keep_alive = "5m";
+  // Reasoning models spend the completion budget thinking before they answer,
+  // and a blurb or a list of numbers is not worth deliberating over: without
+  // this a 700-token budget can be consumed entirely by the scratchpad and
+  // come back empty. Measured on gpt-oss-20b: 261 output tokens down to 87,
+  // same answer.
+  if (/gpt-oss/.test(provider.model)) body.reasoning_effort = "low";
 
   await pace(provider, estimateTokens(system + user) + maxTokens);
 

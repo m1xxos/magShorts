@@ -11,6 +11,9 @@ export interface Feed {
   last_fetched_at: string | null;
   enabled: number;
   folder_id: number | null;
+  // 0 = a Discover catalog publication rather than a subscription.
+  subscribed: number;
+  description: string | null;
 }
 
 export interface Folder {
@@ -195,6 +198,16 @@ export function getDb(): Database.Database {
   }
   if (!feedColumns.some((column) => column.name === "folder_id")) {
     db.exec("ALTER TABLE feeds ADD COLUMN folder_id INTEGER REFERENCES folders(id)");
+  }
+  // A publication in the Discover catalog is one you haven't subscribed to:
+  // same table, same ingest, same embeddings — it just never appears in the
+  // grid, Shorts, For you or the digest. Existing feeds are all subscriptions.
+  if (!feedColumns.some((column) => column.name === "subscribed")) {
+    db.exec("ALTER TABLE feeds ADD COLUMN subscribed INTEGER NOT NULL DEFAULT 1");
+  }
+  // One sentence about what the publication is, written once and cached.
+  if (!feedColumns.some((column) => column.name === "description")) {
+    db.exec("ALTER TABLE feeds ADD COLUMN description TEXT");
   }
 
   const articleColumns = db

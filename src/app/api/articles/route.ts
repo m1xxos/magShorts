@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
       ? db.prepare(
           `SELECT ${ARTICLE_COLUMNS}, f.title AS feed_title FROM articles a
            JOIN feeds f ON f.id = a.feed_id
-           WHERE a.feed_id = ?
+           WHERE a.feed_id = ? AND f.subscribed = 1
            ORDER BY a.published_at DESC LIMIT ? OFFSET ?`
         ).all(feedId, limit, offset)
       : folderId
@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
           db.prepare(
             `SELECT ${ARTICLE_COLUMNS}, f.title AS feed_title FROM articles a
              JOIN feeds f ON f.id = a.feed_id
-             WHERE f.enabled = 1 AND f.folder_id = ?
+             WHERE f.enabled = 1 AND f.subscribed = 1 AND f.folder_id = ?
              ORDER BY a.published_at DESC LIMIT ? OFFSET ?`
           ).all(folderId, limit, offset)
         : // All publications is genuinely all enabled feeds; folder
@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
           db.prepare(
             `SELECT ${ARTICLE_COLUMNS}, f.title AS feed_title FROM articles a
              JOIN feeds f ON f.id = a.feed_id
-             WHERE f.enabled = 1
+             WHERE f.enabled = 1 AND f.subscribed = 1
              ORDER BY a.published_at DESC LIMIT ? OFFSET ?`
           ).all(limit, offset)
   ) as Article[];

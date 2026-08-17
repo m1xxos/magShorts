@@ -27,12 +27,12 @@ const FEED_REPEAT_PENALTY = 0.03;
 const RECENCY_BONUS = 0.1;
 const EXPLORATION_EVERY = 10;
 
-interface ProfileResult {
+export interface ProfileResult {
   vector: Float32Array | null;
   positiveSignals: number;
 }
 
-function buildProfile(userId: number): ProfileResult {
+export function buildProfile(userId: number): ProfileResult {
   const db = getDb();
   // Latest event per link wins; fall back to the article's embedding for
   // events recorded before the article was embedded.
@@ -151,7 +151,7 @@ function fetchCandidates(
       `SELECT a.*, f.title AS feed_title FROM articles a
        JOIN feeds f ON f.id = a.feed_id
        LEFT JOIN folders fo ON fo.id = f.folder_id
-       WHERE f.enabled = 1
+       WHERE f.enabled = 1 AND f.subscribed = 1
          AND a.embedding IS NOT NULL
          AND a.published_at >= datetime('now', ?)
          AND a.link NOT IN (${exclusion})

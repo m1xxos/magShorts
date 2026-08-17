@@ -1,6 +1,7 @@
 import { getDb } from "./db";
 import { isPrivateHost } from "./imageCache";
 import { DISCOVERY_UA } from "./rss";
+import { fetchMaybeProxied } from "./net";
 
 const CONCURRENCY = 4;
 const PAGE_BYTE_LIMIT = 500_000;
@@ -50,7 +51,7 @@ export async function fetchPageHtml(
     const parsed = new URL(link);
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
     if (isPrivateHost(parsed.hostname)) return null;
-    const response = await fetch(link, {
+    const response = await fetchMaybeProxied(link, {
       headers: {
         "User-Agent": DISCOVERY_UA,
         Accept: "text/html,application/xhtml+xml,*/*",
@@ -58,7 +59,7 @@ export async function fetchPageHtml(
       redirect: "follow",
       signal: AbortSignal.timeout(10000),
     });
-    if (!response.ok) return null;
+    if (!response?.ok) return null;
     return {
       html: (await response.text()).slice(0, PAGE_BYTE_LIMIT),
       url: response.url,

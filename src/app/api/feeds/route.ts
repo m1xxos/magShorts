@@ -14,6 +14,7 @@ export async function GET(request: NextRequest) {
     .prepare(
       `SELECT f.*, COUNT(a.id) AS article_count
        FROM feeds f LEFT JOIN articles a ON a.feed_id = f.id
+       WHERE f.subscribed = 1
        GROUP BY f.id ORDER BY f.created_at ASC`
     )
     .all();

@@ -34,6 +34,13 @@ export async function PATCH(
     updates.push("title = ?");
     values.push(body.title.trim());
   }
+  // Subscribing and unsubscribing are the same switch: a publication moves
+  // between the sidebar and the Discover catalog without losing its articles,
+  // which is what makes Subscribe instant and reversible.
+  if (typeof body.subscribed === "boolean") {
+    updates.push("subscribed = ?");
+    values.push(body.subscribed ? 1 : 0);
+  }
   if (body.folder_id !== undefined) {
     if (body.folder_id === null) {
       updates.push("folder_id = NULL");
@@ -52,7 +59,9 @@ export async function PATCH(
   }
   if (updates.length === 0) {
     return NextResponse.json(
-      { error: "Nothing to update: pass enabled, title or folder_id" },
+      {
+        error: "Nothing to update: pass enabled, title, folder_id or subscribed",
+      },
       { status: 400 }
     );
   }

@@ -63,6 +63,47 @@ The sidebar's **For you** feed ranks fresh articles against your taste:
 
 Both the home grid and Shorts scroll infinitely.
 
+## Discover (v2.3)
+
+Everything else in magShorts shows you what you already subscribe to.
+`/discover` is a catalog of publications you **don't**, ranked against the same
+taste profile — behind one switch, either as publications (each with three of
+its articles, because a publication is judged by what it publishes) or as a
+flat grid of articles with the publication demoted to the card footer.
+
+**Subscribe** and **+ Follow** are the same action in two places: a catalog
+publication and a subscription are one row with one flag, so subscribing is
+instant, keeps the articles already fetched, and is undone by the same switch.
+**Manage sources** has the reverse — *To Discover* on a feed, *All to Discover*
+on a folder — which retires a publication into the catalog instead of deleting
+it and its archive.
+
+Catalog publications are fetched every six hours rather than every ten minutes
+and keep only their ten newest articles: enough for three tiles and for
+ranking, without carrying an archive nobody can see. They never appear in the
+grid, Shorts, For you or the digest.
+
+The catalog fills from three places, and nothing enters it unverified — every
+candidate is a home page that must resolve to a real, parseable feed through
+the same discovery the *Add publication* button uses:
+
+- publications you retire from your subscriptions;
+- a curated seed list (`src/lib/catalogSeed.ts`);
+- the model, asked for publications like the ones you save. It is a source of
+  names, not of truth: a suggestion whose domain doesn't exist simply fails to
+  resolve and is reported rather than stored.
+
+```bash
+curl -X POST localhost:3000/api/discover/suggest -d '{"seed":true}'   # curated list
+curl -X POST localhost:3000/api/discover/suggest -d '{}'              # ask the model
+```
+
+Ranking is the taste profile again, with two corrections the grid doesn't
+need: a publication is scored on its best three articles together rather than
+its single best, and output above roughly one post a day is damped — otherwise
+a wire posting a thousand times a week wins every slot on the strength of
+having published something four minutes ago.
+
 ## Digest (v2.2)
 
 `/digest` is the five-minutes-in-the-morning read: a **finite** page instead of
@@ -236,5 +277,8 @@ All data routes require a session cookie (sign in at `/login`).
 | GET | `/api/recommendations` | Personalized feed; `?window=day\|week\|month`, `?limit=`, `?offset=` |
 | GET | `/api/shorts` | The Shorts deck; `?limit=`, `?folder=ID` |
 | POST | `/api/events` | Taste signal: `{ "link", "action": like\|dislike\|skip\|open\|save }` |
+| GET | `/api/discover/publications` | Catalog publications; `?topic=`, `?q=`, `?limit=`, `?offset=` |
+| GET | `/api/discover/articles` | The catalog flattened to articles; same filters |
+| POST | `/api/discover/suggest` | Fill the catalog: `{ "seed": true }` for the curated list, `{}` to ask the model |
 | GET | `/api/digest` | The stored digest snapshot; `?kind=daily\|weekly` |
 | POST | `/api/digest/build` | Build it now: `{ "kind", "force"? }` — `force` discards the period's snapshot and rebuilds |

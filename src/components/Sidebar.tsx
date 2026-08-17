@@ -21,6 +21,25 @@ export function SparkleIcon({ size = 14 }: { size?: number }) {
   );
 }
 
+export function CompassIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path d="M15.5 8.5l-2.2 4.8-4.8 2.2 2.2-4.8z" />
+    </svg>
+  );
+}
+
 export function CalendarIcon({ size = 14 }: { size?: number }) {
   return (
     <svg
@@ -225,6 +244,16 @@ export function Sidebar({
             {readingCount}
           </span>
         )}
+      </Link>
+
+      <Link
+        href="/discover"
+        className="mb-4 flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-ink-soft transition hover:bg-paper-sunken/60"
+      >
+        <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-clay-soft text-clay">
+          <CompassIcon size={14} />
+        </span>
+        Discover
       </Link>
 
       <p className="px-3 pb-2 text-[11px] font-medium tracking-[0.14em] text-ink-faint uppercase">

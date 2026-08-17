@@ -11,7 +11,8 @@ export async function GET(request: NextRequest) {
   const folders = getDb()
     .prepare(
       `SELECT fo.*, COUNT(f.id) AS feed_count
-       FROM folders fo LEFT JOIN feeds f ON f.folder_id = fo.id
+       FROM folders fo
+       LEFT JOIN feeds f ON f.folder_id = fo.id AND f.subscribed = 1
        GROUP BY fo.id ORDER BY fo.position ASC, fo.created_at ASC`
     )
     .all();

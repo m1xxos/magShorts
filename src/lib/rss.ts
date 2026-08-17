@@ -1,8 +1,16 @@
 import Parser from "rss-parser";
 import { getDb, type Feed } from "./db";
+import { fetchMaybeProxied } from "./net";
 
 const STALE_AFTER_MS = 15 * 60 * 1000;
+const CATALOG_STALE_AFTER_MS = 6 * 60 * 60 * 1000;
 const MAX_ITEMS_PER_FEED = 200;
+
+// A catalog publication only has to show three tiles and rank against the
+// taste profile, so it keeps a shallow window instead of an archive. Read
+// later stores snapshots by link and user_events keep their own copy of the
+// link and embedding, so trimming loses nothing the user has touched.
+const CATALOG_KEEP_ARTICLES = 10;
 
 // The folder name rides along with the feed so an article whose categories are
 // unusable can still fall back to it without a second query per item.
@@ -160,28 +168,41 @@ const COMMON_FEED_PATHS = [
 export const DISCOVERY_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36 magShorts/1.0";
 
+const FEED_ACCEPT =
+  "application/rss+xml, application/atom+xml, application/xml, text/xml, */*";
+
+// Every feed fetch goes through here rather than rss-parser's own transport:
+// parseURL uses Node's http module directly, which cannot be pointed at a
+// proxy, and some publications are only reachable through one.
+async function fetchFeedText(
+  url: string,
+  timeoutMs = 15000
+): Promise<string | null> {
+  const response = await fetchMaybeProxied(url, {
+    headers: { "User-Agent": DISCOVERY_UA, Accept: FEED_ACCEPT },
+    redirect: "follow",
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!response?.ok) return null;
+  return response.text();
+}
+
+async function parseFeed(url: string): Promise<Parser.Output<CustomItem>> {
+  const text = await fetchFeedText(url);
+  if (text === null) throw new Error(`could not fetch ${url}`);
+  return parser.parseString(text);
+}
+
 // Cheap check that a URL serves an RSS/Atom document — a short-timeout fetch
 // and a content sniff, so probing a dozen well-known paths stays fast.
 async function sniffFeed(url: string): Promise<boolean> {
-  try {
-    const response = await fetch(url, {
-      headers: {
-        "User-Agent": DISCOVERY_UA,
-        Accept:
-          "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
-      },
-      redirect: "follow",
-      signal: AbortSignal.timeout(6000),
-    });
-    if (!response.ok) return false;
-    const head = (await response.text()).slice(0, 4000).trimStart();
-    return (
-      /<(rss|feed|rdf:RDF)[\s>]/i.test(head) ||
-      (head.startsWith("<?xml") && /<(rss|feed|rdf)/i.test(head))
-    );
-  } catch {
-    return false;
-  }
+  const text = await fetchFeedText(url, 6000);
+  if (text === null) return false;
+  const head = text.slice(0, 4000).trimStart();
+  return (
+    /<(rss|feed|rdf:RDF)[\s>]/i.test(head) ||
+    (head.startsWith("<?xml") && /<(rss|feed|rdf)/i.test(head))
+  );
 }
 
 // Given any page URL (a site home, a blog page or the feed itself), find a
@@ -189,12 +210,17 @@ async function sniffFeed(url: string): Promise<boolean> {
 // tags in its HTML, then the usual well-known paths.
 export async function discoverFeedUrl(url: string): Promise<string | null> {
   try {
-    await parser.parseURL(url);
+    await parseFeed(url);
     return url;
   } catch {
     // Not a feed — inspect the page.
   }
 
+  // A failed page fetch is not the end: plenty of publications put the site
+  // behind a bot wall while serving /feed to anyone who asks (Defector, Rest
+  // of World, MIT Technology Review all behave this way). Losing the HTML only
+  // costs us the <link rel="alternate"> hints, so fall through to the
+  // well-known paths rather than giving up.
   let html = "";
   let finalUrl = url;
   try {
@@ -206,11 +232,12 @@ export async function discoverFeedUrl(url: string): Promise<string | null> {
       redirect: "follow",
       signal: AbortSignal.timeout(15000),
     });
-    if (!response.ok) return null;
-    finalUrl = response.url;
-    html = (await response.text()).slice(0, 500_000);
+    if (response.ok) {
+      finalUrl = response.url;
+      html = (await response.text()).slice(0, 500_000);
+    }
   } catch {
-    return null;
+    // Same: keep the original URL and try the conventional paths under it.
   }
 
   const candidates: string[] = [];
@@ -242,7 +269,7 @@ export async function discoverFeedUrl(url: string): Promise<string | null> {
 }
 
 export async function parseFeedMeta(url: string) {
-  const parsed = await parser.parseURL(url);
+  const parsed = await parseFeed(url);
   return {
     title: stripHtml(parsed.title ?? "") || new URL(url).hostname,
     site_url: parsed.link?.trim() || new URL(url).origin,
@@ -250,7 +277,7 @@ export async function parseFeedMeta(url: string) {
 }
 
 export function refreshFeedArticles(feed: FeedWithFolder): Promise<void> {
-  return parser.parseURL(feed.url).then((parsed) => {
+  return parseFeed(feed.url).then((parsed) => {
     const db = getDb();
     const upsert = db.prepare(`
       INSERT INTO articles (feed_id, guid, title, link, summary, image_url, published_at, topic, content)
@@ -284,9 +311,42 @@ export function refreshFeedArticles(feed: FeedWithFolder): Promise<void> {
         });
       }
       db.prepare("UPDATE feeds SET last_fetched_at = datetime('now') WHERE id = ?").run(feed.id);
+      if (!feed.subscribed) trimCatalogFeed(db, feed.id);
     });
     insertAll();
   });
+}
+
+// Keep only the newest articles of a catalog publication. Runs inside the
+// upsert transaction so the feed is never briefly both full and trimmed.
+function trimCatalogFeed(db: ReturnType<typeof getDb>, feedId: number): void {
+  db.prepare(
+    `DELETE FROM articles WHERE feed_id = ? AND id NOT IN (
+       SELECT id FROM articles WHERE feed_id = ?
+       ORDER BY published_at DESC, id DESC LIMIT ?
+     )`
+  ).run(feedId, feedId, CATALOG_KEEP_ARTICLES);
+}
+
+// Trim every catalog publication — used right after a batch of feeds moves
+// into the catalog, where waiting for each one's next refresh would leave the
+// database carrying an archive nobody can see.
+export function trimAllCatalogFeeds(): number {
+  const db = getDb();
+  const before = db.prepare("SELECT COUNT(*) AS n FROM articles").get() as {
+    n: number;
+  };
+  const feeds = db
+    .prepare("SELECT id FROM feeds WHERE subscribed = 0")
+    .all() as Array<{ id: number }>;
+  const trim = db.transaction(() => {
+    for (const feed of feeds) trimCatalogFeed(db, feed.id);
+  });
+  trim();
+  const after = db.prepare("SELECT COUNT(*) AS n FROM articles").get() as {
+    n: number;
+  };
+  return before.n - after.n;
 }
 
 // Concurrent callers (several requests landing right after the Mac wakes
@@ -318,7 +378,10 @@ async function doRefreshStaleFeeds(feedId?: number): Promise<void> {
   const now = Date.now();
   const stale = feeds.filter((feed) => {
     if (!feed.last_fetched_at) return true;
-    return now - new Date(feed.last_fetched_at + "Z").getTime() > STALE_AFTER_MS;
+    // Catalog publications refresh far less often: nobody is reading them yet,
+    // and there are more of them than there are subscriptions.
+    const after = feed.subscribed ? STALE_AFTER_MS : CATALOG_STALE_AFTER_MS;
+    return now - new Date(feed.last_fetched_at + "Z").getTime() > after;
   });
 
   // Refresh in parallel; a failing feed should not block the others.
