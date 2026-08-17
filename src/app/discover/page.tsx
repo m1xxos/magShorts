@@ -8,9 +8,12 @@ import {
   type CatalogArticleDto,
   type CatalogPublicationDto,
   type DiscoverView,
+  type FeedDto,
+  type FolderDto,
 } from "@/lib/types";
 import { cachedImageUrl, recordEvent, unlockUrl } from "@/lib/actions";
 import { TopBar } from "@/components/TopBar";
+import { Sidebar } from "@/components/Sidebar";
 import { Toast, useToast } from "@/components/Toast";
 import { PublicationBlock } from "@/components/PublicationBlock";
 import { useUser } from "@/lib/useUser";
@@ -31,7 +34,9 @@ interface Topic {
 function looksLikeUrl(value: string): boolean {
   const text = value.trim();
   if (/\s/.test(text)) return false;
-  return /^https?:\/\/\S+$/i.test(text) || /^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(text);
+  return (
+    /^https?:\/\/\S+$/i.test(text) || /^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(text)
+  );
 }
 
 function SearchIcon() {
@@ -81,7 +86,9 @@ function ArticleCard({
         ) : (
           <div
             className="aspect-[2/1] w-full"
-            style={{ background: `linear-gradient(135deg, ${tone}18, ${tone}42)` }}
+            style={{
+              background: `linear-gradient(135deg, ${tone}18, ${tone}42)`,
+            }}
           />
         )}
         <div className="flex flex-1 flex-col gap-[9px] p-4">
@@ -146,7 +153,26 @@ export default function DiscoverPage() {
   // render.
   const [loadedKey, setLoadedKey] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  // The sidebar is navigation here, so it only needs what it displays.
+  const [feeds, setFeeds] = useState<FeedDto[]>([]);
+  const [folders, setFolders] = useState<FolderDto[]>([]);
+  const [readingCount, setReadingCount] = useState(0);
   const { toast, showToast } = useToast();
+
+  useEffect(() => {
+    if (!user) return;
+    Promise.all([
+      fetch("/api/feeds").then((r) => (r.ok ? r.json() : [])),
+      fetch("/api/folders").then((r) => (r.ok ? r.json() : [])),
+      fetch("/api/reading-list").then((r) => (r.ok ? r.json() : [])),
+    ])
+      .then(([f, fo, rl]) => {
+        if (Array.isArray(f)) setFeeds(f);
+        if (Array.isArray(fo)) setFolders(fo);
+        if (Array.isArray(rl)) setReadingCount(rl.length);
+      })
+      .catch(() => {});
+  }, [user]);
 
   useEffect(() => {
     const stored = localStorage.getItem(VIEW_KEY);
@@ -161,7 +187,7 @@ export default function DiscoverPage() {
   useEffect(() => {
     const id = setTimeout(
       () => setQuery(looksLikeUrl(search) ? "" : search.trim()),
-      300
+      300,
     );
     return () => clearTimeout(id);
   }, [search]);
@@ -172,7 +198,11 @@ export default function DiscoverPage() {
   const load = useCallback(
     async (reset: boolean) => {
       if (!user) return;
-      const offset = reset ? 0 : view === "publications" ? publications.length : articles.length;
+      const offset = reset
+        ? 0
+        : view === "publications"
+          ? publications.length
+          : articles.length;
       const params = new URLSearchParams({
         limit: String(PAGE_SIZE),
         offset: String(offset),
@@ -187,19 +217,24 @@ export default function DiscoverPage() {
       setTotal(data.total ?? 0);
       if (view === "publications") {
         setPublications((prev) =>
-          reset ? data.publications : [...prev, ...data.publications]
+          reset ? data.publications : [...prev, ...data.publications],
         );
       } else {
-        setArticles((prev) => (reset ? data.articles : [...prev, ...data.articles]));
+        setArticles((prev) =>
+          reset ? data.articles : [...prev, ...data.articles],
+        );
       }
     },
-    [user, view, topic, query, publications.length, articles.length]
+    [user, view, topic, query, publications.length, articles.length],
   );
 
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
-    const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: "0" });
+    const params = new URLSearchParams({
+      limit: String(PAGE_SIZE),
+      offset: "0",
+    });
     if (topic) params.set("topic", topic);
     if (query) params.set("q", query);
     fetch(`/api/discover/${view}?${params}`)
@@ -230,10 +265,12 @@ export default function DiscoverPage() {
   const follow = useCallback(
     async (feedId: number, title: string) => {
       setPublications((prev) =>
-        prev.map((p) => (p.id === feedId ? { ...p, is_subscribed: true } : p))
+        prev.map((p) => (p.id === feedId ? { ...p, is_subscribed: true } : p)),
       );
       setArticles((prev) =>
-        prev.map((a) => (a.feed_id === feedId ? { ...a, is_subscribed: true } : a))
+        prev.map((a) =>
+          a.feed_id === feedId ? { ...a, is_subscribed: true } : a,
+        ),
       );
       const response = await fetch(`/api/feeds/${feedId}`, {
         method: "PATCH",
@@ -245,17 +282,19 @@ export default function DiscoverPage() {
       } else {
         // Put the optimistic change back rather than leave the button lying.
         setPublications((prev) =>
-          prev.map((p) => (p.id === feedId ? { ...p, is_subscribed: false } : p))
+          prev.map((p) =>
+            p.id === feedId ? { ...p, is_subscribed: false } : p,
+          ),
         );
         setArticles((prev) =>
           prev.map((a) =>
-            a.feed_id === feedId ? { ...a, is_subscribed: false } : a
-          )
+            a.feed_id === feedId ? { ...a, is_subscribed: false } : a,
+          ),
         );
         showToast("Could not subscribe", true);
       }
     },
-    [showToast]
+    [showToast],
   );
 
   async function addByUrl() {
@@ -287,139 +326,149 @@ export default function DiscoverPage() {
   return (
     <div className="min-h-screen">
       <TopBar username={user?.username} />
-      <main className="mx-auto max-w-[1180px] px-5 pt-[26px] pb-10 md:px-8">
-        <div className="flex items-baseline justify-between gap-4">
-          <h1 className="font-serif text-[26px] text-ink">Discover</h1>
-          <Link href="/" className="text-sm text-clay hover:underline">
-            ← Feed
-          </Link>
-        </div>
-        <p className="mt-1.5 text-sm text-ink-soft">
-          {catalogSize === null
-            ? "Publications you don't subscribe to."
-            : `${catalogSize} publication${catalogSize === 1 ? "" : "s"} in the catalog, ranked by what you read and save.`}
-        </p>
-
-        <div className="mt-5 flex flex-wrap items-center gap-3">
-          <div className="flex min-w-[260px] flex-1 items-center gap-2.5 rounded-xl border border-line bg-paper-raised px-3.5 py-[11px]">
-            <span className="text-ink-faint">
-              <SearchIcon />
-            </span>
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && isUrl && !adding) addByUrl();
-              }}
-              placeholder="Search the catalog, or paste a feed URL to add it directly"
-              className="min-w-0 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-ink-faint"
-            />
-            {isUrl && (
-              <button
-                onClick={addByUrl}
-                disabled={adding}
-                className="shrink-0 rounded-full bg-clay px-3.5 py-1.5 text-[12.5px] font-medium text-white transition hover:brightness-95 disabled:opacity-60"
-              >
-                {adding ? "Adding…" : "Add this feed"}
-              </button>
-            )}
+      <div className="flex">
+        <Sidebar
+          feeds={feeds}
+          folders={folders}
+          selection={null}
+          readingCount={readingCount}
+        />
+        <main className="mx-auto min-w-0 max-w-[1180px] flex-1 px-5 pt-[26px] pb-10 md:px-8">
+          <div className="flex items-baseline justify-between gap-4">
+            <h1 className="font-serif text-[26px] text-ink">Discover</h1>
+            <Link href="/" className="text-sm text-clay hover:underline">
+              ← Feed
+            </Link>
           </div>
-          <div className="flex gap-1 rounded-full border border-line bg-paper-raised p-[3px]">
-            {VIEWS.map((option) => (
-              <button
-                key={option.value}
-                onClick={() => chooseView(option.value)}
-                className={`rounded-full px-4 py-[7px] text-[13px] transition ${
-                  view === option.value
-                    ? "bg-ink font-medium text-paper"
-                    : "text-ink-faint hover:text-ink"
-                }`}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-        </div>
+          <p className="mt-1.5 text-sm text-ink-soft">
+            {catalogSize === null
+              ? "Publications you don't subscribe to."
+              : `${catalogSize} publication${catalogSize === 1 ? "" : "s"} in the catalog, ranked by what you read and save.`}
+          </p>
 
-        {topics.length > 0 && (
-          <div className="mt-3.5 flex flex-wrap gap-2">
-            <button
-              onClick={() => setTopic("")}
-              className={`rounded-full px-3.5 py-1.5 text-[13px] transition ${
-                topic === ""
-                  ? "bg-ink text-paper"
-                  : "border border-line bg-paper-raised text-ink-soft hover:text-ink"
-              }`}
-            >
-              All topics
-            </button>
-            {topics.map((entry) => (
+          <div className="mt-5 flex flex-wrap items-center gap-3">
+            <div className="flex min-w-[260px] flex-1 items-center gap-2.5 rounded-xl border border-line bg-paper-raised px-3.5 py-[11px]">
+              <span className="text-ink-faint">
+                <SearchIcon />
+              </span>
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && isUrl && !adding) addByUrl();
+                }}
+                placeholder="Search the catalog, or paste a feed URL to add it directly"
+                className="min-w-0 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-ink-faint"
+              />
+              {isUrl && (
+                <button
+                  onClick={addByUrl}
+                  disabled={adding}
+                  className="shrink-0 rounded-full bg-clay px-3.5 py-1.5 text-[12.5px] font-medium text-white transition hover:brightness-95 disabled:opacity-60"
+                >
+                  {adding ? "Adding…" : "Add this feed"}
+                </button>
+              )}
+            </div>
+            <div className="flex gap-1 rounded-full border border-line bg-paper-raised p-[3px]">
+              {VIEWS.map((option) => (
+                <button
+                  key={option.value}
+                  onClick={() => chooseView(option.value)}
+                  className={`rounded-full px-4 py-[7px] text-[13px] transition ${
+                    view === option.value
+                      ? "bg-ink font-medium text-paper"
+                      : "text-ink-faint hover:text-ink"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {topics.length > 0 && (
+            <div className="mt-3.5 flex flex-wrap gap-2">
               <button
-                key={entry.topic}
-                onClick={() => setTopic(entry.topic)}
+                onClick={() => setTopic("")}
                 className={`rounded-full px-3.5 py-1.5 text-[13px] transition ${
-                  topic === entry.topic
+                  topic === ""
                     ? "bg-ink text-paper"
                     : "border border-line bg-paper-raised text-ink-soft hover:text-ink"
                 }`}
               >
-                {entry.topic}{" "}
-                <span
-                  className={topic === entry.topic ? "opacity-70" : "text-ink-faint"}
-                >
-                  {entry.count}
-                </span>
+                All topics
               </button>
-            ))}
-          </div>
-        )}
+              {topics.map((entry) => (
+                <button
+                  key={entry.topic}
+                  onClick={() => setTopic(entry.topic)}
+                  className={`rounded-full px-3.5 py-1.5 text-[13px] transition ${
+                    topic === entry.topic
+                      ? "bg-ink text-paper"
+                      : "border border-line bg-paper-raised text-ink-soft hover:text-ink"
+                  }`}
+                >
+                  {entry.topic}{" "}
+                  <span
+                    className={
+                      topic === entry.topic ? "opacity-70" : "text-ink-faint"
+                    }
+                  >
+                    {entry.count}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
 
-        {loading ? (
-          <p className="py-24 text-center text-ink-faint">Loading…</p>
-        ) : shown === 0 ? (
-          <div className="mt-6 flex flex-col items-center gap-3 rounded-2xl border border-dashed border-line py-20 text-center">
-            <p className="font-serif text-xl text-ink">Nothing here yet</p>
-            <p className="max-w-sm text-sm text-ink-faint">
-              {query || topic
-                ? "No publication in the catalog matches that. Try another topic, or paste a feed URL to add one directly."
-                : "The catalog is empty. Paste a feed URL above to add a publication."}
-            </p>
-          </div>
-        ) : view === "publications" ? (
-          <div className="mt-6 flex flex-col gap-5">
-            {publications.map((publication) => (
-              <PublicationBlock
-                key={publication.id}
-                publication={publication}
-                onSubscribe={() => follow(publication.id, publication.title)}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {articles.map((article) => (
-              <ArticleCard
-                key={article.id}
-                article={article}
-                onFollow={() => follow(article.feed_id, article.feed_title)}
-              />
-            ))}
-          </div>
-        )}
+          {loading ? (
+            <p className="py-24 text-center text-ink-faint">Loading…</p>
+          ) : shown === 0 ? (
+            <div className="mt-6 flex flex-col items-center gap-3 rounded-2xl border border-dashed border-line py-20 text-center">
+              <p className="font-serif text-xl text-ink">Nothing here yet</p>
+              <p className="max-w-sm text-sm text-ink-faint">
+                {query || topic
+                  ? "No publication in the catalog matches that. Try another topic, or paste a feed URL to add one directly."
+                  : "The catalog is empty. Paste a feed URL above to add a publication."}
+              </p>
+            </div>
+          ) : view === "publications" ? (
+            <div className="mt-6 flex flex-col gap-5">
+              {publications.map((publication) => (
+                <PublicationBlock
+                  key={publication.id}
+                  publication={publication}
+                  onSubscribe={() => follow(publication.id, publication.title)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              {articles.map((article) => (
+                <ArticleCard
+                  key={article.id}
+                  article={article}
+                  onFollow={() => follow(article.feed_id, article.feed_title)}
+                />
+              ))}
+            </div>
+          )}
 
-        {!loading && shown > 0 && shown < total && (
-          <div className="mt-6 text-center">
-            <button
-              onClick={() => load(false)}
-              className="text-[13px] text-clay hover:underline"
-            >
-              {view === "publications"
-                ? `Show ${Math.min(PAGE_SIZE, total - shown)} more publications`
-                : "Keep scrolling for more"}
-            </button>
-          </div>
-        )}
-      </main>
+          {!loading && shown > 0 && shown < total && (
+            <div className="mt-6 text-center">
+              <button
+                onClick={() => load(false)}
+                className="text-[13px] text-clay hover:underline"
+              >
+                {view === "publications"
+                  ? `Show ${Math.min(PAGE_SIZE, total - shown)} more publications`
+                  : "Keep scrolling for more"}
+              </button>
+            </div>
+          )}
+        </main>
+      </div>
       <Toast toast={toast} />
     </div>
   );

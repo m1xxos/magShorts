@@ -167,24 +167,39 @@ export default function HomePage() {
   useEffect(() => {
     if (!user || viewInitialized.current) return;
     viewInitialized.current = true;
-    fetch("/api/settings")
-      .then((response) => response.json())
-      .then((settings: { default_view?: string }) => {
-        const view = settings.default_view ?? "";
-        if (view === "forYou") {
-          setSelection({ kind: "forYou" });
-        } else if (view.startsWith("folder:")) {
-          const folderId = Number(view.slice("folder:".length));
-          setSelection(
-            Number.isInteger(folderId)
-              ? { kind: "folder", folderId }
-              : { kind: "all" }
-          );
-        } else {
-          setSelection({ kind: "all" });
-        }
-      })
-      .catch(() => setSelection({ kind: "all" }));
+
+    // The sidebar on other pages links here with the selection in the URL, so
+    // an explicit choice wins over the configured default view. Read from
+    // location rather than useSearchParams: this page is prerendered, and that
+    // hook would drag in a Suspense boundary for three lines of parsing.
+    async function resolveView(): Promise<Selection> {
+      const params = new URLSearchParams(window.location.search);
+      const feedId = Number(params.get("feed"));
+      if (Number.isInteger(feedId) && feedId > 0) {
+        return { kind: "feed", feedId };
+      }
+      const urlFolder = Number(params.get("folder"));
+      if (Number.isInteger(urlFolder) && urlFolder > 0) {
+        return { kind: "folder", folderId: urlFolder };
+      }
+      if (params.get("view") === "forYou") return { kind: "forYou" };
+      if (params.get("view") === "all") return { kind: "all" };
+
+      const settings: { default_view?: string } = await fetch("/api/settings")
+        .then((response) => response.json())
+        .catch(() => ({}));
+      const view = settings.default_view ?? "";
+      if (view === "forYou") return { kind: "forYou" };
+      if (view.startsWith("folder:")) {
+        const folderId = Number(view.slice("folder:".length));
+        return Number.isInteger(folderId)
+          ? { kind: "folder", folderId }
+          : { kind: "all" };
+      }
+      return { kind: "all" };
+    }
+
+    resolveView().then(setSelection);
   }, [user]);
 
   const loadReadingCount = useCallback(async () => {

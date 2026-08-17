@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { type FeedDto, type FolderDto, type Selection } from "@/lib/types";
 import { FeedAvatar } from "./FeedAvatar";
@@ -115,8 +116,8 @@ function FeedRow({
   feed: FeedDto;
   selected: boolean;
   onSelect: () => void;
-  onRemove: () => void;
-  onToggle: () => void;
+  onRemove?: () => void;
+  onToggle?: () => void;
 }) {
   return (
     <div
@@ -144,21 +145,24 @@ function FeedRow({
         </span>
       </button>
       {/* Controls fade in over the title's tail on hover, so titles keep
-          the full row width the rest of the time. */}
-      <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center gap-1.5 rounded-r-xl bg-gradient-to-l from-paper-sunken via-paper-sunken to-transparent pr-3 pl-10 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100">
-        <Switch
-          checked={Boolean(feed.enabled)}
-          title={feed.enabled ? "Turn off this feed" : "Turn on this feed"}
-          onClick={onToggle}
-        />
-        <button
-          title={`Unsubscribe from ${feed.title}`}
-          onClick={onRemove}
-          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-ink-faint transition hover:bg-line hover:text-ink"
-        >
-          ×
-        </button>
-      </div>
+          the full row width the rest of the time. Absent where the sidebar is
+          only navigation. */}
+      {onToggle && onRemove && (
+        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center gap-1.5 rounded-r-xl bg-gradient-to-l from-paper-sunken via-paper-sunken to-transparent pr-3 pl-10 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100">
+          <Switch
+            checked={Boolean(feed.enabled)}
+            title={feed.enabled ? "Turn off this feed" : "Turn on this feed"}
+            onClick={onToggle}
+          />
+          <button
+            title={`Unsubscribe from ${feed.title}`}
+            onClick={onRemove}
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-ink-faint transition hover:bg-line hover:text-ink"
+          >
+            ×
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -180,20 +184,36 @@ export function Sidebar({
   folders: FolderDto[];
   selection: Selection | null;
   readingCount: number;
-  onSelect: (selection: Selection) => void;
-  onRemove: (feed: FeedDto) => void;
-  onToggle: (feed: FeedDto) => void;
-  onToggleFolder: (folder: FolderDto) => void;
-  onAddClick: () => void;
-  onNewFolder: () => void;
-  onOpenSettings: () => void;
+  // Omitted on pages other than the home grid: there the sidebar is pure
+  // navigation, and selecting a feed goes home with the choice in the URL
+  // rather than mutating a page that has no grid to update. Feed management
+  // stays where it belongs, on the home page and in Manage sources.
+  onSelect?: (selection: Selection) => void;
+  onRemove?: (feed: FeedDto) => void;
+  onToggle?: (feed: FeedDto) => void;
+  onToggleFolder?: (folder: FolderDto) => void;
+  onAddClick?: () => void;
+  onNewFolder?: () => void;
+  onOpenSettings?: () => void;
 }) {
+  const router = useRouter();
+  // Either update the grid in place, or leave for it.
+  const select = (next: Selection) => {
+    if (onSelect) return onSelect(next);
+    const query =
+      next.kind === "feed"
+        ? `?feed=${next.feedId}`
+        : next.kind === "folder"
+          ? `?folder=${next.folderId}`
+          : `?view=${next.kind}`;
+    router.push(`/${query}`);
+  };
   const [openFolders, setOpenFolders] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     try {
       const saved = JSON.parse(
-        window.localStorage.getItem("ms_open_folders") ?? "[]"
+        window.localStorage.getItem("ms_open_folders") ?? "[]",
       );
       if (Array.isArray(saved)) {
         // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time localStorage read after hydration
@@ -261,7 +281,7 @@ export function Sidebar({
       </p>
 
       <button
-        onClick={() => onSelect({ kind: "forYou" })}
+        onClick={() => select({ kind: "forYou" })}
         className={`flex items-center gap-3 rounded-xl px-3 py-2 text-left text-sm transition ${
           selection?.kind === "forYou"
             ? "bg-paper-sunken font-medium text-ink"
@@ -275,7 +295,7 @@ export function Sidebar({
       </button>
 
       <button
-        onClick={() => onSelect({ kind: "all" })}
+        onClick={() => select({ kind: "all" })}
         className={`flex items-center gap-3 rounded-xl px-3 py-2 text-left text-sm transition ${
           selection?.kind === "all"
             ? "bg-paper-sunken font-medium text-ink"
@@ -293,14 +313,16 @@ export function Sidebar({
           key={feed.id}
           feed={feed}
           selected={selection?.kind === "feed" && selection.feedId === feed.id}
-          onSelect={() => onSelect({ kind: "feed", feedId: feed.id })}
-          onRemove={() => onRemove(feed)}
-          onToggle={() => onToggle(feed)}
+          onSelect={() => select({ kind: "feed", feedId: feed.id })}
+          onRemove={onRemove ? () => onRemove(feed) : undefined}
+          onToggle={onToggle ? () => onToggle(feed) : undefined}
         />
       ))}
 
       {folders.map((folder) => {
-        const folderFeeds = feeds.filter((feed) => feed.folder_id === folder.id);
+        const folderFeeds = feeds.filter(
+          (feed) => feed.folder_id === folder.id,
+        );
         const open = openFolders.has(folder.id);
         const selected =
           selection?.kind === "folder" && selection.folderId === folder.id;
@@ -325,7 +347,7 @@ export function Sidebar({
                 </span>
               </button>
               <button
-                onClick={() => onSelect({ kind: "folder", folderId: folder.id })}
+                onClick={() => select({ kind: "folder", folderId: folder.id })}
                 className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
               >
                 <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-paper-sunken text-ink-soft">
@@ -342,15 +364,17 @@ export function Sidebar({
                   {folderFeeds.length}
                 </span>
               </button>
-              <Switch
-                checked={Boolean(folder.include_in_main)}
-                title={
-                  folder.include_in_main
-                    ? "Feeds your For you picks — click to exclude"
-                    : "Excluded from For you — click to include"
-                }
-                onClick={() => onToggleFolder(folder)}
-              />
+              {onToggleFolder && (
+                <Switch
+                  checked={Boolean(folder.include_in_main)}
+                  title={
+                    folder.include_in_main
+                      ? "Feeds your For you picks — click to exclude"
+                      : "Excluded from For you — click to include"
+                  }
+                  onClick={() => onToggleFolder(folder)}
+                />
+              )}
             </div>
             {open && (
               <div className="ml-2.5 border-l border-line/70 pl-1">
@@ -364,11 +388,12 @@ export function Sidebar({
                       key={feed.id}
                       feed={feed}
                       selected={
-                        selection?.kind === "feed" && selection.feedId === feed.id
+                        selection?.kind === "feed" &&
+                        selection.feedId === feed.id
                       }
-                      onSelect={() => onSelect({ kind: "feed", feedId: feed.id })}
-                      onRemove={() => onRemove(feed)}
-                      onToggle={() => onToggle(feed)}
+                      onSelect={() => select({ kind: "feed", feedId: feed.id })}
+                      onRemove={onRemove ? () => onRemove(feed) : undefined}
+                      onToggle={onToggle ? () => onToggle(feed) : undefined}
                     />
                   ))
                 )}
@@ -378,25 +403,29 @@ export function Sidebar({
         );
       })}
 
-      <button
-        onClick={onAddClick}
-        className="mt-3 flex items-center gap-3 rounded-xl border border-dashed border-line px-3 py-2 text-left text-sm text-ink-soft transition hover:border-clay hover:text-clay"
-      >
-        <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-clay-soft text-clay">
-          +
-        </span>
-        Add publication
-      </button>
+      {onAddClick && (
+        <button
+          onClick={onAddClick}
+          className="mt-3 flex items-center gap-3 rounded-xl border border-dashed border-line px-3 py-2 text-left text-sm text-ink-soft transition hover:border-clay hover:text-clay"
+        >
+          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-clay-soft text-clay">
+            +
+          </span>
+          Add publication
+        </button>
+      )}
 
-      <button
-        onClick={onNewFolder}
-        className="flex items-center gap-3 rounded-xl border border-dashed border-line px-3 py-2 text-left text-sm text-ink-soft transition hover:border-clay hover:text-clay"
-      >
-        <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-clay-soft text-clay">
-          <FolderIcon size={13} />
-        </span>
-        New folder
-      </button>
+      {onNewFolder && (
+        <button
+          onClick={onNewFolder}
+          className="flex items-center gap-3 rounded-xl border border-dashed border-line px-3 py-2 text-left text-sm text-ink-soft transition hover:border-clay hover:text-clay"
+        >
+          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-clay-soft text-clay">
+            <FolderIcon size={13} />
+          </span>
+          New folder
+        </button>
+      )}
 
       <Link
         href="/sources"
@@ -408,26 +437,28 @@ export function Sidebar({
         Manage sources
       </Link>
 
-      <button
-        onClick={onOpenSettings}
-        className="mt-auto flex items-center gap-3 rounded-xl px-3 py-2 pt-4 text-left text-sm text-ink-faint transition hover:text-ink"
-      >
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden
+      {onOpenSettings && (
+        <button
+          onClick={onOpenSettings}
+          className="mt-auto flex items-center gap-3 rounded-xl px-3 py-2 pt-4 text-left text-sm text-ink-faint transition hover:text-ink"
         >
-          <circle cx="12" cy="12" r="3" />
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-        </svg>
-        Settings
-      </button>
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
+          Settings
+        </button>
+      )}
     </aside>
   );
 }
