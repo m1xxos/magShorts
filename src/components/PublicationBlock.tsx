@@ -1,7 +1,7 @@
 "use client";
 
 import { feedTone, timeAgo, type CatalogPublicationDto } from "@/lib/types";
-import { cachedImageUrl, recordEvent, unlockUrl } from "@/lib/actions";
+import { cachedImageUrl, recordEvent } from "@/lib/actions";
 
 // One publication in the Discover catalog: who it is, then three of its
 // articles, because a publication is best judged by what it actually
@@ -73,7 +73,10 @@ export function PublicationBlock({
           // deliberately carry no save or skip affordance.
           <a
             key={article.id}
-            href={unlockUrl(article.link)}
+            // Straight to the publisher, not through Marreta: in Discover you
+            // are judging an unfamiliar publication, and its own site — design,
+            // ads, paywall and all — is the thing being judged.
+            href={article.link}
             target="_blank"
             rel="noopener noreferrer"
             onClick={() => recordEvent(article.link, "open", article.title)}

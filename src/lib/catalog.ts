@@ -1,6 +1,6 @@
 import { getDb, type Article } from "./db";
 import { bufferToVector, EMBEDDING_DIM } from "./embeddings";
-import { buildProfile } from "./recommend";
+import { buildProfile, isCommerceRoundup } from "./recommend";
 import type { CatalogArticleDto, CatalogPublicationDto } from "./types";
 
 // The Discover catalog: publications the user has not subscribed to
@@ -16,6 +16,8 @@ const RECENCY_WINDOW_MS = 30 * 24 * 3_600_000;
 // About one a day: anything up to this is a publication with a rhythm, above
 // it is a wire.
 const VOLUME_FREE_PER_WEEK = 7;
+// Enough to lose to any real article without hiding the publication.
+const COMMERCE_PENALTY = 0.06;
 
 // Feed categories that say nothing about an article. These make useless chips
 // and would otherwise dominate them, since a big feed tags everything alike.
@@ -85,14 +87,18 @@ function scoreOf(
     ? new Date(article.published_at).getTime()
     : now - RECENCY_WINDOW_MS;
   const recency = Math.max(0, 1 - (now - publishedMs) / RECENCY_WINDOW_MS);
-  if (!profile || !article.embedding) return recency;
+  // Same demotion the digest applies, and it matters more here: these three
+  // tiles are the case a publication makes for itself, and a coupon roundup
+  // makes the wrong one.
+  const commerce = isCommerceRoundup(article.title) ? COMMERCE_PENALTY : 0;
+  if (!profile || !article.embedding) return recency - commerce;
   const embedding = bufferToVector(article.embedding);
   let cosine = 0;
   for (let i = 0; i < EMBEDDING_DIM; i++) cosine += profile[i] * embedding[i];
   // Recency barely counts here. The catalog answers "what is this publication
   // like", and a firehose posting a thousand times a week would otherwise win
   // every slot on the strength of having published something four minutes ago.
-  return cosine + recency * 0.03;
+  return cosine + recency * 0.03 - commerce;
 }
 
 function toArticleDto(

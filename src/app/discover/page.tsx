@@ -11,9 +11,10 @@ import {
   type FeedDto,
   type FolderDto,
 } from "@/lib/types";
-import { cachedImageUrl, recordEvent, unlockUrl } from "@/lib/actions";
+import { cachedImageUrl, recordEvent, saveToReadingList } from "@/lib/actions";
 import { TopBar } from "@/components/TopBar";
 import { Sidebar } from "@/components/Sidebar";
+import { BookmarkIcon } from "@/components/SwipeableCard";
 import { Toast, useToast } from "@/components/Toast";
 import { PublicationBlock } from "@/components/PublicationBlock";
 import { useUser } from "@/lib/useUser";
@@ -61,15 +62,18 @@ function SearchIcon() {
 function ArticleCard({
   article,
   onFollow,
+  onSave,
 }: {
   article: CatalogArticleDto;
   onFollow: (article: CatalogArticleDto) => void;
+  onSave: (article: CatalogArticleDto) => void;
 }) {
   const tone = feedTone(article.feed_id);
   return (
     <div className="flex flex-col overflow-hidden rounded-2xl border border-line bg-paper-raised">
       <a
-        href={unlockUrl(article.link)}
+        // Straight to the publisher — see PublicationBlock for why.
+        href={article.link}
         target="_blank"
         rel="noopener noreferrer"
         onClick={() => recordEvent(article.link, "open", article.title)}
@@ -122,6 +126,13 @@ function ArticleCard({
         <span className="min-w-0 flex-1 truncate text-[12.5px] text-ink-soft">
           {article.feed_title}
         </span>
+        <button
+          onClick={() => onSave(article)}
+          title="Save to Read later"
+          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-ink-faint transition hover:bg-paper-sunken hover:text-clay"
+        >
+          <BookmarkIcon size={13} />
+        </button>
         {article.is_subscribed ? (
           <span className="shrink-0 text-[12px] text-ink-faint">Following</span>
         ) : (
@@ -336,6 +347,27 @@ export default function DiscoverPage() {
     [showToast],
   );
 
+  // Saving keeps working on a catalog article: Read later stores a snapshot by
+  // link, so it survives the publication never being subscribed to and the
+  // article being trimmed out of the shallow catalog window.
+  const save = useCallback(
+    async (article: CatalogArticleDto) => {
+      const result = await saveToReadingList({
+        id: article.id,
+        feed_id: article.feed_id,
+        title: article.title,
+        link: article.link,
+        summary: article.summary,
+        image_url: article.image_url,
+        published_at: article.published_at,
+        topic: article.topic,
+        feed_title: article.feed_title,
+      });
+      showToast(result.message, !result.ok);
+    },
+    [showToast],
+  );
+
   async function addByUrl() {
     setAdding(true);
     try {
@@ -489,6 +521,7 @@ export default function DiscoverPage() {
                   key={article.id}
                   article={article}
                   onFollow={() => follow(article.feed_id, article.feed_title)}
+                  onSave={save}
                 />
               ))}
             </div>
