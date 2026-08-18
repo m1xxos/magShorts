@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   feedTone,
   timeAgo,
@@ -195,14 +195,17 @@ export default function DiscoverPage() {
   const requestKey = `${view}|${topic}|${query}`;
   const loading = !user || loadedKey !== requestKey;
 
-  const load = useCallback(
-    async (reset: boolean) => {
-      if (!user) return;
-      const offset = reset
-        ? 0
-        : view === "publications"
-          ? publications.length
-          : articles.length;
+  // Appending the next page. Guarded by a ref rather than state: the observer
+  // fires repeatedly while the sentinel is on screen, and a state flag would
+  // not have updated yet by the second call.
+  const loadingMore = useRef(false);
+  const loadMore = useCallback(async () => {
+    if (!user || loading || loadingMore.current) return;
+    const offset =
+      view === "publications" ? publications.length : articles.length;
+    if (offset === 0 || offset >= total) return;
+    loadingMore.current = true;
+    try {
       const params = new URLSearchParams({
         limit: String(PAGE_SIZE),
         offset: String(offset),
@@ -212,21 +215,57 @@ export default function DiscoverPage() {
       const response = await fetch(`/api/discover/${view}?${params}`);
       if (!response.ok) return;
       const data = await response.json();
-      setTopics(data.topics ?? []);
-      setCatalogSize(data.catalog_size ?? null);
-      setTotal(data.total ?? 0);
+      // The catalog is re-ranked per request, so a publication can shift
+      // across the page boundary; drop anything already on screen instead of
+      // rendering it twice.
       if (view === "publications") {
-        setPublications((prev) =>
-          reset ? data.publications : [...prev, ...data.publications],
-        );
+        setPublications((prev) => {
+          const seen = new Set(prev.map((entry) => entry.id));
+          return [
+            ...prev,
+            ...(data.publications ?? []).filter(
+              (entry: CatalogPublicationDto) => !seen.has(entry.id),
+            ),
+          ];
+        });
       } else {
-        setArticles((prev) =>
-          reset ? data.articles : [...prev, ...data.articles],
-        );
+        setArticles((prev) => {
+          const seen = new Set(prev.map((entry) => entry.id));
+          return [
+            ...prev,
+            ...(data.articles ?? []).filter(
+              (entry: CatalogArticleDto) => !seen.has(entry.id),
+            ),
+          ];
+        });
       }
-    },
-    [user, view, topic, query, publications.length, articles.length],
-  );
+    } finally {
+      loadingMore.current = false;
+    }
+  }, [
+    user,
+    loading,
+    view,
+    topic,
+    query,
+    total,
+    publications.length,
+    articles.length,
+  ]);
+
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) loadMore();
+      },
+      { rootMargin: "600px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [loadMore]);
 
   useEffect(() => {
     if (!user) return;
@@ -455,17 +494,14 @@ export default function DiscoverPage() {
             </div>
           )}
 
+          {/* Same sentinel the home grid uses: the observer picks it up 600px
+            before it reaches the viewport, so the next page is already in
+            flight by the time the last card is read. */}
+          <div ref={sentinelRef} className="h-px" />
           {!loading && shown > 0 && shown < total && (
-            <div className="mt-6 text-center">
-              <button
-                onClick={() => load(false)}
-                className="text-[13px] text-clay hover:underline"
-              >
-                {view === "publications"
-                  ? `Show ${Math.min(PAGE_SIZE, total - shown)} more publications`
-                  : "Keep scrolling for more"}
-              </button>
-            </div>
+            <p className="py-6 text-center text-[13px] text-ink-faint">
+              Loading more…
+            </p>
           )}
         </main>
       </div>
