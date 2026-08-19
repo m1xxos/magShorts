@@ -105,7 +105,7 @@ the same discovery the *Add publication* button uses:
   resolve and is reported rather than stored.
 
 That last one runs by itself. Once a day the scheduler asks for more, up to a
-ceiling of `CATALOG_MAX` publications (120), and every candidate goes through
+ceiling of `CATALOG_MAX` publications (200), and every candidate goes through
 the same three gates before it stays:
 
 1. **It must resolve.** A home page that yields no parseable feed is dropped,

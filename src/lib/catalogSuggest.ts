@@ -20,7 +20,11 @@ const TASTE_WINDOW = 12;
 // is allowed to get. Without the ceiling the daily run grows it forever, and
 // every catalog publication costs a feed refresh every six hours.
 const SUGGEST_EVERY_MS = 24 * 3_600_000;
-const CATALOG_CEILING = Number(process.env.CATALOG_MAX ?? 120);
+// Raised from 120 once the catalog was seeded in earnest and stood at 122 —
+// at which point the daily run would have stopped adding anything, quietly,
+// while the reader was still asking for more. A catalog publication is one
+// fetch every six hours, so two hundred is a few dozen requests an hour.
+const CATALOG_CEILING = Number(process.env.CATALOG_MAX ?? 200);
 
 // Bookkeeping rows in `settings`. Deliberately not SettingKeys: these are the
 // replenisher's own notes, not something to show in the settings dialog.
