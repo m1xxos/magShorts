@@ -18,6 +18,12 @@ const RECENCY_WINDOW_MS = 30 * 24 * 3_600_000;
 const VOLUME_FREE_PER_WEEK = 7;
 // Enough to lose to any real article without hiding the publication.
 const COMMERCE_PENALTY = 0.06;
+// An article with no picture is a grey gradient in the grid and a blank tile
+// in a publication block, and three blank tiles say nothing about a
+// publication you have never met. Worth about as much as being a coupon
+// roundup — enough to lose a slot to an illustrated rival of similar fit, not
+// enough to bury a publication that fits far better without pictures.
+const IMAGE_PENALTY = 0.06;
 
 // Feed categories that say nothing about an article. These make useless chips
 // and would otherwise dominate them, since a big feed tags everything alike.
@@ -97,14 +103,15 @@ function scoreOf(
   // tiles are the case a publication makes for itself, and a coupon roundup
   // makes the wrong one.
   const commerce = isCommerceRoundup(article.title) ? COMMERCE_PENALTY : 0;
-  if (!profile || !article.embedding) return recency - commerce;
+  const blank = article.image_url ? 0 : IMAGE_PENALTY;
+  if (!profile || !article.embedding) return recency - commerce - blank;
   const embedding = bufferToVector(article.embedding);
   let cosine = 0;
   for (let i = 0; i < EMBEDDING_DIM; i++) cosine += profile[i] * embedding[i];
   // Recency barely counts here. The catalog answers "what is this publication
   // like", and a firehose posting a thousand times a week would otherwise win
   // every slot on the strength of having published something four minutes ago.
-  return cosine + recency * 0.03 - commerce;
+  return cosine + recency * 0.03 - commerce - blank;
 }
 
 function toArticleDto(
@@ -199,7 +206,10 @@ export function catalogPublications(
       const head = ranked[0].article;
       // Judged on its best three together rather than its single best: one
       // lucky match is what a high-volume feed produces by accident, while a
-      // publication that genuinely fits matches again and again.
+      // publication that genuinely fits matches again and again. The image
+      // penalty rides along in each article's score, so a publication that
+      // never illustrates anything sinks on its own — and the three tiles it
+      // does show are its illustrated ones.
       const shown = ranked.slice(0, ARTICLES_PER_PUBLICATION);
       const fit =
         shown.reduce((sum, entry) => sum + entry.score, 0) / shown.length;

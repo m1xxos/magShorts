@@ -92,6 +92,26 @@ export const CATALOG_SEED: SeedEntry[] = [
   { name: "Granta", url: "https://granta.com" },
   { name: "Jacobin", url: "https://jacobin.com" },
 
+  // Publications that commission pictures. A catalog block is three tiles, and
+  // three grey gradients say nothing about a publication you have never met —
+  // so a list this heavy on text-only newsletters needed places that treat the
+  // image as part of the writing.
+  { name: "Atlas Obscura", url: "https://www.atlasobscura.com" },
+  { name: "Colossal", url: "https://www.thisiscolossal.com" },
+  { name: "Hyperallergic", url: "https://hyperallergic.com" },
+  { name: "It's Nice That", url: "https://www.itsnicethat.com" },
+  { name: "Design Observer", url: "https://designobserver.com" },
+  { name: "Feature Shoot", url: "https://www.featureshoot.com" },
+  { name: "Atmos", url: "https://atmos.earth" },
+  { name: "Orion Magazine", url: "https://orionmagazine.org" },
+  { name: "Open Culture", url: "https://www.openculture.com" },
+  { name: "Reactor", url: "https://reactormag.com" },
+  // Its feed lives at a path nothing conventional would guess.
+  { name: "Smithsonian Magazine", url: "https://www.smithsonianmag.com/rss/latest_articles/" },
+  { name: "Vittles", url: "https://www.vittlesmagazine.com" },
+  { name: "Grist", url: "https://grist.org" },
+  { name: "Narratively", url: "https://narratively.com" },
+
   // Science and the world, written for readers rather than colleagues
   { name: "JSTOR Daily", url: "https://daily.jstor.org" },
   { name: "Knowable Magazine", url: "https://knowablemagazine.org" },
