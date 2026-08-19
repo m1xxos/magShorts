@@ -8,6 +8,7 @@ import {
   type CatalogPublicationDto,
 } from "@/lib/types";
 import { cachedImageUrl, recordEvent } from "@/lib/actions";
+import { BookmarkIcon } from "./SwipeableCard";
 
 // One publication in the Discover catalog: who it is, then three of its
 // articles, because a publication is best judged by what it actually
@@ -35,41 +36,48 @@ function toneGradient(feedId: number): string {
 function ArticleTile({
   article,
   feedId,
+  onSave,
 }: {
   article: CatalogArticleDto;
   feedId: number;
+  onSave: (article: CatalogArticleDto) => void;
 }) {
   return (
-    // Evidence about the publication, not a queue: these open, and
-    // deliberately carry no save or skip affordance.
-    <a
-      // Straight to the publisher, not through Marreta: in Discover you are
-      // judging an unfamiliar publication, and its own site — design, ads,
-      // paywall and all — is the thing being judged.
-      href={article.link}
-      target="_blank"
-      rel="noopener noreferrer"
-      onClick={() => recordEvent(article.link, "open", article.title)}
-      className="group flex flex-col"
-    >
-      {article.image_url ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={cachedImageUrl(article.image_url)}
-          alt=""
-          loading="lazy"
-          className="aspect-video w-full rounded-xl object-cover"
-        />
-      ) : (
-        <div
-          className="aspect-video w-full rounded-xl"
-          style={{ background: toneGradient(feedId) }}
-        />
-      )}
-      <h3 className="mt-2.5 font-serif text-[17px] leading-[1.32] font-medium text-ink group-hover:text-clay">
-        {article.title}
-      </h3>
-      <p className="mt-auto flex flex-wrap items-center gap-2 pt-2.5">
+    <div className="flex h-full flex-col">
+      <a
+        // Straight to the publisher, not through Marreta: in Discover you are
+        // judging an unfamiliar publication, and its own site — design, ads,
+        // paywall and all — is the thing being judged.
+        href={article.link}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={() => recordEvent(article.link, "open", article.title)}
+        className="group flex flex-col"
+      >
+        {article.image_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={cachedImageUrl(article.image_url)}
+            alt=""
+            loading="lazy"
+            className="aspect-video w-full rounded-xl object-cover"
+          />
+        ) : (
+          <div
+            className="aspect-video w-full rounded-xl"
+            style={{ background: toneGradient(feedId) }}
+          />
+        )}
+        <h3 className="mt-2.5 font-serif text-[17px] leading-[1.32] font-medium text-ink group-hover:text-clay">
+          {article.title}
+        </h3>
+      </a>
+
+      {/* Outside the anchor: a button nested in a link is neither valid nor
+          clickable. Kept to one quiet control — the tile is still evidence
+          about the publication first, but a piece worth reading should not
+          have to be found again later. */}
+      <div className="mt-auto flex flex-wrap items-center gap-2 pt-2.5">
         {article.topic && (
           <span className="rounded-full bg-paper-sunken px-[9px] py-[3px] text-[11px] text-ink-soft">
             {article.topic}
@@ -78,8 +86,16 @@ function ArticleTile({
         <span className="text-[12px] text-ink-faint">
           {timeAgo(article.published_at)}
         </span>
-      </p>
-    </a>
+        <button
+          onClick={() => onSave(article)}
+          title="Save to Read later"
+          aria-label={`Save ${article.title} to Read later`}
+          className="ml-auto inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-ink-faint transition hover:bg-paper-sunken hover:text-clay"
+        >
+          <BookmarkIcon size={13} />
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -87,10 +103,12 @@ export function PublicationBlock({
   publication,
   onSubscribe,
   onDismiss,
+  onSave,
 }: {
   publication: CatalogPublicationDto;
   onSubscribe: (publication: CatalogPublicationDto) => void;
   onDismiss: (publication: CatalogPublicationDto) => void;
+  onSave: (article: CatalogArticleDto) => void;
 }) {
   const rate = cadence(publication.posts_per_week);
   // The rest of what the catalog holds for this publication, fetched only if
@@ -182,6 +200,7 @@ export function PublicationBlock({
             key={article.id}
             article={article}
             feedId={publication.id}
+            onSave={onSave}
           />
         ))}
       </div>

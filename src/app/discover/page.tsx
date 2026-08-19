@@ -562,6 +562,7 @@ export default function DiscoverPage() {
                   publication={publication}
                   onSubscribe={() => follow(publication.id, publication.title)}
                   onDismiss={() => dismiss(publication.id, publication.title)}
+                  onSave={save}
                 />
               ))}
             </div>
