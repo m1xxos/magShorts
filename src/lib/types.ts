@@ -128,7 +128,11 @@ export interface CatalogPublicationDto {
   posts_per_week: number | null;
   topics: string[];
   is_subscribed: boolean;
+  // The three that make the case for the publication, and how many the
+  // catalog holds in total — the block offers the rest only when there is a
+  // rest to offer.
   articles: CatalogArticleDto[];
+  article_count: number;
 }
 
 export type DiscoverView = "publications" | "articles";

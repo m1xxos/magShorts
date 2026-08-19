@@ -13,6 +13,8 @@ export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const { articles, total } = catalogArticles(user.id, {
     topic: params.get("topic")?.trim() || undefined,
+    // Set by "more from this publication"; ignored when absent.
+    feedId: params.get("feed") ? Number(params.get("feed")) : undefined,
     query: params.get("q")?.trim() || undefined,
     limit: Math.min(Number(params.get("limit") ?? 24), 100),
     offset: Math.max(Number(params.get("offset") ?? 0), 0),

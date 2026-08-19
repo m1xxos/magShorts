@@ -41,6 +41,8 @@ const GENERIC_TOPICS = new Set([
 export interface CatalogFilter {
   topic?: string;
   query?: string;
+  // One publication only — what "more from this publication" asks for.
+  feedId?: number;
   limit: number;
   offset: number;
 }
@@ -56,6 +58,10 @@ type CatalogRow = Article & {
 function fetchCatalogArticles(filter: CatalogFilter): CatalogRow[] {
   const where: string[] = ["f.subscribed = 0", "f.enabled = 1"];
   const params: unknown[] = [];
+  if (filter.feedId !== undefined) {
+    where.push("f.id = ?");
+    params.push(filter.feedId);
+  }
   if (filter.topic) {
     where.push("a.topic = ?");
     params.push(filter.topic);
@@ -227,6 +233,7 @@ export function catalogPublications(
           articles: shown.map((entry) =>
             toArticleDto(entry.article, entry.score)
           ),
+          article_count: entries.length,
         } satisfies CatalogPublicationDto,
       };
     })
@@ -242,6 +249,13 @@ export function catalogPublications(
 
 // Chip counts, over the whole catalog rather than the current page — a chip
 // that says 6 should still say 6 after you scroll.
+// A label carried by this many different publications is filing, not a
+// subject. Measured over the whole corpus: the folder names reach 26 and 7
+// publications, while the widest genuine category a feed ever declares — "AI"
+// — reaches 8. Ten leaves room for a real category to spread and still
+// catches a folder label whose folder is gone.
+const TOPIC_MAX_PUBLICATIONS = 10;
+
 export function catalogTopics(): Array<{ topic: string; count: number }> {
   return getDb()
     .prepare(
@@ -249,17 +263,26 @@ export function catalogTopics(): Array<{ topic: string; count: number }> {
       // no usable category. That is the user's filing, not the article's
       // subject, and it makes a useless chip — a folder of 47 blogs would show
       // up as one topic covering everything.
+      //
+      // Matching the current folder names is not enough on its own: the label
+      // was written into the article when it was fetched and outlives the
+      // folder, so deleting a folder used to promote its name straight into
+      // the chips. A folder called Discover, emptied into the catalog and then
+      // removed, came back as a chip reading "Discover 1392".
       `SELECT a.topic AS topic, COUNT(*) AS count
        FROM articles a JOIN feeds f ON f.id = a.feed_id
        WHERE f.subscribed = 0 AND f.enabled = 1 AND a.topic IS NOT NULL
          AND a.topic NOT IN (SELECT name FROM folders)
-       GROUP BY a.topic HAVING count >= 2
+       GROUP BY a.topic
+       HAVING count >= 2 AND COUNT(DISTINCT a.feed_id) < ${TOPIC_MAX_PUBLICATIONS}
        ORDER BY count DESC, topic ASC LIMIT 24`
     )
     .all()
-    .filter(
-      (row) => !GENERIC_TOPICS.has((row as { topic: string }).topic.toLowerCase())
-    )
+    .filter((row) => {
+      const topic = (row as { topic: string }).topic;
+      // Some feeds number their categories. "1" is not a subject.
+      return !GENERIC_TOPICS.has(topic.toLowerCase()) && !/^\d+$/.test(topic);
+    })
     .slice(0, 10) as Array<{ topic: string; count: number }>;
 }
 

@@ -1,6 +1,12 @@
 "use client";
 
-import { feedTone, timeAgo, type CatalogPublicationDto } from "@/lib/types";
+import { useState } from "react";
+import {
+  feedTone,
+  timeAgo,
+  type CatalogArticleDto,
+  type CatalogPublicationDto,
+} from "@/lib/types";
 import { cachedImageUrl, recordEvent } from "@/lib/actions";
 
 // One publication in the Discover catalog: who it is, then three of its
@@ -24,6 +30,59 @@ function toneGradient(feedId: number): string {
   return `linear-gradient(135deg, ${tone}18, ${tone}42)`;
 }
 
+// One article tile. The catalog keeps ten articles per publication and the
+// block leads with three, so this is also what "read more" unfolds.
+function ArticleTile({
+  article,
+  feedId,
+}: {
+  article: CatalogArticleDto;
+  feedId: number;
+}) {
+  return (
+    // Evidence about the publication, not a queue: these open, and
+    // deliberately carry no save or skip affordance.
+    <a
+      // Straight to the publisher, not through Marreta: in Discover you are
+      // judging an unfamiliar publication, and its own site — design, ads,
+      // paywall and all — is the thing being judged.
+      href={article.link}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={() => recordEvent(article.link, "open", article.title)}
+      className="group flex flex-col"
+    >
+      {article.image_url ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={cachedImageUrl(article.image_url)}
+          alt=""
+          loading="lazy"
+          className="aspect-video w-full rounded-xl object-cover"
+        />
+      ) : (
+        <div
+          className="aspect-video w-full rounded-xl"
+          style={{ background: toneGradient(feedId) }}
+        />
+      )}
+      <h3 className="mt-2.5 font-serif text-[17px] leading-[1.32] font-medium text-ink group-hover:text-clay">
+        {article.title}
+      </h3>
+      <p className="mt-auto flex flex-wrap items-center gap-2 pt-2.5">
+        {article.topic && (
+          <span className="rounded-full bg-paper-sunken px-[9px] py-[3px] text-[11px] text-ink-soft">
+            {article.topic}
+          </span>
+        )}
+        <span className="text-[12px] text-ink-faint">
+          {timeAgo(article.published_at)}
+        </span>
+      </p>
+    </a>
+  );
+}
+
 export function PublicationBlock({
   publication,
   onSubscribe,
@@ -34,6 +93,32 @@ export function PublicationBlock({
   onDismiss: (publication: CatalogPublicationDto) => void;
 }) {
   const rate = cadence(publication.posts_per_week);
+  // The rest of what the catalog holds for this publication, fetched only if
+  // asked for: three tiles are the pitch, and most blocks are never opened.
+  const [more, setMore] = useState<CatalogArticleDto[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  async function showMore() {
+    if (more.length > 0) {
+      setMore([]);
+      return;
+    }
+    setLoading(true);
+    try {
+      const response = await fetch(
+        `/api/discover/articles?feed=${publication.id}&limit=50`,
+      );
+      const data = response.ok ? await response.json() : null;
+      const shown = new Set(publication.articles.map((a) => a.id));
+      setMore(
+        ((data?.articles ?? []) as CatalogArticleDto[]).filter(
+          (a) => !shown.has(a.id),
+        ),
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <div className="overflow-hidden rounded-[20px] border border-line bg-paper-raised">
@@ -92,50 +177,30 @@ export function PublicationBlock({
       </div>
 
       <div className="grid gap-5 px-5 py-[18px] sm:grid-cols-2 lg:grid-cols-3">
-        {publication.articles.map((article) => (
-          // Evidence about the publication, not a queue: these open, and
-          // deliberately carry no save or skip affordance.
-          <a
+        {[...publication.articles, ...more].map((article) => (
+          <ArticleTile
             key={article.id}
-            // Straight to the publisher, not through Marreta: in Discover you
-            // are judging an unfamiliar publication, and its own site — design,
-            // ads, paywall and all — is the thing being judged.
-            href={article.link}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={() => recordEvent(article.link, "open", article.title)}
-            className="group flex flex-col"
-          >
-            {article.image_url ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={cachedImageUrl(article.image_url)}
-                alt=""
-                loading="lazy"
-                className="aspect-video w-full rounded-xl object-cover"
-              />
-            ) : (
-              <div
-                className="aspect-video w-full rounded-xl"
-                style={{ background: toneGradient(publication.id) }}
-              />
-            )}
-            <h3 className="mt-2.5 font-serif text-[17px] leading-[1.32] font-medium text-ink group-hover:text-clay">
-              {article.title}
-            </h3>
-            <p className="mt-auto flex flex-wrap items-center gap-2 pt-2.5">
-              {article.topic && (
-                <span className="rounded-full bg-paper-sunken px-[9px] py-[3px] text-[11px] text-ink-soft">
-                  {article.topic}
-                </span>
-              )}
-              <span className="text-[12px] text-ink-faint">
-                {timeAgo(article.published_at)}
-              </span>
-            </p>
-          </a>
+            article={article}
+            feedId={publication.id}
+          />
         ))}
       </div>
+
+      {publication.article_count > publication.articles.length && (
+        <div className="border-t border-paper-sunken px-5 py-3">
+          <button
+            onClick={showMore}
+            disabled={loading}
+            className="text-[12.5px] text-clay transition hover:brightness-90 disabled:text-ink-faint"
+          >
+            {loading
+              ? "Loading…"
+              : more.length > 0
+                ? "Show less"
+                : `Read more from ${publication.title} (${publication.article_count - publication.articles.length})`}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
