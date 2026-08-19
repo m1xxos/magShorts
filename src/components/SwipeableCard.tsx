@@ -159,13 +159,21 @@ export function SwipeableCard({
   );
 }
 
-export function BookmarkIcon({ size = 16 }: { size?: number }) {
+// `filled` is the saved state: the same outline, inked in, so a card you have
+// kept reads differently at a glance from one you have not.
+export function BookmarkIcon({
+  size = 16,
+  filled = false,
+}: {
+  size?: number;
+  filled?: boolean;
+}) {
   return (
     <svg
       width={size}
       height={size}
       viewBox="0 0 24 24"
-      fill="none"
+      fill={filled ? "currentColor" : "none"}
       stroke="currentColor"
       strokeWidth="2"
       strokeLinecap="round"

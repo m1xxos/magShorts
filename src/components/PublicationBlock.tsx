@@ -37,10 +37,12 @@ function ArticleTile({
   article,
   feedId,
   onSave,
+  saved,
 }: {
   article: CatalogArticleDto;
   feedId: number;
   onSave: (article: CatalogArticleDto) => void;
+  saved: boolean;
 }) {
   return (
     <div className="flex h-full flex-col">
@@ -88,11 +90,20 @@ function ArticleTile({
         </span>
         <button
           onClick={() => onSave(article)}
-          title="Save to Read later"
-          aria-label={`Save ${article.title} to Read later`}
-          className="ml-auto inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-ink-faint transition hover:bg-paper-sunken hover:text-clay"
+          title={saved ? "Saved to Read later" : "Save to Read later"}
+          aria-label={
+            saved
+              ? `${article.title} is in Read later`
+              : `Save ${article.title} to Read later`
+          }
+          aria-pressed={saved}
+          className={`ml-auto inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition ${
+            saved
+              ? "text-ink"
+              : "text-ink-faint hover:bg-paper-sunken hover:text-clay"
+          }`}
         >
-          <BookmarkIcon size={13} />
+          <BookmarkIcon size={13} filled={saved} />
         </button>
       </div>
     </div>
@@ -104,11 +115,16 @@ export function PublicationBlock({
   onSubscribe,
   onDismiss,
   onSave,
+  savedLinks,
 }: {
   publication: CatalogPublicationDto;
   onSubscribe: (publication: CatalogPublicationDto) => void;
   onDismiss: (publication: CatalogPublicationDto) => void;
   onSave: (article: CatalogArticleDto) => void;
+  // Links already in Read later. Kept by link rather than by article id, since
+  // that is what Read later itself stores and what survives the catalog
+  // trimming an article away.
+  savedLinks: Set<string>;
 }) {
   const rate = cadence(publication.posts_per_week);
   // The rest of what the catalog holds for this publication, fetched only if
@@ -201,6 +217,7 @@ export function PublicationBlock({
             article={article}
             feedId={publication.id}
             onSave={onSave}
+            saved={savedLinks.has(article.link)}
           />
         ))}
       </div>

@@ -64,11 +64,13 @@ function ArticleCard({
   onFollow,
   onSave,
   onDismiss,
+  saved,
 }: {
   article: CatalogArticleDto;
   onFollow: (article: CatalogArticleDto) => void;
   onSave: (article: CatalogArticleDto) => void;
   onDismiss: (article: CatalogArticleDto) => void;
+  saved: boolean;
 }) {
   const tone = feedTone(article.feed_id);
   return (
@@ -130,10 +132,15 @@ function ArticleCard({
         </span>
         <button
           onClick={() => onSave(article)}
-          title="Save to Read later"
-          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-ink-faint transition hover:bg-paper-sunken hover:text-clay"
+          title={saved ? "Saved to Read later" : "Save to Read later"}
+          aria-pressed={saved}
+          className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition ${
+            saved
+              ? "text-ink"
+              : "text-ink-faint hover:bg-paper-sunken hover:text-clay"
+          }`}
         >
-          <BookmarkIcon size={13} />
+          <BookmarkIcon size={13} filled={saved} />
         </button>
         {article.is_subscribed ? (
           <span className="shrink-0 text-[12px] text-ink-faint">Following</span>
@@ -195,6 +202,9 @@ export default function DiscoverPage() {
   const [feeds, setFeeds] = useState<FeedDto[]>([]);
   const [folders, setFolders] = useState<FolderDto[]>([]);
   const [readingCount, setReadingCount] = useState(0);
+  // What is already in Read later, by link. Loaded once so the mark survives a
+  // reload rather than only lasting as long as the click that made it.
+  const [savedLinks, setSavedLinks] = useState<Set<string>>(new Set());
   const { toast, showToast } = useToast();
 
   useEffect(() => {
@@ -207,7 +217,12 @@ export default function DiscoverPage() {
       .then(([f, fo, rl]) => {
         if (Array.isArray(f)) setFeeds(f);
         if (Array.isArray(fo)) setFolders(fo);
-        if (Array.isArray(rl)) setReadingCount(rl.length);
+        if (Array.isArray(rl)) {
+          setReadingCount(rl.length);
+          setSavedLinks(
+            new Set((rl as Array<{ link: string }>).map((item) => item.link)),
+          );
+        }
       })
       .catch(() => {});
   }, [user]);
@@ -413,9 +428,15 @@ export default function DiscoverPage() {
         topic: article.topic,
         feed_title: article.feed_title,
       });
+      if (result.ok) {
+        // Saving the same link twice is an upsert server-side, so the badge
+        // only moves the first time.
+        setReadingCount((prev) => (savedLinks.has(article.link) ? prev : prev + 1));
+        setSavedLinks((prev) => new Set(prev).add(article.link));
+      }
       showToast(result.message, !result.ok);
     },
-    [showToast],
+    [showToast, savedLinks],
   );
 
   async function addByUrl() {
@@ -563,6 +584,7 @@ export default function DiscoverPage() {
                   onSubscribe={() => follow(publication.id, publication.title)}
                   onDismiss={() => dismiss(publication.id, publication.title)}
                   onSave={save}
+                  savedLinks={savedLinks}
                 />
               ))}
             </div>
@@ -575,6 +597,7 @@ export default function DiscoverPage() {
                   onFollow={() => follow(article.feed_id, article.feed_title)}
                   onSave={save}
                   onDismiss={() => dismiss(article.feed_id, article.feed_title)}
+                  saved={savedLinks.has(article.link)}
                 />
               ))}
             </div>
