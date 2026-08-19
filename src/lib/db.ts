@@ -218,6 +218,36 @@ export function getDb(): Database.Database {
     db.exec("ALTER TABLE feeds ADD COLUMN failures INTEGER NOT NULL DEFAULT 0");
   }
 
+  // Ingest looks an article up by (feed_id, link) on every item of every feed,
+  // so this index is the difference between a lookup and a scan. Its absence
+  // also marks a database that has never been de-duplicated, which is why the
+  // one-time cleanup below is guarded by it rather than by a version row.
+  const articleIndexes = db
+    .prepare("PRAGMA index_list(articles)")
+    .all() as Array<{ name: string }>;
+  if (!articleIndexes.some((index) => index.name === "idx_articles_feed_link")) {
+    // Publishers change guid schemes, and a reader keyed on the guid stores
+    // the whole feed a second time when they do: The Atlantic switched from
+    // RSS to Atom and arrived with 25 new ids for 25 articles already on file.
+    // Ingest now keeps the guid it already has for a link, so this cannot
+    // happen again — but the copies already made have to go, and the oldest
+    // row is the one to keep, since it carries the embedding and whatever is
+    // pointing at it.
+    const removed = db
+      .prepare(
+        `DELETE FROM articles WHERE id NOT IN (
+           SELECT MIN(id) FROM articles GROUP BY feed_id, link
+         )`
+      )
+      .run();
+    if (removed.changes > 0) {
+      console.log(`[db] removed ${removed.changes} duplicate article(s)`);
+    }
+    db.exec(
+      "CREATE INDEX idx_articles_feed_link ON articles(feed_id, link)"
+    );
+  }
+
   const articleColumns = db
     .prepare("PRAGMA table_info(articles)")
     .all() as Array<{ name: string }>;

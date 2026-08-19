@@ -308,6 +308,16 @@ export function refreshFeedArticles(feed: FeedWithFolder): Promise<void> {
         content = COALESCE(excluded.content, articles.content)
     `);
 
+    // The identity of an article is its link, not its guid. Publishers change
+    // guid schemes — The Atlantic moved from RSS to Atom and every one of its
+    // articles arrived wearing a new id — and a reader that trusts the guid
+    // stores the whole feed twice when that happens. Reusing the guid already
+    // on file for this link makes the upsert land on the existing row instead,
+    // and keeps its embedding, its topic and anything pointing at it.
+    const knownGuid = db.prepare(
+      "SELECT guid FROM articles WHERE feed_id = ? AND link = ?"
+    );
+
     const items = (parsed.items ?? []).slice(0, MAX_ITEMS_PER_FEED);
     const insertAll = db.transaction(() => {
       for (const item of items) {
@@ -315,9 +325,12 @@ export function refreshFeedArticles(feed: FeedWithFolder): Promise<void> {
         const title = item.title?.trim();
         if (!link || !title) continue;
         const publishedAt = item.isoDate ?? (item.pubDate ? new Date(item.pubDate).toISOString() : null);
+        const known = knownGuid.get(feed.id, link) as
+          | { guid: string }
+          | undefined;
         upsert.run({
           feed_id: feed.id,
-          guid: itemGuid(item) ?? link,
+          guid: known?.guid ?? itemGuid(item) ?? link,
           // Some feeds (The Atlantic) put markup like <em> inside titles.
           title: stripHtml(title),
           link,
