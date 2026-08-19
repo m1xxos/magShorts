@@ -14,6 +14,8 @@ export interface Feed {
   // 0 = a Discover catalog publication rather than a subscription.
   subscribed: number;
   description: string | null;
+  // Consecutive failed refreshes; any success sets it back to 0.
+  failures: number;
 }
 
 export interface Folder {
@@ -208,6 +210,12 @@ export function getDb(): Database.Database {
   // One sentence about what the publication is, written once and cached.
   if (!feedColumns.some((column) => column.name === "description")) {
     db.exec("ALTER TABLE feeds ADD COLUMN description TEXT");
+  }
+  // Consecutive failed refreshes, reset by any success. A catalog that fills
+  // itself needs to empty itself too: a publication that has moved or shut
+  // down otherwise stays on the refresh list forever, quietly failing.
+  if (!feedColumns.some((column) => column.name === "failures")) {
+    db.exec("ALTER TABLE feeds ADD COLUMN failures INTEGER NOT NULL DEFAULT 0");
   }
 
   const articleColumns = db

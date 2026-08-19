@@ -74,9 +74,20 @@ flat grid of articles with the publication demoted to the card footer.
 **Subscribe** and **+ Follow** are the same action in two places: a catalog
 publication and a subscription are one row with one flag, so subscribing is
 instant, keeps the articles already fetched, and is undone by the same switch.
+The **×** beside them is the other answer — it removes the publication and
+remembers the refusal, so the daily suggestion run can't hand it back
+tomorrow. Subscriptions have no ×: unsubscribing is a different act and
+already has its own switch.
+
 **Manage sources** has the reverse — *To Discover* on a feed, *All to Discover*
 on a folder — which retires a publication into the catalog instead of deleting
 it and its archive.
+
+A catalog publication that stops answering for ten refreshes running — two and
+a half days — is retired from the catalog on its own. A *subscription* that
+fails is never disabled behind your back: it would look like the app losing
+your feed, so Manage sources marks it **not answering** and leaves the choice
+to you.
 
 Catalog publications are fetched every six hours rather than every ten minutes
 and keep only their ten newest articles: enough for three tiles and for

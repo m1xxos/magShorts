@@ -4,6 +4,8 @@ import { fetchTextMaybeProxied } from "./net";
 
 const STALE_AFTER_MS = 15 * 60 * 1000;
 const CATALOG_STALE_AFTER_MS = 6 * 60 * 60 * 1000;
+// Consecutive failures before a catalog publication is taken out of rotation.
+const CATALOG_MAX_FAILURES = 10;
 const MAX_ITEMS_PER_FEED = 200;
 
 // A catalog publication only has to show three tiles and rank against the
@@ -405,12 +407,33 @@ async function doRefreshStaleFeeds(feedId?: number): Promise<void> {
     stale.map((feed) => refreshFeedArticles(feed))
   );
   results.forEach((result, index) => {
-    if (result.status === "rejected") {
-      // A failed feed keeps its old last_fetched_at and stays stale, so
-      // make the failure visible instead of silently retrying forever.
+    const feed = stale[index];
+    if (result.status === "fulfilled") {
+      if (feed.failures > 0) {
+        db.prepare("UPDATE feeds SET failures = 0 WHERE id = ?").run(feed.id);
+      }
+      return;
+    }
+    // A failed feed keeps its old last_fetched_at and stays stale, so
+    // make the failure visible instead of silently retrying forever.
+    console.warn(
+      `[rss] refresh failed for ${feed.title}:`,
+      result.reason?.message ?? result.reason
+    );
+    const failures = feed.failures + 1;
+    db.prepare("UPDATE feeds SET failures = ? WHERE id = ?").run(
+      failures,
+      feed.id
+    );
+    // Retire a catalog publication that has stopped answering. Only a catalog
+    // one: a subscription is the reader's own choice and disabling it behind
+    // their back would look like the app losing their feed, so those keep
+    // failing loudly instead. At six hours between attempts this is two and a
+    // half days of silence, long enough to outlast an outage.
+    if (feed.subscribed === 0 && failures >= CATALOG_MAX_FAILURES) {
+      db.prepare("UPDATE feeds SET enabled = 0 WHERE id = ?").run(feed.id);
       console.warn(
-        `[rss] refresh failed for ${stale[index].title}:`,
-        result.reason?.message ?? result.reason
+        `[rss] retired ${feed.title} from the catalog after ${failures} failed refreshes`
       );
     }
   });

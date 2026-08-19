@@ -35,6 +35,10 @@ export interface FeedDto {
   article_count: number;
   enabled: number;
   folder_id: number | null;
+  // Consecutive failed refreshes. A catalog publication is retired
+  // automatically once this gets high; a subscription is the reader's own, so
+  // it is only reported.
+  failures: number;
 }
 
 export interface FolderDto {

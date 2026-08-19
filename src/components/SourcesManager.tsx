@@ -30,6 +30,10 @@ function parseList(value: string): string[] {
     .filter(Boolean);
 }
 
+// Consecutive failed refreshes before a subscription is called out. At one
+// attempt every ten minutes this is an hour of silence.
+const FAILING_AFTER = 6;
+
 function feedDomain(feed: FeedDto): string | null {
   try {
     return new URL(feed.site_url ?? feed.url).hostname
@@ -274,6 +278,13 @@ export function SourcesManager() {
           <p className="truncate text-[12px] text-ink-faint">
             {domain ?? feed.url} · {feed.article_count} article
             {feed.article_count === 1 ? "" : "s"}
+            {/* A subscription that has stopped answering is never disabled on
+                your behalf — it would look like the app losing your feed — so
+                it says so here instead. An hour of failures, long enough that
+                a blip doesn't raise it. */}
+            {feed.failures >= FAILING_AFTER && (
+              <span className="text-clay"> · not answering</span>
+            )}
           </p>
         </div>
 

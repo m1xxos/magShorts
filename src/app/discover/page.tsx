@@ -63,10 +63,12 @@ function ArticleCard({
   article,
   onFollow,
   onSave,
+  onDismiss,
 }: {
   article: CatalogArticleDto;
   onFollow: (article: CatalogArticleDto) => void;
   onSave: (article: CatalogArticleDto) => void;
+  onDismiss: (article: CatalogArticleDto) => void;
 }) {
   const tone = feedTone(article.feed_id);
   return (
@@ -136,12 +138,35 @@ function ArticleCard({
         {article.is_subscribed ? (
           <span className="shrink-0 text-[12px] text-ink-faint">Following</span>
         ) : (
-          <button
-            onClick={() => onFollow(article)}
-            className="shrink-0 rounded-full border border-clay px-[11px] py-1 text-[12px] font-medium text-clay transition hover:bg-clay hover:text-white"
-          >
-            + Follow
-          </button>
+          <>
+            <button
+              onClick={() => onFollow(article)}
+              className="shrink-0 rounded-full border border-clay px-[11px] py-1 text-[12px] font-medium text-clay transition hover:bg-clay hover:text-white"
+            >
+              + Follow
+            </button>
+            {/* Dismisses the publication, not the article — the same answer
+                the publications view offers, since a bad suggestion is just as
+                visible from here. */}
+            <button
+              onClick={() => onDismiss(article)}
+              title={`Not for me — remove ${article.feed_title} from Discover`}
+              aria-label={`Remove ${article.feed_title} from Discover`}
+              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-ink-faint transition hover:bg-paper-sunken hover:text-ink"
+            >
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+              >
+                <path d="M6 6l12 12M18 6L6 18" />
+              </svg>
+            </button>
+          </>
         )}
       </div>
     </div>
@@ -164,6 +189,8 @@ export default function DiscoverPage() {
   // render.
   const [loadedKey, setLoadedKey] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  // Bumped to re-run the load when an optimistic change has to be taken back.
+  const [reloadToken, setReloadToken] = useState(0);
   // The sidebar is navigation here, so it only needs what it displays.
   const [feeds, setFeeds] = useState<FeedDto[]>([]);
   const [folders, setFolders] = useState<FolderDto[]>([]);
@@ -203,7 +230,7 @@ export default function DiscoverPage() {
     return () => clearTimeout(id);
   }, [search]);
 
-  const requestKey = `${view}|${topic}|${query}`;
+  const requestKey = `${view}|${topic}|${query}|${reloadToken}`;
   const loading = !user || loadedKey !== requestKey;
 
   // Appending the next page. Guarded by a ref rather than state: the observer
@@ -342,6 +369,29 @@ export default function DiscoverPage() {
           ),
         );
         showToast("Could not subscribe", true);
+      }
+    },
+    [showToast],
+  );
+
+  // The other half of Subscribe. A catalog that refills itself every day has
+  // to be answerable, or a publication you don't want is back tomorrow: the
+  // host is remembered server-side and the suggestion runs treat it as known.
+  const dismiss = useCallback(
+    async (feedId: number, title: string) => {
+      setPublications((prev) => prev.filter((p) => p.id !== feedId));
+      setArticles((prev) => prev.filter((a) => a.feed_id !== feedId));
+      const response = await fetch(`/api/discover/publications/${feedId}`, {
+        method: "DELETE",
+      });
+      if (response.ok) {
+        setTotal((prev) => Math.max(0, prev - 1));
+        setCatalogSize((prev) => (prev === null ? prev : Math.max(0, prev - 1)));
+        showToast(`Removed ${title} from Discover`);
+      } else {
+        // Nothing was removed, so put the catalog back as it was.
+        setReloadToken((prev) => prev + 1);
+        showToast("Could not remove that publication", true);
       }
     },
     [showToast],
@@ -511,6 +561,7 @@ export default function DiscoverPage() {
                   key={publication.id}
                   publication={publication}
                   onSubscribe={() => follow(publication.id, publication.title)}
+                  onDismiss={() => dismiss(publication.id, publication.title)}
                 />
               ))}
             </div>
@@ -522,6 +573,7 @@ export default function DiscoverPage() {
                   article={article}
                   onFollow={() => follow(article.feed_id, article.feed_title)}
                   onSave={save}
+                  onDismiss={() => dismiss(article.feed_id, article.feed_title)}
                 />
               ))}
             </div>

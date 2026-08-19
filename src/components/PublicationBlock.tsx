@@ -27,9 +27,11 @@ function toneGradient(feedId: number): string {
 export function PublicationBlock({
   publication,
   onSubscribe,
+  onDismiss,
 }: {
   publication: CatalogPublicationDto;
   onSubscribe: (publication: CatalogPublicationDto) => void;
+  onDismiss: (publication: CatalogPublicationDto) => void;
 }) {
   const rate = cadence(publication.posts_per_week);
 
@@ -58,12 +60,34 @@ export function PublicationBlock({
             Following
           </span>
         ) : (
-          <button
-            onClick={() => onSubscribe(publication)}
-            className="shrink-0 rounded-full bg-clay px-[15px] py-[7px] text-[12.5px] font-medium text-white transition hover:brightness-95"
-          >
-            Subscribe
-          </button>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button
+              onClick={() => onSubscribe(publication)}
+              className="rounded-full bg-clay px-[15px] py-[7px] text-[12.5px] font-medium text-white transition hover:brightness-95"
+            >
+              Subscribe
+            </button>
+            {/* The catalog proposes; this is how you answer it. Quiet enough
+                not to compete with Subscribe, present enough to use. */}
+            <button
+              onClick={() => onDismiss(publication)}
+              title="Not for me — remove from Discover"
+              aria-label={`Remove ${publication.title} from Discover`}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-full text-ink-faint transition hover:bg-paper-sunken hover:text-ink"
+            >
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+              >
+                <path d="M6 6l12 12M18 6L6 18" />
+              </svg>
+            </button>
+          </div>
         )}
       </div>
 

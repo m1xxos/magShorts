@@ -27,9 +27,14 @@ const CATALOG_CEILING = Number(process.env.CATALOG_MAX ?? 120);
 const LAST_RUN_KEY = "catalog_suggested_at";
 const RUN_COUNT_KEY = "catalog_suggest_runs";
 const DEAD_HOSTS_KEY = "catalog_dead_hosts";
+const DISMISSED_HOSTS_KEY = "catalog_dismissed_hosts";
 // Remembering more than this is pointless — the model stops naming a domain
 // long before the list gets there, and the prompt has to carry it.
 const DEAD_HOSTS_MEMORY = 120;
+// Refusals are worth keeping much longer than failures: a domain that didn't
+// resolve may come back, but a publication the reader threw out is a judgement
+// that doesn't expire.
+const DISMISSED_MEMORY = 500;
 
 export interface CatalogAddition {
   name: string;
@@ -49,11 +54,16 @@ function normalizeHost(url: string): string | null {
 // Known hosts, so neither source can re-add a subscription or a publication
 // the catalog already holds. Matching on host rather than URL catches the
 // common case of the same site offered under a different path.
+//
+// Publications the reader has thrown out count as known. Nothing else would
+// hold: the model that suggested one today is the same model tomorrow, and a
+// catalog that keeps filling itself has to remember being told no — otherwise
+// dismissing a publication buys a day.
 function knownHosts(): Set<string> {
   const rows = getDb()
     .prepare("SELECT url, site_url FROM feeds")
     .all() as Array<{ url: string; site_url: string | null }>;
-  const hosts = new Set<string>();
+  const hosts = dismissedHosts();
   for (const row of rows) {
     for (const value of [row.url, row.site_url]) {
       const host = value ? normalizeHost(value) : null;
@@ -265,6 +275,33 @@ function rememberDead(results: CatalogAddition[]): void {
   // Newest last, oldest dropped: a site that has been quiet for months gets
   // another chance eventually rather than being blacklisted for good.
   writeNote(DEAD_HOSTS_KEY, [...hosts].slice(-DEAD_HOSTS_MEMORY).join(","));
+}
+
+function dismissedHosts(): Set<string> {
+  return new Set(
+    (readNote(DISMISSED_HOSTS_KEY) ?? "").split(",").filter(Boolean)
+  );
+}
+
+// Remove a catalog publication and remember the refusal. Returns false when
+// the feed is a subscription — those are unsubscribed, never dismissed.
+export function dismissPublication(feedId: number): boolean {
+  const db = getDb();
+  const feed = db
+    .prepare("SELECT url, site_url, subscribed FROM feeds WHERE id = ?")
+    .get(feedId) as
+    | { url: string; site_url: string | null; subscribed: number }
+    | undefined;
+  if (!feed || feed.subscribed === 1) return false;
+
+  const hosts = dismissedHosts();
+  for (const value of [feed.url, feed.site_url]) {
+    const host = value ? normalizeHost(value) : null;
+    if (host) hosts.add(host);
+  }
+  writeNote(DISMISSED_HOSTS_KEY, [...hosts].slice(-DISMISSED_MEMORY).join(","));
+  db.prepare("DELETE FROM feeds WHERE id = ?").run(feedId);
+  return true;
 }
 
 export interface SuggestOptions {
