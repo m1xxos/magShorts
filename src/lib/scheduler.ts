@@ -2,6 +2,7 @@ import { refreshStaleFeeds } from "./rss";
 import { backfillArticleImages } from "./articleImages";
 import { prefetchImages } from "./imageCache";
 import { runDueDigests } from "./digest";
+import { maybeSuggestCatalog } from "./catalogSuggest";
 
 const TICK_MS = 10 * 60 * 1000;
 const STARTUP_DELAY_MS = 5_000;
@@ -21,6 +22,10 @@ async function tick(): Promise<void> {
     // articles available. Builds whatever is due and missing — a period that
     // already has one costs a single indexed lookup.
     await runDueDigests();
+    // Last of all, and at most once a day: the Discover catalog topping itself
+    // up. Behind the digest deliberately — this is the only piece of the tick
+    // whose failure costs nothing, so it goes after everything that matters.
+    await maybeSuggestCatalog();
   } catch (error) {
     console.error("[scheduler] tick failed:", error);
   }

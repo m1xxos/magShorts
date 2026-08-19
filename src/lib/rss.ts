@@ -1,6 +1,6 @@
 import Parser from "rss-parser";
 import { getDb, type Feed } from "./db";
-import { fetchMaybeProxied } from "./net";
+import { fetchTextMaybeProxied } from "./net";
 
 const STALE_AFTER_MS = 15 * 60 * 1000;
 const CATALOG_STALE_AFTER_MS = 6 * 60 * 60 * 1000;
@@ -71,6 +71,17 @@ function stripHtml(html: string): string {
   return decodeEntities(html.replace(/<[^>]*>/g, " "))
     .replace(/\s+/g, " ")
     .trim();
+}
+
+// An empty <guid isPermaLink="false"></guid> parses to an object rather than a
+// string, and better-sqlite3 refuses to bind it — one such item in Undark's
+// feed failed the whole insert transaction, so the publication silently stopped
+// updating. The link is a perfectly good identity when the guid is unusable.
+function itemGuid(item: Parser.Item): string | null {
+  const raw: unknown = item.guid;
+  if (typeof raw === "string") return raw.trim() || null;
+  const nested = (raw as { _?: unknown } | null)?._;
+  return typeof nested === "string" ? nested.trim() || null : null;
 }
 
 function extractImage(item: Parser.Item & CustomItem): string | null {
@@ -178,13 +189,12 @@ async function fetchFeedText(
   url: string,
   timeoutMs = 15000
 ): Promise<string | null> {
-  const response = await fetchMaybeProxied(url, {
+  const result = await fetchTextMaybeProxied(url, {
     headers: { "User-Agent": DISCOVERY_UA, Accept: FEED_ACCEPT },
     redirect: "follow",
-    signal: AbortSignal.timeout(timeoutMs),
+    timeoutMs,
   });
-  if (!response?.ok) return null;
-  return response.text();
+  return result?.text ?? null;
 }
 
 async function parseFeed(url: string): Promise<Parser.Output<CustomItem>> {
@@ -199,6 +209,10 @@ async function sniffFeed(url: string): Promise<boolean> {
   const text = await fetchFeedText(url, 6000);
   if (text === null) return false;
   const head = text.slice(0, 4000).trimStart();
+  // WordPress answers <any-page>/feed/ with that page's *comments*, and it is
+  // a perfectly valid RSS document — which is how "Comments on: Home" ended up
+  // in the catalog standing in for Granta. The title is the giveaway.
+  if (/<title>\s*Comments on:/i.test(head)) return false;
   return (
     /<(rss|feed|rdf:RDF)[\s>]/i.test(head) ||
     (head.startsWith("<?xml") && /<(rss|feed|rdf)/i.test(head))
@@ -224,17 +238,16 @@ export async function discoverFeedUrl(url: string): Promise<string | null> {
   let html = "";
   let finalUrl = url;
   try {
-    const response = await fetch(url, {
+    const page = await fetchTextMaybeProxied(url, {
       headers: {
         "User-Agent": DISCOVERY_UA,
         Accept: "text/html,application/xhtml+xml,*/*",
       },
       redirect: "follow",
-      signal: AbortSignal.timeout(15000),
     });
-    if (response.ok) {
-      finalUrl = response.url;
-      html = (await response.text()).slice(0, 500_000);
+    if (page) {
+      finalUrl = page.url;
+      html = page.text.slice(0, 500_000);
     }
   } catch {
     // Same: keep the original URL and try the conventional paths under it.
@@ -257,9 +270,12 @@ export async function discoverFeedUrl(url: string): Promise<string | null> {
 
   const base = finalUrl.endsWith("/") ? finalUrl : finalUrl + "/";
   const origin = new URL(finalUrl).origin + "/";
+  // Origin before base. A home page that redirects (granta.com → /home/) makes
+  // the base a sub-path, and a feed under a sub-path is usually that page's
+  // comments rather than the publication.
   for (const path of COMMON_FEED_PATHS) {
-    candidates.push(base + path);
-    if (origin !== base) candidates.push(origin + path);
+    candidates.push(origin + path);
+    if (origin !== base) candidates.push(base + path);
   }
 
   for (const candidate of [...new Set(candidates)].slice(0, 24)) {
@@ -299,7 +315,7 @@ export function refreshFeedArticles(feed: FeedWithFolder): Promise<void> {
         const publishedAt = item.isoDate ?? (item.pubDate ? new Date(item.pubDate).toISOString() : null);
         upsert.run({
           feed_id: feed.id,
-          guid: item.guid ?? link,
+          guid: itemGuid(item) ?? link,
           // Some feeds (The Atlantic) put markup like <em> inside titles.
           title: stripHtml(title),
           link,

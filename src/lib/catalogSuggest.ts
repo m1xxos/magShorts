@@ -1,5 +1,6 @@
 import { getDb } from "./db";
-import { complete, llmConfigured, rankProviders } from "./llm";
+import { complete, llmConfigured, llmProviders } from "./llm";
+import { catalogSize } from "./catalog";
 import { discoverFeedUrl, parseFeedMeta, refreshStaleFeeds } from "./rss";
 import { CATALOG_SEED } from "./catalogSeed";
 
@@ -11,13 +12,30 @@ import { CATALOG_SEED } from "./catalogSeed";
 
 const VERIFY_CONCURRENCY = 4;
 const MAX_SUGGESTIONS_PER_RUN = 25;
-const TASTE_SAMPLE = 20;
+// A window, not the whole history: a different slice each run is what stops
+// the model answering with the same canonical dozen every day (see BRIEFS).
+const TASTE_WINDOW = 12;
+
+// How often the scheduler is allowed to ask for more, and how big the catalog
+// is allowed to get. Without the ceiling the daily run grows it forever, and
+// every catalog publication costs a feed refresh every six hours.
+const SUGGEST_EVERY_MS = 24 * 3_600_000;
+const CATALOG_CEILING = Number(process.env.CATALOG_MAX ?? 120);
+
+// Bookkeeping rows in `settings`. Deliberately not SettingKeys: these are the
+// replenisher's own notes, not something to show in the settings dialog.
+const LAST_RUN_KEY = "catalog_suggested_at";
+const RUN_COUNT_KEY = "catalog_suggest_runs";
+const DEAD_HOSTS_KEY = "catalog_dead_hosts";
+// Remembering more than this is pointless — the model stops naming a domain
+// long before the list gets there, and the prompt has to carry it.
+const DEAD_HOSTS_MEMORY = 120;
 
 export interface CatalogAddition {
   name: string;
   url: string;
   feedUrl?: string;
-  status: "added" | "duplicate" | "unreachable";
+  status: "added" | "duplicate" | "unreachable" | "mismatch";
 }
 
 function normalizeHost(url: string): string | null {
@@ -85,10 +103,21 @@ async function addCandidate(
 }
 
 async function addAll(
-  candidates: Array<{ name: string; url: string }>
+  candidates: Array<{ name: string; url: string }>,
+  skip: Set<string> = new Set()
 ): Promise<CatalogAddition[]> {
   const hosts = knownHosts();
-  const queue = [...candidates];
+  // Small models loop: one run answered with the same publication thirteen
+  // times. Collapsing by host first means a stutter costs one lookup, not
+  // thirteen — and drops whatever the caller already knows to be dead.
+  const queue: Array<{ name: string; url: string }> = [];
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    const host = normalizeHost(candidate.url);
+    if (!host || seen.has(host) || skip.has(host)) continue;
+    seen.add(host);
+    queue.push(candidate);
+  }
   const results: CatalogAddition[] = [];
   async function worker() {
     while (queue.length > 0) {
@@ -101,7 +130,7 @@ async function addAll(
     }
   }
   await Promise.all(
-    Array.from({ length: Math.min(VERIFY_CONCURRENCY, candidates.length) }, worker)
+    Array.from({ length: Math.min(VERIFY_CONCURRENCY, queue.length) }, worker)
   );
   return results;
 }
@@ -134,22 +163,63 @@ const SUGGEST_SYSTEM =
   "reported features. Avoid general news wires, aggregators and gadget-review " +
   "sites unless the saved articles are plainly of that kind — a reader of " +
   "cultural criticism has no use for a consumer-electronics feed.\n\n" +
+  "Name whole publications with their own home page. Not a section of a " +
+  "larger paper, not a tag or topic page, not a feed URL, not an article.\n\n" +
+  "Accuracy over quantity: if you are not certain a publication exists under " +
+  "that exact domain, leave it out. A short list is fine; an invented one is " +
+  "not.\n\n" +
   "Answer with one publication per line, as `Name | https://homepage`, and " +
-  "nothing else: no numbering, no commentary, no markdown. Give the " +
-  "publication's home page, not a feed URL and not an article URL. Suggest " +
-  "only publications you are confident actually exist, and get the domain " +
-  "exactly right.";
+  "nothing else: no numbering, no commentary, no markdown.";
 
-function tasteSample(userId: number): string[] {
+// The angle changes from run to run. Asked the same way every day the model
+// answers with the same canonical dozen — the first automatic run came back
+// 24 suggestions, 24 of them already in the catalog. A different question
+// reaches a different part of what it knows.
+//
+// One angle is missing on purpose. "Small, obscure, one-person blogs" reads
+// like the ideal brief and is the one that fails: it sends the model past the
+// edge of what it knows and it fabricates the lot — The Walking Desk Gazette,
+// The Quiet Anthropologist, The AI Whisperer, fifteen for fifteen invented.
+// Verification catches them, but a run that adds nothing is a wasted run.
+const BRIEFS: string[] = [
+  `Suggest up to ${MAX_SUGGESTIONS_PER_RUN} others in the same vein.`,
+
+  // Anchored on the publications, never on a single article's subject. Asked
+  // the other way round — "publications the writer of that piece would read" —
+  // the model follows the topic instead of the register, and answers a saved
+  // piece about birdwatching with BirdWatching, Field & Stream and Outdoor
+  // Life. All three have real feeds; all three sailed through verification.
+  "Look at the publications the reader already has. Name others that belong " +
+    "on the same shelf: same seriousness, same kind of writer, same reason " +
+    "someone subscribes. Not more of the same subjects — more of the same " +
+    "standard.",
+
+  "Suggest publications from outside the United States — British, European, " +
+    "Latin American, African, Asian and Australian magazines, newsletters " +
+    "and blogs writing in English about the same concerns.",
+
+  "The reader has the well-known titles already. Name publications that are " +
+    "genuinely established — years of archives, a masthead you can picture — " +
+    "but that a reader of the list above would not have met yet.",
+];
+
+// A window over what they saved, moved along each run. Rotating the evidence
+// matters as much as rotating the question: a different handful of articles
+// puts the model in a different neighbourhood before it is asked anything.
+function tasteSample(userId: number, offset: number): string[] {
   const rows = getDb()
     .prepare(
       `SELECT DISTINCT e.title FROM user_events e
        WHERE e.user_id = ? AND e.title IS NOT NULL AND e.title != ''
          AND e.action IN ('save','like')
-       ORDER BY e.id DESC LIMIT ?`
+       ORDER BY e.id DESC`
     )
-    .all(userId, TASTE_SAMPLE) as Array<{ title: string }>;
-  return rows.map((row) => row.title);
+    .all(userId) as Array<{ title: string }>;
+  const titles = rows.map((row) => row.title);
+  if (titles.length <= TASTE_WINDOW) return titles;
+  // Wraps, so the window keeps moving instead of stopping at the oldest save.
+  const from = (offset * TASTE_WINDOW) % titles.length;
+  return [...titles, ...titles].slice(from, from + TASTE_WINDOW);
 }
 
 function knownPublications(): string[] {
@@ -160,25 +230,83 @@ function knownPublications(): string[] {
   ).map((row) => row.title);
 }
 
+// Bookkeeping in the settings table, read and written directly: these are the
+// replenisher's notes to itself, and putting them through the typed settings
+// helper would put them in the settings dialog too.
+function readNote(key: string): string | null {
+  const row = getDb()
+    .prepare("SELECT value FROM settings WHERE key = ?")
+    .get(key) as { value: string } | undefined;
+  return row?.value ?? null;
+}
+
+function writeNote(key: string, value: string): void {
+  getDb()
+    .prepare(
+      "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+    )
+    .run(key, value);
+}
+
+// Domains that have already failed to resolve to a feed. The model names the
+// same non-existent sites run after run, and each one costs a page fetch and
+// a handful of well-known-path probes to disprove again.
+function deadHosts(): Set<string> {
+  return new Set((readNote(DEAD_HOSTS_KEY) ?? "").split(",").filter(Boolean));
+}
+
+function rememberDead(results: CatalogAddition[]): void {
+  const hosts = deadHosts();
+  for (const entry of results) {
+    if (entry.status !== "unreachable") continue;
+    const host = normalizeHost(entry.url);
+    if (host) hosts.add(host);
+  }
+  // Newest last, oldest dropped: a site that has been quiet for months gets
+  // another chance eventually rather than being blacklisted for good.
+  writeNote(DEAD_HOSTS_KEY, [...hosts].slice(-DEAD_HOSTS_MEMORY).join(","));
+}
+
+export interface SuggestOptions {
+  // Which angle to ask from; defaults to the next one in the rotation.
+  brief?: number;
+  // Ask about domains that failed before. Off for automatic runs, on when a
+  // person pressed the button — a host that was unreachable last Tuesday may
+  // simply have been down.
+  retryDead?: boolean;
+}
+
 // Ask the model for publications like the ones this reader keeps, then let
 // discoverFeedUrl be the judge. The model is a source of names, not of truth.
-export async function suggestCatalog(userId: number): Promise<CatalogAddition[]> {
+export async function suggestCatalog(
+  userId: number,
+  options: SuggestOptions = {}
+): Promise<CatalogAddition[]> {
   if (!llmConfigured()) return [];
-  const taste = tasteSample(userId);
+  const runs = Number(readNote(RUN_COUNT_KEY) ?? 0);
+  const index = options.brief ?? runs;
+  const taste = tasteSample(userId, index);
   if (taste.length === 0) return [];
+  writeNote(RUN_COUNT_KEY, String(runs + 1));
 
+  const brief = BRIEFS[index % BRIEFS.length];
   const known = knownPublications();
   const result = await complete(
     SUGGEST_SYSTEM,
     `Articles this reader saved:\n${taste.map((t) => `- ${t}`).join("\n")}\n\n` +
       `Publications they already have (do not suggest these):\n${known.join(", ")}\n\n` +
-      `Suggest up to ${MAX_SUGGESTIONS_PER_RUN} others.`,
+      brief,
     // Generous on purpose: a reasoning model spends part of the budget
     // thinking, and twenty-five lines of output after that does not fit in the
     // few hundred tokens a blurb needs. Too small a budget here comes back
     // empty rather than truncated.
     1500,
-    rankProviders()
+    // The annotation model, not the smaller ranking one. Naming real
+    // publications is knowledge work, and the small model does it badly: it
+    // loops, and it gets domains subtly wrong (the-marginalian.org for
+    // themarginalian.org, noema.org for noemamag.com) — which verification
+    // then rejects, so a whole run comes back empty.
+    llmProviders()
   );
   if (!result) return [];
 
@@ -194,10 +322,138 @@ export async function suggestCatalog(userId: number): Promise<CatalogAddition[]>
     return [];
   }
 
-  const results = await addAll(candidates);
+  const results = await addAll(
+    candidates,
+    options.retryDead ? new Set() : deadHosts()
+  );
+  rememberDead(results);
+  // Warm up first: the vetting reads the headlines a publication actually
+  // runs, which is the only evidence worth judging it on.
   await warmUp(results);
-  report("suggest", results);
+  await vetAdditions(results, taste);
+  report(`suggest (${index % BRIEFS.length})`, results);
   return results;
+}
+
+const VET_SYSTEM =
+  "You are checking a discovery list for one reader. For each numbered " +
+  "publication you are given its three most recent headlines — judge from " +
+  "those, not from the name.\n\n" +
+  "A publication belongs if someone who saved the articles listed would be " +
+  "glad to meet it. It does not belong if it is a trade or hobby title, an " +
+  "SEO content farm, a press-release wire, a general daily newspaper, or a " +
+  "section of a larger site rather than a publication in its own right.\n\n" +
+  "Answer with the numbers that do NOT belong, comma-separated, and nothing " +
+  "else. Answer `none` if they all do. Do not explain.";
+
+// The last gate, and the only one a machine can't do alone. Verification
+// proves a feed exists; nothing so far asks whether it should be here — and
+// the model, left to free-associate, will answer an article about birdwatching
+// with BirdWatching, Field & Stream and Outdoor Life, all three of which have
+// real feeds and sail through.
+//
+// Embeddings cannot do this job. Measured across the catalog, taste-fit puts
+// Outdoor Life (0.646) between Defector (0.653) and Citation Needed (0.648),
+// and BirdWatching a thousandth above The New Yorker: any floor that cut the
+// hobby titles would take half the good ones with it. Judging headlines is
+// exactly the work the model is better at than the vector.
+//
+// It only ever removes what this run just added, and only on a clear answer —
+// an unparseable or failed reply keeps everything. Being wrong here costs a
+// publication the reader might have liked, so the doubt runs that way.
+async function vetAdditions(
+  additions: CatalogAddition[],
+  taste: string[]
+): Promise<void> {
+  const added = additions.filter((entry) => entry.status === "added");
+  if (added.length === 0) return;
+
+  const db = getDb();
+  const shown = added.map((entry) => {
+    const feed = db
+      .prepare("SELECT id, title FROM feeds WHERE url = ?")
+      .get(entry.feedUrl!) as { id: number; title: string } | undefined;
+    const headlines = feed
+      ? (db
+          .prepare(
+            "SELECT title FROM articles WHERE feed_id = ? ORDER BY published_at DESC LIMIT 3"
+          )
+          .all(feed.id) as Array<{ title: string }>).map((row) => row.title)
+      : [];
+    return { entry, feed, headlines };
+  });
+
+  const listing = shown
+    .map(
+      ({ entry, feed, headlines }, index) =>
+        `${index + 1}. ${feed?.title ?? entry.name}\n` +
+        (headlines.length > 0
+          ? headlines.map((line) => `   - ${line}`).join("\n")
+          : "   (no articles yet)")
+    )
+    .join("\n");
+
+  const result = await complete(
+    VET_SYSTEM,
+    `Articles this reader saved:\n${taste.map((t) => `- ${t}`).join("\n")}\n\n` +
+      `Publications to check:\n${listing}`,
+    400,
+    llmProviders()
+  );
+  if (!result) return;
+
+  const answer = result.text.trim();
+  if (/^none\b/i.test(answer)) return;
+  const numbers = new Set(
+    (answer.match(/\d+/g) ?? []).map((value) => Number(value))
+  );
+  if (numbers.size === 0 || numbers.size === shown.length) return;
+
+  for (const [index, { entry, feed }] of shown.entries()) {
+    if (!numbers.has(index + 1) || !feed) continue;
+    db.prepare("DELETE FROM feeds WHERE id = ?").run(feed.id);
+    entry.status = "mismatch";
+  }
+}
+
+let running = false;
+
+// Called from the 10-minute tick. The catalog is meant to keep filling itself,
+// so once a day it asks for more — but only up to a ceiling, because every
+// catalog publication is a feed to refresh forever after, and a reader can
+// only meet so many at once.
+export async function maybeSuggestCatalog(): Promise<void> {
+  if (running || !llmConfigured()) return;
+  if ((process.env.CATALOG_AUTOFILL ?? "on") === "off") return;
+
+  const last = readNote(LAST_RUN_KEY);
+  if (last && Date.now() - Date.parse(last) < SUGGEST_EVERY_MS) return;
+  // Stamped before the run, not after: a run that throws should wait for
+  // tomorrow like any other, not retry on every tick for a day.
+  writeNote(LAST_RUN_KEY, new Date().toISOString());
+
+  const size = catalogSize();
+  if (size >= CATALOG_CEILING) {
+    console.log(`[catalog] full — ${size} publications, ceiling ${CATALOG_CEILING}`);
+    return;
+  }
+
+  const users = getDb().prepare("SELECT id FROM users ORDER BY id").all() as
+    Array<{ id: number }>;
+  if (users.length === 0) return;
+  // One call a day whoever is reading: taking turns keeps the cost flat as
+  // accounts are added, and the catalog is shared between them anyway.
+  const runs = Number(readNote(RUN_COUNT_KEY) ?? 0);
+  const user = users[runs % users.length];
+
+  running = true;
+  try {
+    await suggestCatalog(user.id);
+  } catch (error) {
+    console.error("[catalog] suggestion run failed:", error);
+  } finally {
+    running = false;
+  }
 }
 
 function report(source: string, results: CatalogAddition[]): void {
@@ -207,8 +463,13 @@ function report(source: string, results: CatalogAddition[]): void {
   }, {});
   console.log(
     `[catalog] ${source}: ${counts.added ?? 0} added, ` +
-      `${counts.duplicate ?? 0} already known, ${counts.unreachable ?? 0} had no usable feed`
+      `${counts.duplicate ?? 0} already known, ` +
+      `${counts.unreachable ?? 0} had no usable feed, ` +
+      `${counts.mismatch ?? 0} did not belong`
   );
+  for (const entry of results.filter((r) => r.status === "mismatch")) {
+    console.log(`[catalog]   dropped as off-key: ${entry.name} (${entry.url})`);
+  }
   // Name the rejects rather than swallowing them: a suggestion that never
   // resolves is the signal that a source has moved or was invented.
   for (const entry of results.filter((r) => r.status === "unreachable")) {

@@ -93,10 +93,36 @@ the same discovery the *Add publication* button uses:
   names, not of truth: a suggestion whose domain doesn't exist simply fails to
   resolve and is reported rather than stored.
 
+That last one runs by itself. Once a day the scheduler asks for more, up to a
+ceiling of `CATALOG_MAX` publications (120), and every candidate goes through
+the same three gates before it stays:
+
+1. **It must resolve.** A home page that yields no parseable feed is dropped,
+   and its domain is remembered so tomorrow's run doesn't spend another round
+   of fetches disproving the same invented site.
+2. **It must be new.** Matching is by host, so the same publication offered
+   under a different path is recognised.
+3. **It must belong.** After the feed is fetched, the model is shown the new
+   publications' three most recent headlines and asked which don't fit — the
+   gate that catches a real, live, well-made feed that is simply the wrong
+   thing, like a birdwatching monthly suggested off one saved article about
+   birds. Only what this run just added can be removed, and only on a clear
+   answer; a failed or unparseable reply keeps everything.
+
+The question rotates. Asked the same way every day the model answers with the
+same canonical dozen — the first automatic run came back with 24 suggestions,
+all 24 already in the catalog. Each run takes a different angle and a
+different window over what you saved.
+
 ```bash
 curl -X POST localhost:3000/api/discover/suggest -d '{"seed":true}'   # curated list
-curl -X POST localhost:3000/api/discover/suggest -d '{}'              # ask the model
+curl -X POST localhost:3000/api/discover/suggest -d '{}'              # ask the model now
+curl -X POST localhost:3000/api/discover/suggest -d '{"brief":2}'     # from a chosen angle
 ```
+
+Set `CATALOG_AUTOFILL=off` to keep the catalog exactly as you left it. With no
+LLM configured there is nothing to turn off: the curated seed and retiring your
+own subscriptions still work, the automatic runs simply never happen.
 
 Ranking is the taste profile again, with two corrections the grid doesn't
 need: a publication is scored on its best three articles together rather than

@@ -51,4 +51,51 @@ export const CATALOG_SEED: SeedEntry[] = [
   { name: "Works in Progress", url: "https://worksinprogress.co" },
   { name: "Asterisk Magazine", url: "https://asteriskmag.com" },
   { name: "Palladium", url: "https://www.palladiummag.com" },
+
+  // Writers who work alone. The catalog leaned institutional — magazines with
+  // mastheads — and the saved articles do not: half of them are one person
+  // paying attention in public.
+  //
+  // Some obvious names are missing because they serve no feed anyone can
+  // reach: Garbage Day and Today in Tabs answer 404 on every conventional
+  // path, and The Paris Review, LARB and The Hedgehog Review sit behind a bot
+  // wall that returns 403 to everything. They were here, they were verified,
+  // they failed.
+  { name: "Blood in the Machine", url: "https://www.bloodinthemachine.com" },
+  { name: "Citation Needed", url: "https://www.citationneeded.news" },
+  { name: "Pluralistic", url: "https://pluralistic.net" },
+  { name: "Where's Your Ed At", url: "https://www.wheresyoured.at" },
+  { name: "Read Max", url: "https://maxread.substack.com" },
+  { name: "Waxy", url: "https://waxy.org" },
+  { name: "kottke.org", url: "https://kottke.org" },
+  { name: "Craig Mod", url: "https://craigmod.com" },
+  { name: "Robin Sloan", url: "https://www.robinsloan.com" },
+  // The one feed URL in the list: this site advertises no feed from its home
+  // page, and discoverFeedUrl accepts a feed URL as readily as a home page.
+  { name: "Interconnected", url: "https://interconnected.org/home/feed" },
+  { name: "Anil Dash", url: "https://anildash.com" },
+  { name: "One Useful Thing", url: "https://www.oneusefulthing.org" },
+
+  // Reported internet culture, from newsrooms small enough to have a voice
+  { name: "Aftermath", url: "https://aftermath.site" },
+  { name: "Techdirt", url: "https://www.techdirt.com" },
+  { name: "Hell Gate", url: "https://hellgatenyc.com" },
+  { name: "Tedium", url: "https://tedium.co" },
+  { name: "The Gradient", url: "https://thegradient.pub" },
+
+  // Longer forms: essays, criticism, reviews
+  { name: "London Review of Books", url: "https://www.lrb.co.uk" },
+  { name: "The Public Domain Review", url: "https://publicdomainreview.org" },
+  { name: "The Millions", url: "https://themillions.com" },
+  { name: "The Point", url: "https://thepointmag.com" },
+  { name: "The Drift", url: "https://www.thedriftmag.com" },
+  { name: "Granta", url: "https://granta.com" },
+  { name: "Jacobin", url: "https://jacobin.com" },
+
+  // Science and the world, written for readers rather than colleagues
+  { name: "JSTOR Daily", url: "https://daily.jstor.org" },
+  { name: "Knowable Magazine", url: "https://knowablemagazine.org" },
+  { name: "Sapiens", url: "https://www.sapiens.org" },
+  { name: "Emergence Magazine", url: "https://emergencemagazine.org" },
+  { name: "Low-tech Magazine", url: "https://solar.lowtechmagazine.com" },
 ];
