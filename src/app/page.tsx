@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { saveToReadingList } from "@/lib/actions";
 import {
   type ArticleDto,
   type Density,
@@ -11,12 +12,14 @@ import {
   type Selection,
 } from "@/lib/types";
 import { AddFeedDialog } from "@/components/AddFeedDialog";
+import { Reader } from "@/components/Reader";
 import { CreateFolderDialog } from "@/components/CreateFolderDialog";
 import { ArticleCard } from "@/components/ArticleCard";
 import { SettingsDialog } from "@/components/SettingsDialog";
 import { FolderIcon, Sidebar, SparkleIcon } from "@/components/Sidebar";
 import { Toast, useToast } from "@/components/Toast";
 import { TopBar } from "@/components/TopBar";
+import { useReader } from "@/lib/useReader";
 import { useUser } from "@/lib/useUser";
 
 const REC_WINDOWS: Array<{ value: RecWindow; label: string }> = [
@@ -98,6 +101,9 @@ export default function HomePage() {
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [readingCount, setReadingCount] = useState(0);
+  // Links already in Read later, so the reader's bookmark pill starts in the
+  // right state. Kept by link because that is what Read later itself stores.
+  const [savedLinks, setSavedLinks] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(true);
   const loadingMore = useRef(false);
@@ -206,6 +212,13 @@ export default function HomePage() {
     const response = await fetch("/api/reading-list");
     const items = await response.json();
     setReadingCount(Array.isArray(items) ? items.length : 0);
+    setSavedLinks(
+      new Set(
+        Array.isArray(items)
+          ? (items as Array<{ link: string }>).map((item) => item.link)
+          : []
+      )
+    );
   }, []);
 
   const fetchPage = useCallback(
@@ -329,6 +342,33 @@ export default function HomePage() {
     );
     loadFeeds();
     if (selection) loadArticles(selection, recWindow);
+  }
+
+  // The reader's article may not be on a page the grid has loaded — a pasted
+  // ?article= link, or the tail of a long list — so fall back to fetching it.
+  const resolveArticle = useCallback(
+    async (id: number): Promise<ArticleDto | null> => {
+      const loaded = articles.find((article) => article.id === id);
+      if (loaded) return loaded;
+      const response = await fetch(`/api/articles/${id}`);
+      return response.ok ? ((await response.json()) as ArticleDto) : null;
+    },
+    [articles]
+  );
+  const reader = useReader(resolveArticle);
+
+  // What follows this article in the list it was opened from, so finishing one
+  // continues the queue instead of ending the session.
+  const upNext = reader.article
+    ? articles
+        .slice(articles.findIndex((a) => a.id === reader.article!.id) + 1)
+        .slice(0, 2)
+    : [];
+
+  async function saveFromReader(article: ArticleDto) {
+    const result = await saveToReadingList(article);
+    showToast(result.message, !result.ok);
+    if (result.ok) loadReadingCount();
   }
 
   return (
@@ -490,6 +530,7 @@ export default function HomePage() {
                     key={article.id}
                     article={article}
                     density={density}
+                    onOpen={reader.open}
                     onToast={(message, error) => {
                       showToast(message, error);
                       if (!error) loadReadingCount();
@@ -527,6 +568,17 @@ export default function HomePage() {
         <SettingsDialog
           onClose={() => setSettingsOpen(false)}
           onSaved={(message) => showToast(message)}
+        />
+      )}
+      {reader.article && (
+        <Reader
+          article={reader.article}
+          originLabel={sectionTitle}
+          upNext={upNext}
+          saved={savedLinks.has(reader.article.link)}
+          onSave={() => saveFromReader(reader.article!)}
+          onOpenArticle={reader.open}
+          onClose={reader.close}
         />
       )}
       <Toast toast={toast} />

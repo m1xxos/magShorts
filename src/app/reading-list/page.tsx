@@ -1,14 +1,34 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { type ReadingItemDto, timeAgo } from "@/lib/types";
+import { useCallback, useEffect, useState } from "react";
+import { type ArticleDto, type ReadingItemDto, timeAgo } from "@/lib/types";
 import { cachedImageUrl, recordEvent, unlockUrl } from "@/lib/actions";
 import { Toast, useToast } from "@/components/Toast";
 import { TopBar } from "@/components/TopBar";
 import { ExternalIcon } from "@/components/SwipeableCard";
 import { SurveyDialog, type SurveyChoice } from "@/components/SurveyDialog";
+import { Reader } from "@/components/Reader";
+import { useReader } from "@/lib/useReader";
 import { useUser } from "@/lib/useUser";
+
+// A saved snapshot, seen as the article the reader needs. Read later stores
+// its own copy of title, summary and cover, so everything but the ids is
+// already here.
+function asArticle(item: ReadingItemDto): ArticleDto | null {
+  if (item.article_id === null) return null;
+  return {
+    id: item.article_id,
+    feed_id: item.feed_id ?? 0,
+    title: item.title,
+    link: item.link,
+    summary: item.summary,
+    image_url: item.image_url,
+    published_at: item.published_at,
+    topic: null,
+    feed_title: item.feed_title ?? "",
+  };
+}
 
 export default function ReadingListPage() {
   const user = useUser();
@@ -16,6 +36,26 @@ export default function ReadingListPage() {
   const [loading, setLoading] = useState(true);
   const [surveyItem, setSurveyItem] = useState<ReadingItemDto | null>(null);
   const { toast, showToast } = useToast();
+
+  const resolveArticle = useCallback(
+    async (id: number): Promise<ArticleDto | null> => {
+      const saved = items.find((item) => item.article_id === id);
+      if (saved) return asArticle(saved);
+      const response = await fetch(`/api/articles/${id}`);
+      return response.ok ? ((await response.json()) as ArticleDto) : null;
+    },
+    [items]
+  );
+  const reader = useReader(resolveArticle);
+
+  // The rest of the list, so finishing one saved article offers the next.
+  const upNext = reader.article
+    ? items
+        .slice(items.findIndex((item) => item.article_id === reader.article!.id) + 1)
+        .map(asArticle)
+        .filter((article): article is ArticleDto => article !== null)
+        .slice(0, 2)
+    : [];
 
   useEffect(() => {
     if (!user) return;
@@ -77,15 +117,39 @@ export default function ReadingListPage() {
                   />
                 )}
                 <div className="min-w-0 flex-1">
-                  <a
-                    href={unlockUrl(item.link)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title="Opens paywall-free via Marreta"
-                    className="line-clamp-2 font-serif text-[16px] leading-snug font-medium text-ink hover:text-clay"
-                  >
-                    {item.title}
-                  </a>
+                  {/* The reader when the article is still on file; the
+                      unlock route when it isn't, so an old save never becomes
+                      a dead headline. */}
+                  {asArticle(item) ? (
+                    <a
+                      href={`?article=${item.article_id}`}
+                      onClick={(event) => {
+                        if (
+                          event.metaKey ||
+                          event.ctrlKey ||
+                          event.shiftKey ||
+                          event.button !== 0
+                        ) {
+                          return;
+                        }
+                        event.preventDefault();
+                        reader.open(asArticle(item)!);
+                      }}
+                      className="line-clamp-2 font-serif text-[16px] leading-snug font-medium text-ink hover:text-clay"
+                    >
+                      {item.title}
+                    </a>
+                  ) : (
+                    <a
+                      href={unlockUrl(item.link)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="Opens paywall-free via Marreta"
+                      className="line-clamp-2 font-serif text-[16px] leading-snug font-medium text-ink hover:text-clay"
+                    >
+                      {item.title}
+                    </a>
+                  )}
                   <p className="mt-1 text-[13px] text-ink-faint">
                     {item.feed_title}
                     {item.feed_title && <span className="mx-1.5">·</span>}
@@ -120,6 +184,17 @@ export default function ReadingListPage() {
           </ul>
         )}
       </main>
+      {reader.article && (
+        <Reader
+          article={reader.article}
+          originLabel="Read later"
+          upNext={upNext}
+          saved
+          onSave={() => showToast("Already in Read later")}
+          onOpenArticle={reader.open}
+          onClose={reader.close}
+        />
+      )}
       {surveyItem && (
         <SurveyDialog
           item={surveyItem}

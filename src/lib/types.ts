@@ -137,8 +137,36 @@ export interface CatalogPublicationDto {
 
 export type DiscoverView = "publications" | "articles";
 
+// The reader: one article's extracted body, its outline, and which hop of the
+// unlock chain produced it.
+export type ExtractSource = "feed" | "direct" | "amp" | "marreta" | "archive";
+
+export interface ReaderHeading {
+  // Assigned during sanitising, so the outline and the body agree.
+  id: string;
+  text: string;
+  level: number;
+}
+
+export interface ArticleContentDto {
+  article_id: number;
+  // "missing" is the answer GET gives before anything has been extracted; it
+  // is not stored, and it is what tells the reader to POST.
+  status: "ok" | "failed" | "missing";
+  html: string | null;
+  headings: ReaderHeading[];
+  reading_minutes: number | null;
+  source: ExtractSource | null;
+  extracted_at: string | null;
+}
+
 export interface ReadingItemDto {
   id: number;
+  // The article this snapshot came from, when the row still exists. NULL once
+  // the article has been trimmed away — the saved item stays, the reader just
+  // has nothing to extract from and falls back to the original.
+  article_id: number | null;
+  feed_id: number | null;
   link: string;
   title: string;
   summary: string | null;

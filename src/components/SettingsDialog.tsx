@@ -336,7 +336,8 @@ export function SettingsDialog({
           </p>
           <p className="text-[12px] text-ink-faint">
             Whether a publication opens through Marreta, directly or via the
-            archive is set per feed in Manage sources.
+            archive is set per feed in Manage sources. The in-app reader tries
+            all of these in turn when a page won’t give up its text.
           </p>
           {field(
             "Marreta URL",
@@ -348,7 +349,7 @@ export function SettingsDialog({
             "Archive URL",
             "archive_url",
             "https://web.archive.org/web/",
-            "Snapshot service used for “Archive” domains; the article URL is appended."
+            "Snapshot services, comma-separated; the article URL is appended to each. The reader tries them in order."
           )}
 
           <p className="pt-2 text-[11px] font-medium tracking-[0.14em] text-ink-faint uppercase">

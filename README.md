@@ -248,6 +248,50 @@ the RSS/Atom feed is discovered automatically — plus rename feeds, move them
 between folders, pause them, pick per-domain routing (Marreta / Direct /
 Archive) and create, rename, hide or delete folders.
 
+## Reader (v2.4)
+
+Clicking a card in the home grid or in Read later no longer sends you to
+another tab — it opens the article **over** the list, with the full text
+extracted from the page. Closing it puts you back exactly where you were,
+still scrolled to the same card.
+
+- **Lazy by construction.** The text is fetched on exactly two triggers:
+  opening the reader, and saving to Read later. Nothing a list render, a
+  scroll or a hover does can reach the network. The result is cached in
+  SQLite (`article_content`), so a second open makes no request to the
+  publisher at all.
+- **Layout** — reading column with the outline on the left ("in this article",
+  built from the article's own sub-headings, following your scroll) and
+  *Up next* on the right, taken from the list the reader was opened from.
+  A progress rule under the top bar, and "N min left" that counts down.
+  Where you stopped is remembered per article.
+- **Aa** sets the body's text size and switches between serif and sans;
+  both persist.
+- **The URL** becomes `?article=<id>`. It is a real, linkable URL and the
+  browser's Back button closes the reader — but it is pushed with
+  `history.pushState`, so the list underneath is never unmounted. `Esc`
+  closes too.
+- **The unlock chain.** The page is read directly first. If it comes back
+  short, or with a "subscribe to continue" in place of the article, the
+  reader keeps going: the publisher's own AMP/print rendering, then
+  [Marreta](https://github.com/manualdousuario/marreta), then each archive in
+  `ARCHIVE_URL` (comma-separated — the reader tries them in order). Whichever
+  hop answered is named in the left rail, so it is never a mystery where the
+  text came from. Measured over the 30 busiest publications here: 25 direct,
+  2 from the feed's own body, 3 that no route could reach.
+- **When nothing works** you get a "couldn't fetch the text" panel with
+  *Try again* and *Open the original* — never an empty column, and never a
+  subscription wall.
+- **Not everything is reachable.** nytimes.com answers 403 to any server
+  fetch, has no Wayback snapshot for same-day articles, and marreta.link
+  reports `NOT_FOUND` for it. Point `ARCHIVE_URL` at an archive that does
+  carry it, or run your own Marreta, and the same chain will pick it up.
+- Extraction is [`@mozilla/readability`](https://github.com/mozilla/readability)
+  over a `linkedom` DOM, chosen by measurement — see
+  [`docs/extraction-bench.md`](docs/extraction-bench.md). The body is
+  sanitised against a tag/attribute allowlist before it is stored, and its
+  images are rewritten through `/api/images`.
+
 ## Swipes, reading list & integrations
 
 - **Swipe right** on any card (home grid or Shorts) — or use the bookmark
@@ -260,7 +304,8 @@ Archive) and create, rename, hide or delete folders.
 - **No paywall** opens the article through a [Marreta](https://github.com/manualdousuario/marreta)
   instance (`https://marreta.link` by default; change it in Settings or with
   `MARRETA_URL` if you host your own). Which route a given publication takes
-  (Marreta / Direct / Archive) is set per feed in **Manage sources**.
+  (Marreta / Direct / Archive) is set per feed in **Manage sources**. The
+  in-app reader uses the same settings server-side.
 
 ## How it works
 
@@ -311,6 +356,9 @@ All data routes require a session cookie (sign in at `/login`).
 | PATCH | `/api/folders/:id` | Update: `{ "name"?, "include_in_main"? }` |
 | DELETE | `/api/folders/:id` | Delete a folder (its feeds move to the root) |
 | GET | `/api/articles` | Articles; `?feed=ID`, `?folder=ID`, `?mix=1`, `?limit=`, `?offset=` |
+| GET | `/api/articles/:id` | One article, for the reader's `?article=` deep link |
+| GET | `/api/articles/:id/content` | Extracted body from cache; never fetches |
+| POST | `/api/articles/:id/content` | Extract or return cache; `?retry=1` re-runs a failed one |
 | GET | `/api/recommendations` | Personalized feed; `?window=day\|week\|month`, `?limit=`, `?offset=` |
 | GET | `/api/shorts` | The Shorts deck; `?limit=`, `?folder=ID` |
 | POST | `/api/events` | Taste signal: `{ "link", "action": like\|dislike\|skip\|open\|save }` |

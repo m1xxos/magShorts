@@ -75,10 +75,15 @@ export function ArticleCard({
   article,
   density = "cards",
   onToast,
+  onOpen,
 }: {
   article: ArticleDto;
   density?: Density;
   onToast: (message: string, error?: boolean) => void;
+  // Present on the pages that host the reader. Without it the card keeps its
+  // original behaviour — the unlock route in a new tab — which is what Shorts,
+  // the digest and Discover still want.
+  onOpen?: (article: ArticleDto) => void;
 }) {
   const [imageFailed, setImageFailed] = useState(false);
   const showImage = article.image_url && !imageFailed;
@@ -153,12 +158,27 @@ export function ArticleCard({
     );
   }
 
-  const linkProps = {
-    href: unlockUrl(article.link),
-    target: "_blank",
-    rel: "noopener noreferrer",
-    onClick: () => recordEvent(article.link, "open"),
-  };
+  // Still a real anchor when the reader is available: the href is the URL the
+  // reader itself pushes, so middle-click and "open in new tab" land on the
+  // same article instead of doing nothing.
+  const linkProps = onOpen
+    ? {
+        href: `?article=${article.id}`,
+        onClick: (event: React.MouseEvent) => {
+          // Let the browser handle the modified clicks it should handle.
+          if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) {
+            return;
+          }
+          event.preventDefault();
+          onOpen(article);
+        },
+      }
+    : {
+        href: unlockUrl(article.link),
+        target: "_blank",
+        rel: "noopener noreferrer",
+        onClick: () => recordEvent(article.link, "open"),
+      };
   const overlayActions =
     "absolute top-2 right-2 flex gap-1.5 opacity-0 transition group-hover:opacity-100 pointer-coarse:opacity-100";
 

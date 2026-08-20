@@ -199,6 +199,33 @@ export function getDb(): Database.Database {
 
     CREATE INDEX IF NOT EXISTS idx_digest_items_digest
       ON digest_items(digest_id, section, position);
+
+    -- The reader's extracted body, one row per article, written the first time
+    -- someone opens or saves the article and never again. Its own table rather
+    -- than columns on the articles table, for the same reason ARTICLE_COLUMNS
+    -- exists: a body is tens of kilobytes and no list query should carry one.
+    -- The cascade means the Discover trim (CATALOG_KEEP_ARTICLES) cleans up
+    -- after itself.
+    CREATE TABLE IF NOT EXISTS article_content (
+      article_id INTEGER PRIMARY KEY REFERENCES articles(id) ON DELETE CASCADE,
+      -- Sanitised body HTML; NULL when every hop of the unlock chain failed.
+      html TEXT,
+      -- The same body as plain text: reading time now, search later.
+      text TEXT,
+      -- JSON [{ id, text, level }] — the reader's outline.
+      headings TEXT,
+      reading_minutes INTEGER,
+      -- 'ok' | 'failed'
+      status TEXT NOT NULL,
+      -- Which hop of the unlock chain answered: feed | direct | amp | marreta
+      -- | archive. Shown in the reader, so it is never a mystery where the
+      -- text came from.
+      source TEXT,
+      -- Consecutive failed extractions, so a dead link isn't refetched on
+      -- every open. Reset by any success.
+      attempts INTEGER NOT NULL DEFAULT 0,
+      extracted_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
   db.pragma("foreign_keys = ON");
 
@@ -256,6 +283,30 @@ export function getDb(): Database.Database {
     db.exec(
       "CREATE INDEX idx_articles_feed_link ON articles(feed_id, link)"
     );
+  }
+
+  // Feeds that publish site-relative item links (Harper's does) used to be
+  // stored raw, which left the article unfetchable and the card pointing
+  // nowhere. Ingest resolves them now; these are the rows made before it did.
+  const relative = db
+    .prepare(
+      `SELECT a.id, a.link, f.site_url, f.url FROM articles a
+       JOIN feeds f ON f.id = a.feed_id
+       WHERE a.link NOT LIKE 'http%'`
+    )
+    .all() as Array<{ id: number; link: string; site_url: string | null; url: string }>;
+  if (relative.length > 0) {
+    const fix = db.prepare("UPDATE articles SET link = ? WHERE id = ?");
+    let fixed = 0;
+    for (const row of relative) {
+      try {
+        fix.run(new URL(row.link, row.site_url ?? row.url).toString(), row.id);
+        fixed++;
+      } catch {
+        // Nothing sensible to resolve against; leave the row alone.
+      }
+    }
+    console.log(`[db] resolved ${fixed} relative article link(s)`);
   }
 
   const articleColumns = db

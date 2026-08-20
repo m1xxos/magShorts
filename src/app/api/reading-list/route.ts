@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
+import { extractForLink } from "@/lib/extract";
 
 export const dynamic = "force-dynamic";
 
@@ -9,9 +10,21 @@ export async function GET(request: NextRequest) {
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  // The article row behind each saved link, when there still is one: the
+  // in-app reader is keyed on an article id, and Read later stores snapshots
+  // by link so its rows outlive the articles they came from. Correlated
+  // subqueries rather than a join, so a link that two feeds both carry cannot
+  // turn one saved item into two.
   const items = getDb()
     .prepare(
-      "SELECT * FROM reading_list WHERE user_id = ? ORDER BY added_at DESC, id DESC"
+      `SELECT r.*,
+         (SELECT a.id FROM articles a WHERE a.link = r.link ORDER BY a.id LIMIT 1)
+           AS article_id,
+         (SELECT a.feed_id FROM articles a WHERE a.link = r.link ORDER BY a.id LIMIT 1)
+           AS feed_id
+       FROM reading_list r
+       WHERE r.user_id = ?
+       ORDER BY r.added_at DESC, r.id DESC`
     )
     .all(user.id);
   return NextResponse.json(items);
@@ -74,6 +87,11 @@ export async function POST(request: NextRequest) {
     article?.feed_id ?? null,
     article?.embedding ?? null
   );
+
+  // The second of the reader's two extraction triggers. Saving an article is a
+  // promise to read it later, so the text is fetched now and waiting when the
+  // reader opens — but nothing here waits on it, so a save is still instant.
+  extractForLink(link);
 
   const item = db
     .prepare("SELECT * FROM reading_list WHERE user_id = ? AND link = ?")

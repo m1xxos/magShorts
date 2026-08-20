@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
-import { getSetting, isArchiveDomain, isDirectDomain } from "@/lib/settings";
+import {
+  archiveBases,
+  getSetting,
+  isArchiveDomain,
+  isDirectDomain,
+} from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 
@@ -18,8 +23,10 @@ export async function GET(request: NextRequest) {
   }
   if (isArchiveDomain(url)) {
     // Marreta can't fetch these sites; a web archive usually has a snapshot.
-    const archiveUrl = getSetting("archive_url").replace(/\/+$/, "");
-    return NextResponse.redirect(`${archiveUrl}/${url}`);
+    // A tab can only go one place, so it goes to the first archive configured;
+    // the reader tries all of them in turn.
+    const archive = archiveBases()[0];
+    if (archive) return NextResponse.redirect(`${archive}/${url}`);
   }
   const marretaUrl = getSetting("marreta_url").replace(/\/+$/, "");
   return NextResponse.redirect(`${marretaUrl}/p/${url}`);

@@ -45,7 +45,8 @@ type PageImageResult =
 // Fetch an article page as HTML. Shared with the digest, which reads the body
 // text out of the same document rather than opening a second connection.
 export async function fetchPageHtml(
-  link: string
+  link: string,
+  timeoutMs = 10_000
 ): Promise<{ html: string; url: string } | null> {
   try {
     const parsed = new URL(link);
@@ -57,7 +58,7 @@ export async function fetchPageHtml(
         Accept: "text/html,application/xhtml+xml,*/*",
       },
       redirect: "follow",
-      timeoutMs: 10_000,
+      timeoutMs,
     });
     if (!page) return null;
     return { html: page.text.slice(0, PAGE_BYTE_LIMIT), url: page.url };
