@@ -270,6 +270,17 @@ the whole point of that page.
   Where you stopped is remembered per article.
 - **Aa** sets the body's text size, the column width (620 / 720 / 880px) and
   switches between serif and sans; all three persist.
+- **Image galleries** come through as galleries. Where the page marks a
+  slideshow in its own markup — `aria-label="carousel"`, a `gallery` class, a
+  `<figure>` holding several images — the extractor tags those images before
+  the parser flattens them and rebuilds the group afterwards, and the reader
+  draws arrows, a segment bar and a caption that follows the slide. No
+  guessing from layout: three illustrations in a row are an illustrated
+  article, not a carousel.
+- **The bookmark toggles.** Clicking it while it is filled takes the article
+  back off Read later — here, on a Discover tile, and in the digest — and
+  removes the `save` event with it, so a change of mind doesn't leave a
+  positive signal behind in the taste profile.
 - **The URL** becomes `?article=<id>`. It is a real, linkable URL and the
   browser's Back button closes the reader — but it is pushed with
   `history.pushState`, so the list underneath is never unmounted. `Esc`
@@ -365,6 +376,10 @@ All data routes require a session cookie (sign in at `/login`).
 | GET | `/api/recommendations` | Personalized feed; `?window=day\|week\|month`, `?limit=`, `?offset=` |
 | GET | `/api/shorts` | The Shorts deck; `?limit=`, `?folder=ID` |
 | POST | `/api/events` | Taste signal: `{ "link", "action": like\|dislike\|skip\|open\|save }` |
+| GET | `/api/reading-list` | Saved items, each with the `article_id` behind its link |
+| POST | `/api/reading-list` | Save a snapshot; also kicks the reader's extraction |
+| DELETE | `/api/reading-list` | Un-save by `?link=` (drops the `save` event too) |
+| DELETE | `/api/reading-list/:id` | Un-save one row by id |
 | GET | `/api/discover/publications` | Catalog publications; `?topic=`, `?q=`, `?limit=`, `?offset=` |
 | GET | `/api/discover/articles` | The catalog flattened to articles; same filters |
 | POST | `/api/discover/suggest` | Fill the catalog: `{ "seed": true }` for the curated list, `{}` to ask the model |

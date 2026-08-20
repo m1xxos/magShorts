@@ -13,6 +13,7 @@ import {
 import {
   cachedImageUrl,
   recordEvent,
+  removeFromReadingList,
   saveToReadingList,
 } from "@/lib/actions";
 import { FeedAvatar } from "@/components/FeedAvatar";
@@ -216,6 +217,23 @@ export default function DigestPage() {
     },
     [showToast],
   );
+
+  async function toggleSave(article: ArticleDto) {
+    if (!savedLinks.has(article.link)) {
+      const item = items.find((entry) => entry.article_id === article.id);
+      if (item) await readLater(item);
+      return;
+    }
+    const result = await removeFromReadingList(article.link);
+    showToast(result.message, !result.ok);
+    if (result.ok) {
+      setSavedLinks((previous) => {
+        const next = new Set(previous);
+        next.delete(article.link);
+        return next;
+      });
+    }
+  }
 
   const skip = useCallback(
     (item: DigestItemDto) => {
@@ -512,12 +530,7 @@ export default function DigestPage() {
           originLabel="your digest"
           upNext={upNext}
           saved={savedLinks.has(reader.article.link)}
-          onSave={() => {
-            const item = items.find(
-              (entry) => entry.article_id === reader.article!.id,
-            );
-            if (item) readLater(item);
-          }}
+          onToggleSave={() => toggleSave(reader.article!)}
           onOpenArticle={reader.open}
           onClose={reader.close}
         />

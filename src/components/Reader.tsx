@@ -74,7 +74,7 @@ export function Reader({
   originLabel,
   upNext,
   saved,
-  onSave,
+  onToggleSave,
   onOpenArticle,
   onClose,
 }: {
@@ -83,7 +83,9 @@ export function Reader({
   originLabel: string;
   upNext: ArticleDto[];
   saved: boolean;
-  onSave: () => void;
+  // Saves, or un-saves when it is already saved — a filled bookmark you can't
+  // click off is a state, not a control.
+  onToggleSave: () => void;
   onOpenArticle: (article: ArticleDto) => void;
   onClose: () => void;
 }) {
@@ -235,6 +237,84 @@ export function Reader({
     return () => observer.disconnect();
   }, [content]);
 
+  // Image galleries. The extractor emits an inert scroll track (see
+  // collectGalleries in src/lib/extract.ts); this is what turns it into a
+  // carousel — arrows, a segment bar and one caption line that follows the
+  // slide. Built in the DOM rather than in JSX because the body arrives as
+  // an HTML string, and React leaves these nodes alone as long as that string
+  // doesn't change.
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body || !content?.html) return;
+    const teardown: Array<() => void> = [];
+
+    for (const gallery of body.querySelectorAll<HTMLElement>(".reader-gallery")) {
+      if (gallery.dataset.ready) continue;
+      const track = gallery.querySelector<HTMLElement>(".reader-gallery-track");
+      const slides = [...gallery.querySelectorAll<HTMLElement>("figure")];
+      if (!track || slides.length < 2) continue;
+
+      const captions = slides.map(
+        (slide) => slide.querySelector("figcaption")?.textContent ?? ""
+      );
+
+      const prev = arrow("is-prev", "M15 18l-6-6 6-6");
+      const next = arrow("is-next", "M9 6l6 6-6 6");
+      const bar = document.createElement("div");
+      bar.className = "reader-gallery-bar";
+      const segments = slides.map(() => {
+        const segment = document.createElement("span");
+        bar.appendChild(segment);
+        return segment;
+      });
+      const caption = document.createElement("p");
+      caption.className = "reader-gallery-caption";
+      const counter = document.createElement("span");
+      const text = document.createElement("span");
+      caption.append(counter, text);
+
+      gallery.append(prev, next, bar, caption);
+
+      function current(): number {
+        return Math.round(track!.scrollLeft / track!.clientWidth);
+      }
+      function paint() {
+        const index = Math.min(slides.length - 1, Math.max(0, current()));
+        counter.textContent = `${index + 1}/${slides.length}`;
+        text.textContent = captions[index];
+        segments.forEach((segment, i) => {
+          if (i === index) segment.setAttribute("data-active", "");
+          else segment.removeAttribute("data-active");
+        });
+        prev.disabled = index === 0;
+        next.disabled = index === slides.length - 1;
+      }
+      function go(step: number) {
+        track!.scrollTo({
+          left: (current() + step) * track!.clientWidth,
+          behavior: "smooth",
+        });
+      }
+
+      const onPrev = () => go(-1);
+      const onNext = () => go(1);
+      prev.addEventListener("click", onPrev);
+      next.addEventListener("click", onNext);
+      track.addEventListener("scroll", paint, { passive: true });
+      paint();
+      gallery.dataset.ready = "1";
+      teardown.push(() => {
+        prev.removeEventListener("click", onPrev);
+        next.removeEventListener("click", onNext);
+        track.removeEventListener("scroll", paint);
+      });
+    }
+
+    return () => {
+      for (const off of teardown) off();
+    };
+  }, [content]);
+
   // Animated rather than scrollIntoView: the overlay is the scroll container,
   // and scrollIntoView also scrolls whatever ancestor it feels like.
   function jump(id: string) {
@@ -274,7 +354,11 @@ export function Reader({
             <span className="truncate">Back to {originLabel}</span>
           </button>
           <div className="flex shrink-0 items-center gap-2.5">
-            <Pill onClick={onSave} pressed={saved}>
+            <Pill
+              onClick={onToggleSave}
+              pressed={saved}
+              title={saved ? "Remove from Read later" : "Save to Read later"}
+            >
               <BookmarkIcon size={13} filled={saved} />
               <span className="hidden sm:inline">
                 {saved ? "Saved" : "Read later"}
@@ -487,15 +571,18 @@ function Pill({
   children,
   onClick,
   pressed,
+  title,
 }: {
   children: React.ReactNode;
   onClick: () => void;
   pressed?: boolean;
+  title?: string;
 }) {
   return (
     <button
       onClick={onClick}
       aria-pressed={pressed}
+      title={title}
       className={`flex items-center gap-[7px] rounded-full border px-3.5 py-[7px] text-[13px] transition ${
         pressed
           ? "border-ink bg-ink text-paper"
@@ -547,4 +634,21 @@ function Failed({ onRetry, link }: { onRetry: () => void; link: string }) {
       </div>
     </div>
   );
+}
+
+// A round arrow button for the gallery, in the same 24-viewBox stroke-2 style
+// as the icons in SwipeableCard.
+function arrow(side: string, path: string): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `reader-gallery-arrow ${side}`;
+  button.setAttribute(
+    "aria-label",
+    side === "is-prev" ? "Previous image" : "Next image"
+  );
+  button.innerHTML =
+    `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" ` +
+    `stroke="currentColor" stroke-width="2" stroke-linecap="round" ` +
+    `stroke-linejoin="round" aria-hidden="true"><path d="${path}"/></svg>`;
+  return button;
 }

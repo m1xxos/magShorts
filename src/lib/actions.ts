@@ -31,6 +31,24 @@ export async function saveToReadingList(
   }
 }
 
+export async function removeFromReadingList(
+  link: string
+): Promise<ActionResult> {
+  try {
+    const response = await fetch(
+      `/api/reading-list?link=${encodeURIComponent(link)}`,
+      { method: "DELETE" }
+    );
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      return { ok: false, message: body?.error ?? "Could not remove" };
+    }
+    return { ok: true, message: "Removed from Read later" };
+  } catch {
+    return { ok: false, message: "Could not remove" };
+  }
+}
+
 export async function sendToOmnivore(
   article: ArticleDto
 ): Promise<ActionResult> {

@@ -98,3 +98,33 @@ export async function POST(request: NextRequest) {
     .get(user.id, link);
   return NextResponse.json(item, { status: 201 });
 }
+
+// Remove by link rather than by row id. Everywhere a bookmark shows filled —
+// the reader's pill, a Discover tile — what the UI has in hand is the article
+// and its link; the reading_list row id is an implementation detail it would
+// otherwise have to go and look up first.
+export async function DELETE(request: NextRequest) {
+  const user = getSessionUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const link = request.nextUrl.searchParams.get("link") ?? "";
+  if (!/^https?:\/\//.test(link)) {
+    return NextResponse.json({ error: "link is required" }, { status: 400 });
+  }
+
+  const db = getDb();
+  const result = db
+    .prepare("DELETE FROM reading_list WHERE user_id = ? AND link = ?")
+    .run(user.id, link);
+  if (result.changes === 0) {
+    return NextResponse.json({ error: "Not saved" }, { status: 404 });
+  }
+  // Un-saving is not a dislike — it is the retraction of a save. Dropping the
+  // event keeps the taste profile honest instead of leaving a positive signal
+  // behind for something the reader changed their mind about.
+  db.prepare(
+    "DELETE FROM user_events WHERE user_id = ? AND link = ? AND action = 'save'"
+  ).run(user.id, link);
+  return NextResponse.json({ ok: true });
+}

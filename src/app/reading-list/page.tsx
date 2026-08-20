@@ -3,7 +3,13 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { type ArticleDto, type ReadingItemDto, timeAgo } from "@/lib/types";
-import { cachedImageUrl, recordEvent, unlockUrl } from "@/lib/actions";
+import {
+  cachedImageUrl,
+  recordEvent,
+  removeFromReadingList,
+  saveToReadingList,
+  unlockUrl,
+} from "@/lib/actions";
 import { Toast, useToast } from "@/components/Toast";
 import { TopBar } from "@/components/TopBar";
 import { ExternalIcon } from "@/components/SwipeableCard";
@@ -35,6 +41,10 @@ export default function ReadingListPage() {
   const [items, setItems] = useState<ReadingItemDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [surveyItem, setSurveyItem] = useState<ReadingItemDto | null>(null);
+  // Un-saving from the reader takes the item straight off the list, so this is
+  // only ever "the one the reader is showing, which I just un-saved and might
+  // put back".
+  const [unsaved, setUnsaved] = useState<ArticleDto | null>(null);
   const { toast, showToast } = useToast();
 
   const resolveArticle = useCallback(
@@ -64,6 +74,26 @@ export default function ReadingListPage() {
       .then(setItems)
       .finally(() => setLoading(false));
   }, [user]);
+
+  // On this page a save is the reason the row exists, so un-saving removes it
+  // rather than leaving a Read later list with something that isn't saved.
+  // Putting it back reloads the list, which also restores its place in it.
+  async function toggleSave(article: ArticleDto) {
+    if (unsaved?.link === article.link) {
+      const result = await saveToReadingList(article);
+      showToast(result.message, !result.ok);
+      if (!result.ok) return;
+      setUnsaved(null);
+      const response = await fetch("/api/reading-list");
+      setItems(await response.json());
+      return;
+    }
+    const result = await removeFromReadingList(article.link);
+    showToast(result.message, !result.ok);
+    if (!result.ok) return;
+    setUnsaved(article);
+    setItems((previous) => previous.filter((it) => it.link !== article.link));
+  }
 
   async function finishSurvey(item: ReadingItemDto, choice: SurveyChoice) {
     setSurveyItem(null);
@@ -177,8 +207,8 @@ export default function ReadingListPage() {
           article={reader.article}
           originLabel="Read later"
           upNext={upNext}
-          saved
-          onSave={() => showToast("Already in Read later")}
+          saved={unsaved?.link !== reader.article.link}
+          onToggleSave={() => toggleSave(reader.article!)}
           onOpenArticle={reader.open}
           onClose={reader.close}
         />

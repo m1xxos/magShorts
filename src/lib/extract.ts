@@ -118,12 +118,45 @@ const DISCARD = new Set([
   "canvas", "link", "meta",
 ]);
 
+// Publishers mark a slideshow on a container, and Readability throws the
+// container away — so the images are tagged before it runs and regrouped
+// after. The attribute is the only thing that survives the round trip.
+const GALLERY_ATTR = "data-ms-gallery";
+
 const ATTRS: Record<string, string[]> = {
   a: ["href"],
-  img: ["src", "alt"],
+  img: ["src", "alt", GALLERY_ATTR],
   th: ["colspan", "rowspan"],
   td: ["colspan", "rowspan"],
 };
+
+// Containers that say, in the page's own markup, that these images are one
+// slideshow. No guessing from layout: three illustrations in a row are an
+// illustrated article, not a carousel, and turning one into the other would be
+// worse than leaving it alone.
+const GALLERY_SELECTOR = [
+  '[aria-roledescription="carousel"]',
+  '[aria-label*="carousel" i]',
+  '[aria-label*="gallery" i]',
+  '[aria-label*="slideshow" i]',
+  '[class*="gallery" i]',
+  '[class*="carousel" i]',
+  '[class*="slideshow" i]',
+  "figure",
+].join(",");
+
+export function markGalleries(document: Document): void {
+  let group = 0;
+  for (const node of document.querySelectorAll(GALLERY_SELECTOR)) {
+    const images = node.querySelectorAll("img");
+    // One image is a picture. Already-tagged images belong to the innermost
+    // container that claimed them, which is the more specific answer.
+    if (images.length < 2) continue;
+    if ([...images].every((image) => image.hasAttribute(GALLERY_ATTR))) continue;
+    group++;
+    for (const image of images) image.setAttribute(GALLERY_ATTR, String(group));
+  }
+}
 
 function slug(text: string, index: number): string {
   const base = text
@@ -222,6 +255,8 @@ export function sanitizeArticleHtml(bodyHtml: string, baseUrl: string): Sanitise
   for (const h1 of [...document.querySelectorAll("h1")]) h1.remove();
   for (const child of [...document.body.children]) walk(child as Element);
 
+  collectGalleries(document as unknown as Document);
+
   // An <img> or <br> alone in a paragraph is fine; an empty one is a gap.
   for (const p of [...document.querySelectorAll("p, li, figcaption")]) {
     if (!(p.textContent ?? "").trim() && p.children.length === 0) p.remove();
@@ -234,6 +269,83 @@ export function sanitizeArticleHtml(bodyHtml: string, baseUrl: string): Sanitise
   };
 }
 
+// Put the slideshow back together. Readability leaves the images as loose
+// siblings, each usually wrapped in the link to its full-size version, so this
+// walks the tagged ones in document order, lifts them out of whatever they are
+// sitting in, and drops one gallery block where the first of them was.
+//
+// The markup is deliberately inert: a track of figures that already scrolls
+// horizontally on its own. Reader.tsx adds arrows, a counter and a caption
+// line on top, and if that never runs you still get the pictures.
+function collectGalleries(document: Document): void {
+  const groups = new Map<string, Element[]>();
+  for (const image of document.querySelectorAll(`img[${GALLERY_ATTR}]`)) {
+    const id = image.getAttribute(GALLERY_ATTR) ?? "";
+    image.removeAttribute(GALLERY_ATTR);
+    const bucket = groups.get(id) ?? [];
+    bucket.push(image);
+    groups.set(id, bucket);
+  }
+
+  for (const images of groups.values()) {
+    // Readability may have dropped all but one of them, and one image is not
+    // a carousel — leave it where it is.
+    if (images.length < 2) continue;
+    const anchorBlock = topLevelAncestor(document, images[0]);
+    if (!anchorBlock) continue;
+
+    const gallery = document.createElement("div");
+    gallery.setAttribute("class", "reader-gallery");
+    gallery.setAttribute("data-count", String(images.length));
+    const track = document.createElement("div");
+    track.setAttribute("class", "reader-gallery-track");
+    gallery.appendChild(track);
+
+    const emptied = new Set<Element>();
+    for (const image of images) {
+      const block = topLevelAncestor(document, image);
+      if (block) emptied.add(block);
+      const slide = document.createElement("figure");
+      // The caption the publisher wrote lives in alt, markup and all.
+      const caption = plainText(image.getAttribute("alt") ?? "");
+      image.removeAttribute("alt");
+      slide.appendChild(image);
+      if (caption) {
+        const figcaption = document.createElement("figcaption");
+        figcaption.textContent = caption;
+        slide.appendChild(figcaption);
+      }
+      track.appendChild(slide);
+    }
+
+    anchorBlock.parentNode?.insertBefore(gallery, anchorBlock);
+    // The paragraphs and links the images were pulled out of have nothing
+    // left in them but the whitespace between the images.
+    for (const block of emptied) {
+      if (!(block.textContent ?? "").trim() && block.querySelectorAll("img").length === 0) {
+        block.remove();
+      }
+    }
+  }
+}
+
+// The child of <body> that this node sits under, which is the level a gallery
+// replaces.
+function topLevelAncestor(document: Document, node: Element): Element | null {
+  let current: Element | null = node;
+  while (current && current.parentElement && current.parentElement !== document.body) {
+    current = current.parentElement;
+  }
+  return current?.parentElement === document.body ? current : null;
+}
+
+function plainText(html: string): string {
+  return html
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 // ---------------------------------------------------------------- parsing
 
 function parseArticle(rawHtml: string, url: string): Sanitised | null {
@@ -243,6 +355,7 @@ function parseArticle(rawHtml: string, url: string): Sanitised | null {
     const base = document.createElement("base");
     base.setAttribute("href", url);
     document.head?.appendChild(base);
+    markGalleries(document as unknown as Document);
     // linkedom's Document is structurally what Readability wants; the two
     // packages simply don't share type declarations.
     const parsed = new Readability(document as unknown as Document).parse();

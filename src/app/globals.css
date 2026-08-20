@@ -143,3 +143,96 @@ body {
   padding: 6px 10px;
   text-align: left;
 }
+
+/* Image galleries inside an article. The track scrolls and snaps on its own,
+   so the pictures work even if the hydration in Reader.tsx never runs; the
+   arrows, the segment bar and the single caption line are added on top and
+   only appear once [data-ready] is set. */
+.reader-gallery {
+  position: relative;
+  margin-top: 1.6em;
+}
+.reader-gallery-track {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  border-radius: 10px;
+  background: var(--paper-sunken);
+}
+.reader-gallery-track::-webkit-scrollbar {
+  display: none;
+}
+.reader-gallery-track > figure {
+  flex: 0 0 100%;
+  scroll-snap-align: center;
+  margin: 0;
+}
+.reader-gallery-track > figure > img {
+  display: block;
+  width: 100%;
+  border-radius: 10px;
+}
+.reader-gallery[data-ready] .reader-gallery-track figcaption {
+  display: none;
+}
+.reader-gallery-arrow {
+  position: absolute;
+  top: 50%;
+  display: flex;
+  height: 34px;
+  width: 34px;
+  transform: translateY(-50%);
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 4px 14px -6px rgba(31, 30, 27, 0.4);
+  cursor: pointer;
+  transition:
+    opacity 0.15s,
+    color 0.15s;
+}
+.reader-gallery-arrow:hover {
+  color: var(--clay);
+}
+.reader-gallery-arrow[disabled] {
+  opacity: 0.35;
+  cursor: default;
+}
+.reader-gallery-arrow.is-prev {
+  left: 10px;
+}
+.reader-gallery-arrow.is-next {
+  right: 10px;
+}
+.reader-gallery-bar {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+}
+.reader-gallery-bar > span {
+  height: 3px;
+  flex: 1;
+  border-radius: 999px;
+  background: var(--line);
+  transition: background 0.15s;
+}
+.reader-gallery-bar > span[data-active] {
+  background: var(--ink-soft);
+}
+.reader-gallery-caption {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+  font-family: var(--font-sans);
+  font-size: 0.76em;
+  line-height: 1.5;
+  color: var(--ink-faint);
+}
+.reader-gallery-caption > span:first-child {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}

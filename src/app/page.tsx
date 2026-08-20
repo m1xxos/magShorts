@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { saveToReadingList } from "@/lib/actions";
+import { removeFromReadingList, saveToReadingList } from "@/lib/actions";
 import {
   type ArticleDto,
   type Density,
@@ -365,8 +365,11 @@ export default function HomePage() {
         .slice(0, 2)
     : [];
 
-  async function saveFromReader(article: ArticleDto) {
-    const result = await saveToReadingList(article);
+  async function toggleSave(article: ArticleDto) {
+    const wasSaved = savedLinks.has(article.link);
+    const result = wasSaved
+      ? await removeFromReadingList(article.link)
+      : await saveToReadingList(article);
     showToast(result.message, !result.ok);
     if (result.ok) loadReadingCount();
   }
@@ -576,7 +579,7 @@ export default function HomePage() {
           originLabel={sectionTitle}
           upNext={upNext}
           saved={savedLinks.has(reader.article.link)}
-          onSave={() => saveFromReader(reader.article!)}
+          onToggleSave={() => toggleSave(reader.article!)}
           onOpenArticle={reader.open}
           onClose={reader.close}
         />
