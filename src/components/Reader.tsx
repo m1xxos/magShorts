@@ -115,6 +115,12 @@ interface TypeSetting {
   serif: boolean;
 }
 
+function writeProgress(articleId: number, fraction: number): void {
+  const stored = readProgress();
+  stored[String(articleId)] = fraction;
+  window.localStorage.setItem(PROGRESS_KEY, JSON.stringify(stored));
+}
+
 function clampStep(
   value: number | undefined,
   count: number,
@@ -178,6 +184,9 @@ export function Reader({
   // Highest fraction reached, not the current one: scrolling back up should
   // not un-read the article.
   const reached = useRef(0);
+  const ticking = useRef(false);
+  const pending = useRef(0);
+  const persistTimer = useRef<number | null>(null);
 
   useEffect(() => {
     const saved = window.localStorage.getItem(TYPE_KEY);
@@ -235,6 +244,18 @@ export function Reader({
     recordEvent(article.link, "open", article.title);
   }, [load, article.link, article.title]);
 
+  // Whatever the debounce still owes, paid before the reader goes away.
+  useEffect(() => {
+    const id = article.id;
+    return () => {
+      if (persistTimer.current !== null) {
+        window.clearTimeout(persistTimer.current);
+        persistTimer.current = null;
+        writeProgress(id, pending.current);
+      }
+    };
+  }, [article.id]);
+
   // The page underneath must not scroll while the overlay is open, or closing
   // the reader lands the grid somewhere the user never was.
   useEffect(() => {
@@ -286,16 +307,38 @@ export function Reader({
     return () => cancelAnimationFrame(frame);
   }, [content, article.id]);
 
+  // Scrolling a long article fires this dozens of times a second, and the
+  // first version did a full re-render and a synchronous localStorage
+  // read-modify-write on every one of them. Both are gone: the work is
+  // coalesced into one animation frame, the state only changes when the
+  // rounded percentage does (so React bails out of most renders), and the
+  // saved position is written after scrolling stops.
   function onScroll() {
-    const container = scrollRef.current;
-    if (!container) return;
-    const span = container.scrollHeight - container.clientHeight;
-    const fraction = span > 0 ? Math.min(1, container.scrollTop / span) : 0;
-    setProgress(fraction);
-    reached.current = Math.max(reached.current, fraction);
-    const stored = readProgress();
-    stored[String(article.id)] = fraction;
-    window.localStorage.setItem(PROGRESS_KEY, JSON.stringify(stored));
+    if (ticking.current) return;
+    ticking.current = true;
+    requestAnimationFrame(() => {
+      ticking.current = false;
+      const container = scrollRef.current;
+      if (!container) return;
+      const span = container.scrollHeight - container.clientHeight;
+      const fraction = span > 0 ? Math.min(1, container.scrollTop / span) : 0;
+      reached.current = Math.max(reached.current, fraction);
+      setProgress((previous) =>
+        Math.round(previous * 100) === Math.round(fraction * 100)
+          ? previous
+          : fraction
+      );
+      persist(fraction);
+    });
+  }
+
+  function persist(fraction: number) {
+    pending.current = fraction;
+    if (persistTimer.current !== null) return;
+    persistTimer.current = window.setTimeout(() => {
+      persistTimer.current = null;
+      writeProgress(article.id, pending.current);
+    }, 500);
   }
 
   // The outline entry that matches where the body actually is.
@@ -494,10 +537,12 @@ export function Reader({
             </button>
           </div>
         </div>
+        {/* scaleX rather than width: a transform is composited, so the bar
+            never asks the page for another layout while you are scrolling. */}
         <div className="h-[3px] bg-line">
           <div
-            className="h-[3px] bg-clay transition-[width] duration-150"
-            style={{ width: `${Math.round(progress * 100)}%` }}
+            className="h-[3px] origin-left bg-clay"
+            style={{ transform: `scaleX(${progress})` }}
           />
         </div>
       </div>

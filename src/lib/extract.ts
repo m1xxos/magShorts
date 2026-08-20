@@ -125,7 +125,10 @@ const GALLERY_ATTR = "data-ms-gallery";
 
 const ATTRS: Record<string, string[]> = {
   a: ["href"],
-  img: ["src", "alt", GALLERY_ATTR],
+  // width and height are kept when the page states them: the browser can then
+  // reserve the space before the picture loads, and a long article stops
+  // shifting under the reader as its images arrive.
+  img: ["src", "alt", "width", "height", GALLERY_ATTR],
   th: ["colspan", "rowspan"],
   td: ["colspan", "rowspan"],
 };
@@ -229,6 +232,10 @@ export function sanitizeArticleHtml(bodyHtml: string, baseUrl: string): Sanitise
     }
 
     if (tag === "img") {
+      for (const side of ["width", "height"]) {
+        const stated = node.getAttribute(side) ?? "";
+        if (!/^\d+$/.test(stated)) node.removeAttribute(side);
+      }
       const src = node.getAttribute("src");
       const resolved = src ? absolute(src, baseUrl) : null;
       if (!resolved) {
