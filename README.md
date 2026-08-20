@@ -274,7 +274,8 @@ the whole point of that page.
   slideshow in its own markup — `aria-label="carousel"`, a `gallery` class, a
   `<figure>` holding several images — the extractor tags those images before
   the parser flattens them and rebuilds the group afterwards, and the reader
-  draws arrows, a segment bar and a caption that follows the slide. No
+  renders a real carousel in their place — arrows, a segment bar, a caption
+  that follows the slide, and a track that swipes on a phone. No
   guessing from layout: three illustrations in a row are an illustrated
   article, not a carousel.
 - **Click any picture** to open it over the article, at the full size the

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type ArticleContentDto,
   type ArticleDto,
@@ -9,6 +9,7 @@ import {
 } from "@/lib/types";
 import { cachedImageUrl, recordEvent, unlockUrl } from "@/lib/actions";
 import { BookmarkIcon, ExternalIcon } from "./SwipeableCard";
+import { ReaderGallery, type Slide } from "./ReaderGallery";
 import { ReaderOutline } from "./ReaderOutline";
 import { ReaderUpNext } from "./ReaderUpNext";
 
@@ -35,6 +36,50 @@ const TYPE_KEY = "ms_reader_type";
 // Clears the sticky top bar (64px) and the progress rule (3px), plus a little
 // air. Used by both rails and by the outline's own scroll box.
 const RAIL_TOP = 83;
+
+// The article body, cut into the runs of ordinary HTML and the galleries
+// between them. Galleries become a real component; everything else stays a
+// string, because an article is markup and React has no business rebuilding
+// paragraph by paragraph.
+type Segment =
+  | { kind: "html"; html: string }
+  | { kind: "gallery"; slides: Slide[] };
+
+function splitBody(html: string): Segment[] {
+  if (!html) return [];
+  // DOMParser rather than a regex: the block is nested, and a regex that can
+  // find the right closing tag is a regex that will one day find the wrong one.
+  if (typeof DOMParser === "undefined") return [{ kind: "html", html }];
+  const parsed = new DOMParser().parseFromString(
+    `<body>${html}</body>`,
+    "text/html"
+  );
+  const segments: Segment[] = [];
+  let buffer = "";
+  function flush() {
+    if (buffer) segments.push({ kind: "html", html: buffer });
+    buffer = "";
+  }
+  for (const node of [...parsed.body.childNodes]) {
+    const element = node instanceof Element ? node : null;
+    if (element?.classList.contains("reader-gallery")) {
+      flush();
+      const slides = [...element.querySelectorAll("figure")].map((figure) => {
+        const image = figure.querySelector("img");
+        return {
+          src: image?.getAttribute("src") ?? "",
+          full: image?.getAttribute("data-full") ?? "",
+          caption: figure.querySelector("figcaption")?.textContent?.trim() ?? "",
+        };
+      });
+      if (slides.length > 1) segments.push({ kind: "gallery", slides });
+      continue;
+    }
+    buffer += element ? element.outerHTML : (node.textContent ?? "");
+  }
+  flush();
+  return segments;
+}
 
 // A picture opened over the article. Galleries hand over the whole set, so
 // the arrows keep working once it is open.
@@ -274,84 +319,6 @@ export function Reader({
     return () => observer.disconnect();
   }, [content]);
 
-  // Image galleries. The extractor emits an inert scroll track (see
-  // collectGalleries in src/lib/extract.ts); this is what turns it into a
-  // carousel — arrows, a segment bar and one caption line that follows the
-  // slide. Built in the DOM rather than in JSX because the body arrives as
-  // an HTML string, and React leaves these nodes alone as long as that string
-  // doesn't change.
-  useEffect(() => {
-    const body = bodyRef.current;
-    if (!body || !content?.html) return;
-    const teardown: Array<() => void> = [];
-
-    for (const gallery of body.querySelectorAll<HTMLElement>(".reader-gallery")) {
-      if (gallery.dataset.ready) continue;
-      const track = gallery.querySelector<HTMLElement>(".reader-gallery-track");
-      const slides = [...gallery.querySelectorAll<HTMLElement>("figure")];
-      if (!track || slides.length < 2) continue;
-
-      const captions = slides.map(
-        (slide) => slide.querySelector("figcaption")?.textContent ?? ""
-      );
-
-      const prev = arrow("is-prev", "M15 18l-6-6 6-6");
-      const next = arrow("is-next", "M9 6l6 6-6 6");
-      const bar = document.createElement("div");
-      bar.className = "reader-gallery-bar";
-      const segments = slides.map(() => {
-        const segment = document.createElement("span");
-        bar.appendChild(segment);
-        return segment;
-      });
-      const caption = document.createElement("p");
-      caption.className = "reader-gallery-caption";
-      const counter = document.createElement("span");
-      const text = document.createElement("span");
-      caption.append(counter, text);
-
-      gallery.append(prev, next, bar, caption);
-
-      function current(): number {
-        return Math.round(track!.scrollLeft / track!.clientWidth);
-      }
-      function paint() {
-        const index = Math.min(slides.length - 1, Math.max(0, current()));
-        counter.textContent = `${index + 1}/${slides.length}`;
-        text.textContent = captions[index];
-        segments.forEach((segment, i) => {
-          if (i === index) segment.setAttribute("data-active", "");
-          else segment.removeAttribute("data-active");
-        });
-        prev.disabled = index === 0;
-        next.disabled = index === slides.length - 1;
-      }
-      function go(step: number) {
-        track!.scrollTo({
-          left: (current() + step) * track!.clientWidth,
-          behavior: "smooth",
-        });
-      }
-
-      const onPrev = () => go(-1);
-      const onNext = () => go(1);
-      prev.addEventListener("click", onPrev);
-      next.addEventListener("click", onNext);
-      track.addEventListener("scroll", paint, { passive: true });
-      paint();
-      gallery.dataset.ready = "1";
-      teardown.push(() => {
-        prev.removeEventListener("click", onPrev);
-        next.removeEventListener("click", onNext);
-        track.removeEventListener("scroll", paint);
-      });
-    }
-
-    return () => {
-      for (const off of teardown) off();
-    };
-  }, [content]);
-
   // Click any picture to see it properly. Delegated from the body, because the
   // article arrives as an HTML string and there is nothing to hang an onClick
   // on. An image wrapped in a link to somewhere that isn't an image file is
@@ -363,21 +330,17 @@ export function Reader({
     function onClick(event: MouseEvent) {
       const image = (event.target as HTMLElement | null)?.closest?.("img");
       if (!(image instanceof HTMLImageElement)) return;
+      // A gallery is a React component with its own click handling; this
+      // listener is only for the loose pictures in the prose.
+      if (image.closest("[data-gallery]")) return;
       const href = image.closest("a")?.getAttribute("href");
       if (href && !IMAGE_HREF.test(href) && !image.hasAttribute("data-full")) {
         return;
       }
       event.preventDefault();
-      const gallery = image.closest(".reader-gallery");
-      const images = gallery
-        ? [...gallery.querySelectorAll("img")]
-        : [image];
       setLightbox({
-        items: images.map((one) => ({
-          src: fullSize(one as HTMLImageElement),
-          caption: captionOf(one as HTMLImageElement),
-        })),
-        index: Math.max(0, images.indexOf(image)),
+        items: [{ src: fullSize(image), caption: captionOf(image) }],
+        index: 0,
       });
     }
 
@@ -399,6 +362,12 @@ export function Reader({
     container.scrollTo({ top: to, behavior: "smooth" });
     setActiveId(id);
   }
+
+  // Split once per article, not once per keystroke of the Aa control.
+  const segments = useMemo(
+    () => splitBody(content?.status === "ok" ? (content.html ?? "") : ""),
+    [content]
+  );
 
   const minutes = content?.reading_minutes ?? null;
   const left = minutes ? Math.max(0, Math.ceil(minutes * (1 - progress))) : null;
@@ -608,16 +577,42 @@ export function Reader({
 
           {loading ? (
             <Skeleton />
-          ) : content?.status === "ok" && content.html ? (
+          ) : content?.status === "ok" && segments.length > 0 ? (
             <div
               ref={bodyRef}
-              className={`reader-body ${type.serif ? "font-serif" : "font-sans"}`}
+              className={type.serif ? "font-serif" : "font-sans"}
               style={{ fontSize: `${TYPE_STEPS[type.step]}px` }}
-              // The body is sanitised server-side against a tag and attribute
-              // allowlist before it is ever stored (sanitizeArticleHtml in
-              // src/lib/extract.ts); nothing that can execute survives it.
-              dangerouslySetInnerHTML={{ __html: content.html }}
-            />
+            >
+              {segments.map((segment, at) =>
+                segment.kind === "gallery" ? (
+                  <ReaderGallery
+                    key={at}
+                    slides={segment.slides}
+                    onOpen={(index) =>
+                      setLightbox({
+                        items: segment.slides.map((slide) => ({
+                          src: slide.full
+                            ? cachedImageUrl(slide.full)
+                            : slide.src,
+                          caption: slide.caption,
+                        })),
+                        index,
+                      })
+                    }
+                  />
+                ) : (
+                  <div
+                    key={at}
+                    className="reader-body"
+                    // Sanitised server-side against a tag and attribute
+                    // allowlist before it was ever stored
+                    // (sanitizeArticleHtml in src/lib/extract.ts); nothing
+                    // that can execute survives it.
+                    dangerouslySetInnerHTML={{ __html: segment.html }}
+                  />
+                )
+              )}
+            </div>
           ) : (
             <Failed onRetry={() => load(true)} link={article.link} />
           )}
@@ -813,21 +808,4 @@ function Failed({ onRetry, link }: { onRetry: () => void; link: string }) {
       </div>
     </div>
   );
-}
-
-// A round arrow button for the gallery, in the same 24-viewBox stroke-2 style
-// as the icons in SwipeableCard.
-function arrow(side: string, path: string): HTMLButtonElement {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = `reader-gallery-arrow ${side}`;
-  button.setAttribute(
-    "aria-label",
-    side === "is-prev" ? "Previous image" : "Next image"
-  );
-  button.innerHTML =
-    `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" ` +
-    `stroke="currentColor" stroke-width="2" stroke-linecap="round" ` +
-    `stroke-linejoin="round" aria-hidden="true"><path d="${path}"/></svg>`;
-  return button;
 }
