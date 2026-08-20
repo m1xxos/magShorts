@@ -309,6 +309,11 @@ function collectGalleries(document: Document): void {
       // The caption the publisher wrote lives in alt, markup and all.
       const caption = plainText(image.getAttribute("alt") ?? "");
       image.removeAttribute("alt");
+      // Slides are usually wrapped in a link to the full-size file. The link
+      // itself goes — inside a carousel it is a trap, not a control — but the
+      // address is what the lightbox should show, so it rides along.
+      const full = image.parentElement?.closest("a")?.getAttribute("href");
+      if (full) image.setAttribute("data-full", full);
       slide.appendChild(image);
       if (caption) {
         const figcaption = document.createElement("figcaption");

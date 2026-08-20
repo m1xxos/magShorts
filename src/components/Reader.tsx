@@ -7,7 +7,7 @@ import {
   feedTone,
   timeAgo,
 } from "@/lib/types";
-import { recordEvent, unlockUrl } from "@/lib/actions";
+import { cachedImageUrl, recordEvent, unlockUrl } from "@/lib/actions";
 import { BookmarkIcon, ExternalIcon } from "./SwipeableCard";
 import { ReaderOutline } from "./ReaderOutline";
 import { ReaderUpNext } from "./ReaderUpNext";
@@ -35,6 +35,34 @@ const TYPE_KEY = "ms_reader_type";
 // Clears the sticky top bar (64px) and the progress rule (3px), plus a little
 // air. Used by both rails and by the outline's own scroll box.
 const RAIL_TOP = 83;
+
+// A picture opened over the article. Galleries hand over the whole set, so
+// the arrows keep working once it is open.
+interface Lightbox {
+  items: Array<{ src: string; caption: string }>;
+  index: number;
+}
+
+// A link around an image is usually the full-size file; sometimes it is a
+// genuine link to somewhere else, and clicking that should still go there.
+const IMAGE_HREF = /\.(jpe?g|png|gif|webp|avif)($|\?)/i;
+
+function fullSize(image: HTMLImageElement): string {
+  const stated = image.getAttribute("data-full");
+  const href = stated ?? image.closest("a")?.getAttribute("href") ?? "";
+  // Through the cache, like every other image here: opening a picture full
+  // size should not be the one thing that calls the publisher directly.
+  return IMAGE_HREF.test(href) ? cachedImageUrl(href) : image.src;
+}
+
+function captionOf(image: HTMLImageElement): string {
+  const figure = image.closest("figure");
+  const caption =
+    figure?.querySelector("figcaption")?.textContent ??
+    image.getAttribute("alt") ??
+    "";
+  return caption.trim();
+}
 
 interface TypeSetting {
   step: number;
@@ -99,6 +127,7 @@ export function Reader({
     serif: true,
   });
   const [typeOpen, setTypeOpen] = useState(false);
+  const [lightbox, setLightbox] = useState<Lightbox | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   // Highest fraction reached, not the current one: scrolling back up should
@@ -184,11 +213,19 @@ export function Reader({
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
+      if (lightbox) {
+        // The topmost thing closes first, and the arrows belong to it while
+        // it is open.
+        if (event.key === "Escape") setLightbox(null);
+        if (event.key === "ArrowLeft") setLightbox(step(lightbox, -1));
+        if (event.key === "ArrowRight") setLightbox(step(lightbox, 1));
+        return;
+      }
       if (event.key === "Escape") close();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [close]);
+  }, [close, lightbox]);
 
   // Restore where the reader stopped last time, once the body is on screen.
   useEffect(() => {
@@ -313,6 +350,39 @@ export function Reader({
     return () => {
       for (const off of teardown) off();
     };
+  }, [content]);
+
+  // Click any picture to see it properly. Delegated from the body, because the
+  // article arrives as an HTML string and there is nothing to hang an onClick
+  // on. An image wrapped in a link to somewhere that isn't an image file is
+  // left alone — that is a real link and it should still go there.
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body || !content?.html) return;
+
+    function onClick(event: MouseEvent) {
+      const image = (event.target as HTMLElement | null)?.closest?.("img");
+      if (!(image instanceof HTMLImageElement)) return;
+      const href = image.closest("a")?.getAttribute("href");
+      if (href && !IMAGE_HREF.test(href) && !image.hasAttribute("data-full")) {
+        return;
+      }
+      event.preventDefault();
+      const gallery = image.closest(".reader-gallery");
+      const images = gallery
+        ? [...gallery.querySelectorAll("img")]
+        : [image];
+      setLightbox({
+        items: images.map((one) => ({
+          src: fullSize(one as HTMLImageElement),
+          caption: captionOf(one as HTMLImageElement),
+        })),
+        index: Math.max(0, images.indexOf(image)),
+      });
+    }
+
+    body.addEventListener("click", onClick);
+    return () => body.removeEventListener("click", onClick);
   }, [content]);
 
   // Animated rather than scrollIntoView: the overlay is the scroll container,
@@ -563,7 +633,116 @@ export function Reader({
           <ReaderUpNext items={upNext} onOpen={onOpenArticle} />
         </aside>
       </div>
+
+      {lightbox && (
+        <Lightbox
+          state={lightbox}
+          onStep={(by) => setLightbox(step(lightbox, by))}
+          onClose={() => setLightbox(null)}
+        />
+      )}
     </div>
+  );
+}
+
+// Wraps around, so the arrows never dead-end in the middle of a set.
+function step(state: Lightbox, by: number): Lightbox {
+  const count = state.items.length;
+  return { ...state, index: (state.index + by + count) % count };
+}
+
+function Lightbox({
+  state,
+  onStep,
+  onClose,
+}: {
+  state: Lightbox;
+  onStep: (by: number) => void;
+  onClose: () => void;
+}) {
+  const item = state.items[state.index];
+  const many = state.items.length > 1;
+  return (
+    // Above the reader, which is already above the grid. Clicking the ground
+    // closes — the picture itself and the controls stop the click.
+    <div
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={item.caption || "Image"}
+      className="fixed inset-0 z-60 flex flex-col items-center justify-center gap-4 bg-ink/85 px-4 py-6 backdrop-blur-sm"
+    >
+      <button
+        onClick={onClose}
+        aria-label="Close the image"
+        className="absolute top-4 right-4 flex h-9 w-9 items-center justify-center rounded-full bg-paper/90 text-[17px] text-ink transition hover:bg-paper"
+      >
+        ×
+      </button>
+
+      {many && (
+        <>
+          <LightboxArrow side="left" onClick={() => onStep(-1)} />
+          <LightboxArrow side="right" onClick={() => onStep(1)} />
+        </>
+      )}
+
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={item.src}
+        alt={item.caption}
+        onClick={(event) => event.stopPropagation()}
+        className="max-h-[82vh] max-w-full rounded-lg object-contain"
+      />
+      {(item.caption || many) && (
+        <p
+          onClick={(event) => event.stopPropagation()}
+          className="flex max-w-[720px] gap-2.5 text-center text-[13px] leading-[1.5] text-paper/80"
+        >
+          {many && (
+            <span className="shrink-0 tabular-nums">
+              {state.index + 1}/{state.items.length}
+            </span>
+          )}
+          <span>{item.caption}</span>
+        </p>
+      )}
+    </div>
+  );
+}
+
+function LightboxArrow({
+  side,
+  onClick,
+}: {
+  side: "left" | "right";
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick();
+      }}
+      aria-label={side === "left" ? "Previous image" : "Next image"}
+      className={`absolute top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-paper/90 text-ink transition hover:bg-paper ${
+        side === "left" ? "left-4" : "right-4"
+      }`}
+    >
+      <svg
+        width="17"
+        height="17"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+      >
+        <path d={side === "left" ? "M15 18l-6-6 6-6" : "M9 6l6 6-6 6"} />
+      </svg>
+    </button>
   );
 }
 

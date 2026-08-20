@@ -83,6 +83,8 @@ body {
   max-width: 100%;
   height: auto;
   border-radius: 10px;
+  /* Every picture opens over the article; the cursor should say so. */
+  cursor: zoom-in;
 }
 .reader-body figcaption {
   margin-top: 0.5em;

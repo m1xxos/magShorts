@@ -277,6 +277,11 @@ the whole point of that page.
   draws arrows, a segment bar and a caption that follows the slide. No
   guessing from layout: three illustrations in a row are an illustrated
   article, not a carousel.
+- **Click any picture** to open it over the article, at the full size the
+  publisher linked to, with its caption. Arrow keys and the on-screen arrows
+  walk a gallery without leaving the lightbox; `Esc` closes it and leaves the
+  reader where it was. An image that is a link to somewhere other than an
+  image file still follows that link.
 - **The bookmark toggles.** Clicking it while it is filled takes the article
   back off Read later — here, on a Discover tile, and in the digest — and
   removes the `save` event with it, so a change of mind doesn't leave a
