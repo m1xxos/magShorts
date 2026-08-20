@@ -2,6 +2,7 @@ import { parseHTML } from "linkedom";
 import { Readability } from "@mozilla/readability";
 import { getDb } from "./db";
 import { fetchPageHtml } from "./articleImages";
+import { bodyFromEmbeddedState } from "./embeddedState";
 import {
   archiveBases,
   getSetting,
@@ -64,6 +65,10 @@ const MAX_ATTEMPTS = 3;
 // sum of its parts. Marreta has been measured at 3–20 s per request; without a
 // ceiling three hops could keep a spinner on screen for a minute.
 const HOP_TIMEOUT_MS = 12_000;
+// A client-rendered page is mostly its state blob: WIRED serves 1.1 MB, of
+// which 520 KB is the JSON the article lives in. The cover backfill's 500 KB
+// ceiling would cut that blob in half and leave it unparseable.
+const PAGE_BYTES = 4_000_000;
 const CHAIN_BUDGET_MS = 30_000;
 
 interface StoredRow {
@@ -462,6 +467,20 @@ function parseArticle(rawHtml: string, url: string): Sanitised | null {
   }
 }
 
+// The article a page shipped as data rather than as markup. Costs no request:
+// it reads the HTML already in hand, which is why it sits between the direct
+// parse and the first unlock service.
+function parseEmbedded(rawHtml: string, url: string): Sanitised | null {
+  const found = bodyFromEmbeddedState(rawHtml);
+  if (!found) return null;
+  const clean = sanitizeArticleHtml(found.html, url);
+  if (clean.text.length === 0) return null;
+  console.log(
+    `[extract] embedded state at ${found.path} — ${clean.text.length} chars`
+  );
+  return clean;
+}
+
 // --------------------------------------------------------- the unlock chain
 
 // Full-text variants the page itself advertises. Not impersonation: these are
@@ -593,21 +612,42 @@ async function run(articleId: number): Promise<ArticleContentDto> {
   let best: Attempt | null = null;
 
   // 1. The original page. Always tried first, and usually the end of it.
-  const page = await fetchPageHtml(article.link);
+  const page = await fetchPageHtml(article.link, 10_000, PAGE_BYTES);
   if (page) {
     const clean = parseArticle(page.html, page.url);
     if (clean) best = { clean, source: "direct" };
+
+    // 2. The same page, read as data. A publisher that renders the article in
+    // the browser leaves a DOM parser with the standfirst and the furniture,
+    // and the article itself sitting in a JSON blob two tags away. Always
+    // tried, even when the DOM parse looked complete — it costs no request,
+    // and "looked complete" is exactly the trap here: WIRED's reviews come out
+    // of the DOM as a plausible 1 856 characters and out of the state as
+    // 16 787.
+    const embedded = parseEmbedded(page.html, page.url);
+    // Preferred on near-equal length rather than made to clear the usual 1.15x
+    // bar. When a page hands over the article as data, that data is the
+    // article; Readability is guessing at which parts of the markup were it,
+    // and on WIRED's product guides its guess opens with "Aug 19, 2026 7:31 AM"
+    // and the headline. Only a clearly shorter state body loses.
+    if (embedded && embedded.text.length >= (best?.clean.text.length ?? 0) * 0.8) {
+      best = { clean: embedded, source: "state" };
+    }
     if (best && !truncated(best.clean)) return store(articleId, best);
   }
 
-  // 2–4. The page's own full-text renderings, then the two unlock services.
+  // 3–5. The page's own full-text renderings, then the two unlock services.
   // Only reached when the direct read failed or came back a teaser, so an
   // ordinary article never pays for them.
   const deadline = Date.now() + CHAIN_BUDGET_MS;
   for (const hop of hops(article.link, page?.html ?? null)) {
     const left = deadline - Date.now();
     if (left <= 0) break;
-    const fetched = await fetchPageHtml(hop.url, Math.min(HOP_TIMEOUT_MS, left));
+    const fetched = await fetchPageHtml(
+      hop.url,
+      Math.min(HOP_TIMEOUT_MS, left),
+      PAGE_BYTES
+    );
     if (!fetched) continue;
     if (!delivered(fetched.url, article.link)) continue;
     const clean = parseArticle(fetched.html, fetched.url);

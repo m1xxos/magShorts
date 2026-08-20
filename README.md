@@ -264,7 +264,15 @@ the whole point of that page.
   publisher at all.
 - **Layout** — reading column with the outline on the left ("in this article",
   built from the article's own sub-headings, following your scroll) and
-  *Up next* on the right, taken from the list the reader was opened from.
+  *Up next* on the right.
+- **Up next is about what you are reading**, not about where you opened it
+  from: articles ranked by cosine against the current one, with the taste
+  profile as a tie-breaker and a per-publication penalty so the rail doesn't
+  become three cards from The Verge. The floor is .85 — above the *99th*
+  percentile of random pairs, measured over 3 760 embedded articles — because
+  below that the scores flatten into a band where a genuinely related piece is
+  indistinguishable from noise. An article whose subject nothing else covers
+  offers one card, or none, and the list order fills the rest.
   A progress rule under the top bar, and "N min left" that counts down.
   Both rails stay pinned as you scroll; a long outline scrolls inside itself.
   Where you stopped is remembered per article.
@@ -293,21 +301,31 @@ the whole point of that page.
   browser's Back button closes the reader — but it is pushed with
   `history.pushState`, so the list underneath is never unmounted. `Esc`
   closes too.
-- **The unlock chain.** The page is read directly first. If it comes back
-  short, or with a "subscribe to continue" in place of the article, the
-  reader keeps going: the publisher's own AMP/print rendering, then
+- **Articles that aren't in the markup.** A growing number of publishers ship a
+  shell of HTML and the article itself as JSON for the browser to render —
+  WIRED's pages carry 25 paragraphs of furniture and a 520 KB
+  `window.__PRELOADED_STATE__`. The reader reads that state, as JsonML with its
+  real paragraph boundaries, and prefers it to the DOM parse on near-equal
+  length: when a page hands over the article as data, that data *is* the
+  article, while Readability is guessing which parts of the markup were it.
+  On WIRED's product guides the guess opens with "Aug 19, 2026 7:31 AM".
+- **The unlock chain.** The page is read directly first, then as data. If both
+  come back short, or with a "subscribe to continue" in place of the article,
+  the reader keeps going: the publisher's own AMP/print rendering, then
   [Marreta](https://github.com/manualdousuario/marreta), then each archive in
   `ARCHIVE_URL` (comma-separated — the reader tries them in order). Whichever
   hop answered is named in the left rail, so it is never a mystery where the
-  text came from. Measured over the 30 busiest publications here: 25 direct,
-  2 from the feed's own body, 3 that no route could reach.
+  text came from. Measured over the 30 busiest publications here: 23 direct,
+  2 from the page's data, 2 from the feed's own body, 3 that no route reaches.
 - **When nothing works** you get a "couldn't fetch the text" panel with
   *Try again* and *Open the original* — never an empty column, and never a
   subscription wall.
-- **Not everything is reachable.** nytimes.com answers 403 to any server
-  fetch, has no Wayback snapshot for same-day articles, and marreta.link
-  reports `NOT_FOUND` for it. Point `ARCHIVE_URL` at an archive that does
-  carry it, or run your own Marreta, and the same chain will pick it up.
+- **Not everything is reachable.** nytimes.com answers `403` to any server
+  fetch (774 bytes), has no Wayback snapshot for same-day articles (`404`), and
+  marreta.link reports `HTTP_ERROR` for it. There is no technical route to a
+  NYT article. Point `ARCHIVE_URL` at an archive that does carry it, or run your
+  own Marreta on an address they don't block, and the same chain will pick it
+  up.
 - Extraction is [`@mozilla/readability`](https://github.com/mozilla/readability)
   over a `linkedom` DOM, chosen by measurement — see
   [`docs/extraction-bench.md`](docs/extraction-bench.md). The body is
@@ -379,6 +397,7 @@ All data routes require a session cookie (sign in at `/login`).
 | DELETE | `/api/folders/:id` | Delete a folder (its feeds move to the root) |
 | GET | `/api/articles` | Articles; `?feed=ID`, `?folder=ID`, `?mix=1`, `?limit=`, `?offset=` |
 | GET | `/api/articles/:id` | One article, for the reader's `?article=` deep link |
+| GET | `/api/articles/:id/related` | What to read next, ranked against this article |
 | GET | `/api/articles/:id/content` | Extracted body from cache; never fetches |
 | POST | `/api/articles/:id/content` | Extract or return cache; `?retry=1` re-runs a failed one |
 | GET | `/api/recommendations` | Personalized feed; `?window=day\|week\|month`, `?limit=`, `?offset=` |

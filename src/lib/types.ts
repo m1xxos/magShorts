@@ -139,7 +139,14 @@ export type DiscoverView = "publications" | "articles";
 
 // The reader: one article's extracted body, its outline, and which hop of the
 // unlock chain produced it.
-export type ExtractSource = "feed" | "direct" | "amp" | "marreta" | "archive";
+export type ExtractSource =
+  | "feed"
+  | "direct"
+  // The article as the page shipped it for its own client-side rendering.
+  | "state"
+  | "amp"
+  | "marreta"
+  | "archive";
 
 export interface ReaderHeading {
   // Assigned during sanitising, so the outline and the body agree.

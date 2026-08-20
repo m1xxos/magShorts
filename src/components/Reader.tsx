@@ -31,6 +31,7 @@ const WIDTH_STEPS = [
   { px: 720, label: "Normal" },
   { px: 880, label: "Wide" },
 ];
+const UP_NEXT = 2;
 const PROGRESS_KEY = "ms_read_progress";
 const TYPE_KEY = "ms_reader_type";
 // Clears the sticky top bar (64px) and the progress rule (3px), plus a little
@@ -123,6 +124,21 @@ function writeProgress(articleId: number, fraction: number): void {
   window.localStorage.setItem(PROGRESS_KEY, JSON.stringify(stored));
 }
 
+// Is this summary just the top of the article again? Compared on the first
+// words with the markup and punctuation stripped, because the feed's copy and
+// the page's differ in quotes, dashes and ellipses.
+function repeatsBody(summary: string, bodyHtml: string): boolean {
+  const shape = (text: string) =>
+    text
+      .replace(/<[^>]*>/g, " ")
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
+      .trim();
+  const opening = shape(summary).split(" ").slice(0, 12).join(" ");
+  if (opening.length < 30) return false;
+  return shape(bodyHtml).startsWith(opening);
+}
+
 function clampStep(
   value: number | undefined,
   count: number,
@@ -144,6 +160,7 @@ function readProgress(): Record<string, number> {
 // whether it is looking at the article or at what the feed happened to ship.
 const SOURCE_LABEL: Record<string, string> = {
   direct: "",
+  state: "rebuilt from the page’s own data",
   amp: "from the publisher’s print edition",
   marreta: "unlocked via Marreta",
   archive: "from the Internet Archive",
@@ -181,6 +198,8 @@ export function Reader({
   });
   const [typeOpen, setTypeOpen] = useState(false);
   const [lightbox, setLightbox] = useState<Lightbox | null>(null);
+  // Articles about the same thing as this one. Empty is a normal answer.
+  const [related, setRelated] = useState<ArticleDto[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   // Highest fraction reached, not the current one: scrolling back up should
@@ -236,6 +255,23 @@ export function Reader({
     },
     [article.id]
   );
+
+  // What to read next, ranked against the article on screen rather than by
+  // where it happened to sit in a list. Anything the ranking can't fill — a
+  // cold start, an article not embedded yet, a subject nothing else covers —
+  // falls back to the list order the reader was opened with.
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/articles/${article.id}/related?limit=${UP_NEXT}`)
+      .then((response) => (response.ok ? response.json() : []))
+      .then((found: ArticleDto[]) => {
+        if (!cancelled) setRelated(Array.isArray(found) ? found : []);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [article.id]);
 
   useEffect(() => {
     reached.current = 0;
@@ -413,6 +449,24 @@ export function Reader({
     () => splitBody(content?.status === "ok" ? (content.html ?? "") : ""),
     [content]
   );
+
+  // Feeds routinely publish the article's own opening as the summary, and the
+  // reader would then print it twice: once in italics as a standfirst, once as
+  // the first paragraphs. Shown only when it is actually a different sentence.
+  const bodyOpening = segments.find((part) => part.kind === "html");
+  const standfirst =
+    article.summary && !repeatsBody(article.summary, bodyOpening?.html ?? "")
+      ? article.summary
+      : null;
+
+  // Related first, then the list, never the article being read, never twice.
+  const nextUp = [...related, ...upNext]
+    .filter(
+      (candidate, index, all) =>
+        candidate.id !== article.id &&
+        all.findIndex((other) => other.id === candidate.id) === index
+    )
+    .slice(0, UP_NEXT);
 
   const minutes = content?.reading_minutes ?? null;
   const left = minutes ? Math.max(0, Math.ceil(minutes * (1 - progress))) : null;
@@ -615,9 +669,9 @@ export function Reader({
           <h1 className="font-serif text-[30px] leading-[1.18] font-medium text-pretty text-ink md:text-[38px]">
             {article.title}
           </h1>
-          {article.summary && (
+          {standfirst && (
             <p className="mt-5 font-serif text-[19px] leading-[1.5] text-ink-soft italic">
-              {article.summary}
+              {standfirst}
             </p>
           )}
           <div className="my-8 h-px bg-line" />
@@ -672,7 +726,7 @@ export function Reader({
           }}
           className="no-scrollbar hidden w-[212px] shrink-0 self-start overflow-y-auto pt-2.5 xl:sticky xl:block"
         >
-          <ReaderUpNext items={upNext} onOpen={onOpenArticle} />
+          <ReaderUpNext items={nextUp} onOpen={onOpenArticle} />
         </aside>
       </div>
 
