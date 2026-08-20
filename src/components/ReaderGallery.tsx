@@ -18,6 +18,10 @@ export interface Slide {
   // The publisher's full-size file, for the lightbox. May be empty.
   full: string;
   caption: string;
+  // The shape the page stated, so the track reserves its height before the
+  // first picture arrives. 0 when the page said nothing.
+  width: number;
+  height: number;
 }
 
 export function ReaderGallery({
@@ -50,7 +54,9 @@ export function ReaderGallery({
   const current = slides[Math.min(index, slides.length - 1)];
 
   return (
-    <div data-gallery className="relative mt-7">
+    // The prose around it spaces itself; a gallery is its own segment and has
+    // to hold both sides of the gap open.
+    <div data-gallery className="relative my-7">
       <div
         ref={trackRef}
         onScroll={onScroll}
@@ -62,9 +68,11 @@ export function ReaderGallery({
             key={slide.src}
             src={slide.src}
             alt={slide.caption}
+            width={slide.width || undefined}
+            height={slide.height || undefined}
             loading="lazy"
             onClick={() => onOpen(at)}
-            className="w-full shrink-0 grow-0 basis-full cursor-zoom-in snap-center rounded-[10px]"
+            className="h-auto w-full shrink-0 grow-0 basis-full cursor-zoom-in snap-center rounded-[10px]"
           />
         ))}
       </div>

@@ -70,6 +70,8 @@ function splitBody(html: string): Segment[] {
           src: image?.getAttribute("src") ?? "",
           full: image?.getAttribute("data-full") ?? "",
           caption: figure.querySelector("figcaption")?.textContent?.trim() ?? "",
+          width: Number(image?.getAttribute("width") ?? 0),
+          height: Number(image?.getAttribute("height") ?? 0),
         };
       });
       if (slides.length > 1) segments.push({ kind: "gallery", slides });

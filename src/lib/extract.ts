@@ -148,6 +148,50 @@ const GALLERY_SELECTOR = [
   "figure",
 ].join(",");
 
+// Reserve the space a picture will take, before it takes it. An <img> with no
+// stated size is a hole the browser can only measure once the file arrives, so
+// a long article rearranges itself under the reader as it scrolls. Pages state
+// the size in more than one place and almost never in the attributes, so take
+// it wherever it is: the attributes, the PhotoSwipe data the lightbox scripts
+// use, or an inline aspect-ratio on a wrapper.
+export function statePictureSizes(document: Document): void {
+  for (const image of document.querySelectorAll("img")) {
+    if (/^\d+$/.test(image.getAttribute("width") ?? "") &&
+        /^\d+$/.test(image.getAttribute("height") ?? "")) {
+      continue;
+    }
+    const ratio = statedRatio(image);
+    if (!ratio || !Number.isFinite(ratio) || ratio <= 0) continue;
+    // Any pair with the right ratio will do — the browser scales to the
+    // column and only uses these two numbers to reserve the box.
+    image.setAttribute("width", "1000");
+    image.setAttribute("height", String(Math.round(1000 / ratio)));
+  }
+}
+
+function statedRatio(image: Element): number | null {
+  const pswpHost = image.closest("[data-pswp-width]") ?? image;
+  const w = Number(pswpHost.getAttribute("data-pswp-width"));
+  const h = Number(pswpHost.getAttribute("data-pswp-height"));
+  if (w > 0 && h > 0) return w / h;
+
+  const width = Number(image.getAttribute("width"));
+  const height = Number(image.getAttribute("height"));
+  if (width > 0 && height > 0) return width / height;
+
+  for (let node: Element | null = image; node; node = node.parentElement) {
+    const stated = node.getAttribute("style") ?? "";
+    const match = stated.match(/aspect-ratio\s*:\s*([\d.]+)(?:\s*\/\s*([\d.]+))?/i);
+    if (match) {
+      const a = Number(match[1]);
+      const b = match[2] ? Number(match[2]) : 1;
+      if (a > 0 && b > 0) return a / b;
+    }
+    if (node.tagName === "ARTICLE" || node.tagName === "BODY") break;
+  }
+  return null;
+}
+
 export function markGalleries(document: Document): void {
   let group = 0;
   for (const node of document.querySelectorAll(GALLERY_SELECTOR)) {
@@ -338,7 +382,45 @@ function collectGalleries(document: Document): void {
         block.remove();
       }
     }
+    dropGalleryChrome(gallery, images.length);
   }
+}
+
+// A slideshow renders its own furniture — The Verge writes out "1/4" and the
+// caption of whichever slide is showing — and once the container is gone that
+// furniture is left standing in the prose as a stray "1/4" under the pictures.
+// Only what immediately follows the gallery is considered, and the scan stops
+// at the first block that is neither a counter nor a caption we already show,
+// so nothing further down the article is at risk.
+function dropGalleryChrome(gallery: Element, slideCount: number): void {
+  const captions = new Set(
+    [...gallery.querySelectorAll("figcaption")].map((node) =>
+      normalise(node.textContent ?? "")
+    )
+  );
+  const isChrome = (text: string) =>
+    text === "" || COUNTER.test(text) || captions.has(text);
+
+  let node = gallery.nextElementSibling;
+  let budget = slideCount + 2;
+  while (node && budget-- > 0) {
+    const next = node.nextElementSibling;
+    if (node.querySelectorAll("img").length > 0) break;
+    // The counter and the caption often share one paragraph, so the pieces
+    // are taken out individually before the block is judged.
+    for (const part of [...node.querySelectorAll("figcaption, strong, b, span, em")]) {
+      if (isChrome(normalise(part.textContent ?? ""))) part.remove();
+    }
+    if (!isChrome(normalise(node.textContent ?? ""))) break;
+    node.remove();
+    node = next;
+  }
+}
+
+const COUNTER = /^\d+\s*\/\s*\d+$/;
+
+function normalise(text: string): string {
+  return text.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
 // The child of <body> that this node sits under, which is the level a gallery
@@ -367,6 +449,7 @@ function parseArticle(rawHtml: string, url: string): Sanitised | null {
     const base = document.createElement("base");
     base.setAttribute("href", url);
     document.head?.appendChild(base);
+    statePictureSizes(document as unknown as Document);
     markGalleries(document as unknown as Document);
     // linkedom's Document is structurally what Readability wants; the two
     // packages simply don't share type declarations.

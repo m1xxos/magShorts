@@ -278,6 +278,8 @@ the whole point of that page.
   that follows the slide, and a track that swipes on a phone. No
   guessing from layout: three illustrations in a row are an illustrated
   article, not a carousel.
+  A slideshow's own furniture — the publisher's "1/4" counter and the caption
+  of whichever slide was showing — is dropped, since the reader draws its own.
 - **Click any picture** to open it over the article, at the full size the
   publisher linked to, with its caption. Arrow keys and the on-screen arrows
   walk a gallery without leaving the lightbox; `Esc` closes it and leaves the
