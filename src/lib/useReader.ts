@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
 import { type ArticleDto } from "./types";
 
 // The reader's URL state, shared by every page that hosts it.
@@ -105,4 +105,29 @@ export function useReader(
   }, [show]);
 
   return { article, open, close };
+}
+
+// Anchor props for anything that opens the reader. Kept a real link with a
+// real href — the same URL the reader pushes — so middle-click and "open in
+// new tab" land on the article instead of doing nothing, and the modified
+// clicks the browser should handle are left to the browser.
+export function readerLink(
+  article: ArticleDto,
+  open: (article: ArticleDto) => void
+): { href: string; onClick: (event: MouseEvent) => void } {
+  return {
+    href: `?article=${article.id}`,
+    onClick: (event: MouseEvent) => {
+      if (
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.button !== 0
+      ) {
+        return;
+      }
+      event.preventDefault();
+      open(article);
+    },
+  };
 }

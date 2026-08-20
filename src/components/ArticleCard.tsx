@@ -9,6 +9,7 @@ import {
   sendToOmnivore,
   unlockUrl,
 } from "@/lib/actions";
+import { readerLink } from "@/lib/useReader";
 import { FeedAvatar } from "./FeedAvatar";
 import {
   BookmarkIcon,
@@ -158,21 +159,8 @@ export function ArticleCard({
     );
   }
 
-  // Still a real anchor when the reader is available: the href is the URL the
-  // reader itself pushes, so middle-click and "open in new tab" land on the
-  // same article instead of doing nothing.
   const linkProps = onOpen
-    ? {
-        href: `?article=${article.id}`,
-        onClick: (event: React.MouseEvent) => {
-          // Let the browser handle the modified clicks it should handle.
-          if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) {
-            return;
-          }
-          event.preventDefault();
-          onOpen(article);
-        },
-      }
+    ? readerLink(article, onOpen)
     : {
         href: unlockUrl(article.link),
         target: "_blank",

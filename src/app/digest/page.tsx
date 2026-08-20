@@ -14,14 +14,32 @@ import {
   cachedImageUrl,
   recordEvent,
   saveToReadingList,
-  unlockUrl,
 } from "@/lib/actions";
 import { FeedAvatar } from "@/components/FeedAvatar";
 import { TopBar } from "@/components/TopBar";
 import { Toast, useToast } from "@/components/Toast";
 import { BookmarkIcon } from "@/components/SwipeableCard";
+import { Reader } from "@/components/Reader";
 import { SettingsDialog } from "@/components/SettingsDialog";
+import { readerLink, useReader } from "@/lib/useReader";
 import { useUser } from "@/lib/useUser";
+
+// A digest item seen as the article every other part of the app deals in. The
+// stored annotation travels as the summary: it is a better teaser than the
+// feed's own, and it is what the reader shows above the rule.
+function asArticle(item: DigestItemDto): ArticleDto {
+  return {
+    id: item.article_id,
+    feed_id: item.feed_id,
+    title: item.title,
+    link: item.link,
+    summary: item.summary,
+    image_url: item.image_url,
+    published_at: item.published_at,
+    topic: item.topic,
+    feed_title: item.feed_title,
+  };
+}
 
 interface Schedule {
   daily: string;
@@ -104,6 +122,8 @@ export default function DigestPage() {
   const [skipped, setSkipped] = useState<string[]>([]);
   const [showAll, setShowAll] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Links already in Read later, so the reader's bookmark pill starts right.
+  const [savedLinks, setSavedLinks] = useState<Set<string>>(new Set());
   const { toast, showToast } = useToast();
 
   // A kind is "loaded" once its key exists, even when the value is null — a
@@ -129,6 +149,18 @@ export default function DigestPage() {
     };
   }, [user, kind, loaded]);
 
+  useEffect(() => {
+    if (!user) return;
+    fetch("/api/reading-list")
+      .then((response) => response.json())
+      .then((saved: Array<{ link: string }>) => {
+        if (Array.isArray(saved)) {
+          setSavedLinks(new Set(saved.map((entry) => entry.link)));
+        }
+      })
+      .catch(() => {});
+  }, [user]);
+
   const digest = loaded[kind] ?? null;
   const items = (digest?.items ?? []).filter(
     (item) => !skipped.includes(item.link),
@@ -148,27 +180,39 @@ export default function DigestPage() {
   const quick = items.filter((item) => item.section === "quick");
   const rest = items.filter((item) => item.section === "rest");
 
-  const readHere = useCallback((item: DigestItemDto) => {
-    recordEvent(item.link, "open", item.title);
-  }, []);
+  // The digest's own running order, which is also the order "Up next" follows:
+  // the lead, then the runners-up, then the quick hits.
+  const reading = [...highlights, ...quick];
+
+  // Not memoized: `items` is derived from the snapshot every render, so a
+  // dependency array here would be a lie the React Compiler is right to
+  // reject. useReader keeps the latest resolver in a ref anyway.
+  async function resolveArticle(id: number): Promise<ArticleDto | null> {
+    const item = items.find((entry) => entry.article_id === id);
+    if (item) return asArticle(item);
+    const response = await fetch(`/api/articles/${id}`);
+    return response.ok ? ((await response.json()) as ArticleDto) : null;
+  }
+  const reader = useReader(resolveArticle);
+
+  const upNext = reader.article
+    ? reading
+        .slice(
+          reading.findIndex(
+            (item) => item.article_id === reader.article!.id,
+          ) + 1,
+        )
+        .slice(0, 2)
+        .map(asArticle)
+    : [];
 
   const readLater = useCallback(
     async (item: DigestItemDto) => {
-      // The stored annotation is a better teaser than the feed's own summary,
-      // so it travels with the saved copy.
-      const article: ArticleDto = {
-        id: item.article_id,
-        feed_id: item.feed_id,
-        title: item.title,
-        link: item.link,
-        summary: item.summary,
-        image_url: item.image_url,
-        published_at: item.published_at,
-        topic: item.topic,
-        feed_title: item.feed_title,
-      };
-      const result = await saveToReadingList(article);
+      const result = await saveToReadingList(asArticle(item));
       showToast(result.message, !result.ok);
+      if (result.ok) {
+        setSavedLinks((previous) => new Set(previous).add(item.link));
+      }
     },
     [showToast],
   );
@@ -289,10 +333,7 @@ export default function DigestPage() {
                       )}
                       <div className="mt-[18px] flex flex-wrap gap-2.5">
                         <a
-                          href={unlockUrl(lead.link)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={() => readHere(lead)}
+                          {...readerLink(asArticle(lead), reader.open)}
                           className="rounded-full bg-clay px-4 py-2.5 text-[13px] font-medium text-white transition hover:brightness-95"
                         >
                           Read here
@@ -347,10 +388,7 @@ export default function DigestPage() {
                         )}
                         <div className="min-w-0">
                           <a
-                            href={unlockUrl(item.link)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={() => readHere(item)}
+                            {...readerLink(asArticle(item), reader.open)}
                             className="font-serif text-[17px] leading-[1.3] font-medium text-ink hover:text-clay"
                           >
                             {item.title}
@@ -410,10 +448,7 @@ export default function DigestPage() {
                         className="text-[13px] leading-[1.4] text-ink-soft"
                       >
                         <a
-                          href={unlockUrl(item.link)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={() => readHere(item)}
+                          {...readerLink(asArticle(item), reader.open)}
                           className="text-ink hover:text-clay"
                         >
                           {item.title}
@@ -469,6 +504,22 @@ export default function DigestPage() {
             setLoaded({});
             showToast("Saved — applies to the next digest");
           }}
+        />
+      )}
+      {reader.article && (
+        <Reader
+          article={reader.article}
+          originLabel="your digest"
+          upNext={upNext}
+          saved={savedLinks.has(reader.article.link)}
+          onSave={() => {
+            const item = items.find(
+              (entry) => entry.article_id === reader.article!.id,
+            );
+            if (item) readLater(item);
+          }}
+          onOpenArticle={reader.open}
+          onClose={reader.close}
         />
       )}
       <Toast toast={toast} />

@@ -250,10 +250,12 @@ Archive) and create, rename, hide or delete folders.
 
 ## Reader (v2.4)
 
-Clicking a card in the home grid or in Read later no longer sends you to
-another tab — it opens the article **over** the list, with the full text
+Clicking an article in the home grid, in Read later or in the digest no longer
+sends you to another tab — it opens **over** the list, with the full text
 extracted from the page. Closing it puts you back exactly where you were,
-still scrolled to the same card.
+still scrolled to the same card. Shorts and Discover keep opening the
+original: in Discover you are judging the publication's own site, which is
+the whole point of that page.
 
 - **Lazy by construction.** The text is fetched on exactly two triggers:
   opening the reader, and saving to Read later. Nothing a list render, a
@@ -264,9 +266,10 @@ still scrolled to the same card.
   built from the article's own sub-headings, following your scroll) and
   *Up next* on the right, taken from the list the reader was opened from.
   A progress rule under the top bar, and "N min left" that counts down.
+  Both rails stay pinned as you scroll; a long outline scrolls inside itself.
   Where you stopped is remembered per article.
-- **Aa** sets the body's text size and switches between serif and sans;
-  both persist.
+- **Aa** sets the body's text size, the column width (620 / 720 / 880px) and
+  switches between serif and sans; all three persist.
 - **The URL** becomes `?article=<id>`. It is a real, linkable URL and the
   browser's Back button closes the reader — but it is pushed with
   `history.pushState`, so the list underneath is never unmounted. `Esc`

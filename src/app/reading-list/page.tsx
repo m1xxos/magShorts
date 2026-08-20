@@ -9,7 +9,7 @@ import { TopBar } from "@/components/TopBar";
 import { ExternalIcon } from "@/components/SwipeableCard";
 import { SurveyDialog, type SurveyChoice } from "@/components/SurveyDialog";
 import { Reader } from "@/components/Reader";
-import { useReader } from "@/lib/useReader";
+import { readerLink, useReader } from "@/lib/useReader";
 import { useUser } from "@/lib/useUser";
 
 // A saved snapshot, seen as the article the reader needs. Read later stores
@@ -122,19 +122,7 @@ export default function ReadingListPage() {
                       a dead headline. */}
                   {asArticle(item) ? (
                     <a
-                      href={`?article=${item.article_id}`}
-                      onClick={(event) => {
-                        if (
-                          event.metaKey ||
-                          event.ctrlKey ||
-                          event.shiftKey ||
-                          event.button !== 0
-                        ) {
-                          return;
-                        }
-                        event.preventDefault();
-                        reader.open(asArticle(item)!);
-                      }}
+                      {...readerLink(asArticle(item)!, reader.open)}
                       className="line-clamp-2 font-serif text-[16px] leading-snug font-medium text-ink hover:text-clay"
                     >
                       {item.title}
