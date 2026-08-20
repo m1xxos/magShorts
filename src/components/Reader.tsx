@@ -22,12 +22,33 @@ import { ReaderUpNext } from "./ReaderUpNext";
 // Back button closes it, but the list underneath is never torn down.
 
 const TYPE_STEPS = [16, 18, 20.5];
+// The handoff's 720px puts about 70 characters on a line at 18px, which is the
+// measure the design is built around — so it stays the middle setting rather
+// than becoming one option among three.
+const WIDTH_STEPS = [
+  { px: 620, label: "Narrow" },
+  { px: 720, label: "Normal" },
+  { px: 880, label: "Wide" },
+];
 const PROGRESS_KEY = "ms_read_progress";
 const TYPE_KEY = "ms_reader_type";
+// Clears the sticky top bar (64px) and the progress rule (3px), plus a little
+// air. Used by both rails and by the outline's own scroll box.
+const RAIL_TOP = 83;
 
 interface TypeSetting {
   step: number;
+  width: number;
   serif: boolean;
+}
+
+function clampStep(
+  value: number | undefined,
+  count: number,
+  fallback: number
+): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  return Math.min(count - 1, Math.max(0, Math.round(value)));
 }
 
 function readProgress(): Record<string, number> {
@@ -70,7 +91,11 @@ export function Reader({
   const [loading, setLoading] = useState(true);
   const [progress, setProgress] = useState(0);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [type, setType] = useState<TypeSetting>({ step: 1, serif: true });
+  const [type, setType] = useState<TypeSetting>({
+    step: 1,
+    width: 1,
+    serif: true,
+  });
   const [typeOpen, setTypeOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -82,16 +107,17 @@ export function Reader({
     const saved = window.localStorage.getItem(TYPE_KEY);
     if (!saved) return;
     try {
-      const parsed = JSON.parse(saved) as TypeSetting;
-      if (typeof parsed.step === "number" && typeof parsed.serif === "boolean") {
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time localStorage read after hydration
-        setType({
-          step: Math.min(TYPE_STEPS.length - 1, Math.max(0, parsed.step)),
-          serif: parsed.serif,
-        });
-      }
+      // Read field by field: settings stored before the width control existed
+      // should keep their size and typeface rather than being thrown away.
+      const parsed = JSON.parse(saved) as Partial<TypeSetting>;
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time localStorage read after hydration
+      setType((current) => ({
+        step: clampStep(parsed.step, TYPE_STEPS.length, current.step),
+        width: clampStep(parsed.width, WIDTH_STEPS.length, current.width),
+        serif: typeof parsed.serif === "boolean" ? parsed.serif : current.serif,
+      }));
     } catch {
-      // A hand-edited value; the default is fine.
+      // A hand-edited value; the defaults are fine.
     }
   }, []);
 
@@ -304,6 +330,25 @@ export function Reader({
                       Sans
                     </button>
                   </div>
+                  <p className="mt-3 mb-2 text-[11px] tracking-[0.12em] text-ink-faint uppercase">
+                    Column width
+                  </p>
+                  <div className="flex rounded-full border border-line p-0.5 text-[12px]">
+                    {WIDTH_STEPS.map((option, index) => (
+                      <button
+                        key={option.px}
+                        onClick={() => changeType({ ...type, width: index })}
+                        aria-pressed={type.width === index}
+                        className={`flex-1 rounded-full py-1 transition ${
+                          type.width === index
+                            ? "bg-ink text-paper"
+                            : "text-ink-faint hover:text-ink"
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -335,7 +380,18 @@ export function Reader({
       </div>
 
       <div className="flex justify-center gap-7 px-5 py-8 md:px-10 md:py-11">
-        <aside className="hidden w-[212px] shrink-0 pt-2.5 xl:block">
+        {/* Both rails ride along with the scroll: an outline you have to
+            scroll back up to reach is a table of contents, not a position
+            indicator. self-start keeps the box its own height, which is what
+            sticky needs, and a long outline scrolls inside itself rather than
+            running off the bottom of the window. */}
+        <aside
+          style={{
+            top: `${RAIL_TOP}px`,
+            maxHeight: `calc(100vh - ${RAIL_TOP + 24}px)`,
+          }}
+          className="no-scrollbar hidden w-[212px] shrink-0 self-start overflow-y-auto pt-2.5 xl:sticky xl:block"
+        >
           <ReaderOutline
             headings={content?.headings ?? []}
             activeId={activeId}
@@ -362,7 +418,13 @@ export function Reader({
           </div>
         </aside>
 
-        <article className="w-full max-w-[720px] shrink-0 rounded-2xl border border-line bg-paper px-6 py-9 md:px-16 md:py-13">
+        <article
+          // Not shrink-0: at the widest setting a 1280px window has to be
+          // allowed to take the difference out of the column rather than
+          // pushing a rail off screen.
+          style={{ maxWidth: `${WIDTH_STEPS[type.width].px}px` }}
+          className="w-full rounded-2xl border border-line bg-paper px-6 py-9 md:px-16 md:py-13"
+        >
           <div className="mb-4.5 flex items-center gap-2.5">
             <span
               className="flex h-[22px] w-[22px] items-center justify-center rounded-full font-serif text-[12px] text-white"
@@ -407,7 +469,13 @@ export function Reader({
           )}
         </article>
 
-        <aside className="hidden w-[212px] shrink-0 pt-2.5 xl:block">
+        <aside
+          style={{
+            top: `${RAIL_TOP}px`,
+            maxHeight: `calc(100vh - ${RAIL_TOP + 24}px)`,
+          }}
+          className="no-scrollbar hidden w-[212px] shrink-0 self-start overflow-y-auto pt-2.5 xl:sticky xl:block"
+        >
           <ReaderUpNext items={upNext} onOpen={onOpenArticle} />
         </aside>
       </div>
