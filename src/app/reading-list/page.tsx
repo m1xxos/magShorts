@@ -14,7 +14,7 @@ import { Toast, useToast } from "@/components/Toast";
 import { TopBar } from "@/components/TopBar";
 import { ExternalIcon } from "@/components/SwipeableCard";
 import { SurveyDialog, type SurveyChoice } from "@/components/SurveyDialog";
-import { Reader, UP_NEXT } from "@/components/Reader";
+import { Reader, after } from "@/components/Reader";
 import { readerLink, useReader } from "@/lib/useReader";
 import { useUser } from "@/lib/useUser";
 
@@ -59,13 +59,12 @@ export default function ReadingListPage() {
   const reader = useReader(resolveArticle);
 
   // The rest of the list, so finishing one saved article offers the next.
-  const upNext = reader.article
-    ? items
-        .slice(items.findIndex((item) => item.article_id === reader.article!.id) + 1)
-        .map(asArticle)
-        .filter((article): article is ArticleDto => article !== null)
-        .slice(0, UP_NEXT)
-    : [];
+  const upNext = after(
+    items,
+    items.findIndex((item) => item.article_id === reader.article?.id)
+  )
+    .map(asArticle)
+    .filter((article): article is ArticleDto => article !== null);
 
   useEffect(() => {
     if (!user) return;

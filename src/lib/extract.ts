@@ -86,7 +86,8 @@ interface StoredRow {
 function toDto(row: StoredRow): ArticleContentDto {
   return {
     article_id: row.article_id,
-    status: row.status === "ok" ? "ok" : "failed",
+    status:
+      row.status === "ok" || row.status === "partial" ? row.status : "failed",
     html: row.html,
     headings: row.headings ? (JSON.parse(row.headings) as ReaderHeading[]) : [],
     reading_minutes: row.reading_minutes,
@@ -210,6 +211,18 @@ export function markGalleries(document: Document): void {
   }
 }
 
+// Compared loosely: a publisher's own <h1> and the title Readability reports
+// differ in quotes, dashes and trailing site name often enough that an exact
+// match would never fire.
+function sameHeadline(heading: string, title: string): boolean {
+  const shape = (text: string) =>
+    text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  const a = shape(heading);
+  const b = shape(title);
+  if (a.length < 8) return false;
+  return a === b || b.startsWith(a) || a.startsWith(b);
+}
+
 const COMMENT_NODE = 8;
 
 function dropComments(node: Node): void {
@@ -250,7 +263,11 @@ interface Sanitised {
 // preserves whatever inline handlers and embeds the page had — and doing the
 // heading ids in the same pass means the outline can never disagree with the
 // body it points at.
-export function sanitizeArticleHtml(bodyHtml: string, baseUrl: string): Sanitised {
+export function sanitizeArticleHtml(
+  bodyHtml: string,
+  baseUrl: string,
+  title?: string
+): Sanitised {
   const { document } = parseHTML(`<html><body>${bodyHtml}</body></html>`);
   const headings: ReaderHeading[] = [];
 
@@ -316,8 +333,22 @@ export function sanitizeArticleHtml(bodyHtml: string, baseUrl: string): Sanitise
     }
   }
 
-  // Readability leaves the headline as an <h1>; the reader draws that itself.
+  // The headline, which the reader draws itself.
+  //
+  // Removing <h1> is not enough: Readability's _prepArticle rewrites every h1
+  // in the body to an h2 before handing the content back, so the title arrived
+  // as an ordinary heading — printed under the real one and listed first in
+  // the outline. Any leading heading is dropped when it repeats the title.
   for (const h1 of [...document.querySelectorAll("h1")]) h1.remove();
+  const lead = document.body.firstElementChild;
+  if (
+    title &&
+    lead &&
+    /^h[1-6]$/i.test(lead.tagName) &&
+    sameHeadline(lead.textContent ?? "", title)
+  ) {
+    lead.remove();
+  }
 
   // Comments are inert in a browser but they are not free: the walk below
   // only sees elements, so a commented-out template — Octopus ships one at the
@@ -426,6 +457,11 @@ function dropGalleryChrome(gallery: Element, slideCount: number): void {
   while (node && budget-- > 0) {
     const next = node.nextElementSibling;
     if (node.querySelectorAll("img").length > 0) break;
+    // An <hr> or a divider has no text but is not the gallery's counter, and
+    // deleting it would silently remove a section break.
+    if ((node.textContent ?? "").trim() === "" && node.childElementCount === 0) {
+      break;
+    }
     // The counter and the caption often share one paragraph, so the pieces
     // are taken out individually before the block is judged.
     for (const part of [...node.querySelectorAll("figcaption, strong, b, span, em")]) {
@@ -475,7 +511,7 @@ function parseArticle(rawHtml: string, url: string): Sanitised | null {
     // packages simply don't share type declarations.
     const parsed = new Readability(document as unknown as Document).parse();
     if (!parsed?.content) return null;
-    const clean = sanitizeArticleHtml(parsed.content, url);
+    const clean = sanitizeArticleHtml(parsed.content, url, parsed.title ?? undefined);
     return clean.text.length > 0 ? clean : null;
   } catch {
     return null;
@@ -517,12 +553,20 @@ function alternateUrls(rawHtml: string, url: string): string[] {
     const resolved = absolute(amp, url);
     if (resolved) candidates.push(resolved);
   }
-  try {
-    const print = new URL(url);
-    print.searchParams.set("print", "1");
-    candidates.push(print.toString());
-  } catch {
-    // A malformed link has nothing to offer here.
+  // …and a print rendering, but only when the page links to one. Appending
+  // ?print=1 on spec re-fetches the page already in hand for every site that
+  // ignores the parameter, and that duplicate can spend a third of the chain's
+  // budget — twice that with a proxy configured — before Marreta gets a turn.
+  const print =
+    rawHtml.match(
+      /<link\b[^>]*rel=["'](?:alternate\s+)?print["'][^>]*href=["']([^"']+)["']/i
+    )?.[1] ??
+    rawHtml.match(
+      /<a\b[^>]*href=["']([^"']*(?:[?&]print=1|\/print\/?)[^"']*)["']/i
+    )?.[1];
+  if (print) {
+    const resolved = absolute(print, url);
+    if (resolved && resolved !== url) candidates.push(resolved);
   }
   return candidates;
 }
@@ -591,6 +635,12 @@ export async function extractArticle(
   const cached = readContent(articleId);
   if (cached && !options.force) {
     if (cached.status === "ok") return cached;
+    // 'partial' is shown but not settled: the next open tries the chain again,
+    // since a teaser is usually a page that was slow or walled that day.
+    if (cached.status === "partial") {
+      const fresh = await run(articleId);
+      return fresh.status === "failed" ? cached : fresh;
+    }
     const attempts = (
       getDb()
         .prepare("SELECT attempts FROM article_content WHERE article_id = ?")
@@ -601,10 +651,16 @@ export async function extractArticle(
     if (attempts >= MAX_ATTEMPTS) return cached;
   }
 
+  // A forced run never joins one already in progress. Retry is pressed while
+  // the chain is still working — that is exactly when a reader gives up on it
+  // — and handing back the in-flight promise resolves the button to the same
+  // failure it was pressed to escape.
   const running = inFlight.get(articleId);
-  if (running) return running;
+  if (running && !options.force) return running;
 
-  const task = run(articleId).finally(() => inFlight.delete(articleId));
+  const task = run(articleId).finally(() => {
+    if (inFlight.get(articleId) === task) inFlight.delete(articleId);
+  });
   inFlight.set(articleId, task);
   return task;
 }
@@ -698,9 +754,13 @@ async function run(articleId: number): Promise<ArticleContentDto> {
     }
   }
 
-  return best && best.clean.text.length >= MIN_USEFUL
-    ? store(articleId, best)
-    : storeFailure(articleId);
+  if (!best || best.clean.text.length < MIN_USEFUL) return storeFailure(articleId);
+  // A body that cleared MIN_USEFUL but never reached ENOUGH is a teaser we
+  // could not improve on. It is worth showing — it beats an error screen — but
+  // it is not worth caching as final: without this the row is 'ok', the Retry
+  // button never renders, and a page that was merely slow that day is a
+  // permanent 800-character article.
+  return store(articleId, best, truncated(best.clean));
 }
 
 // An unlock service that can't reach the article still answers 200 — Marreta
@@ -752,27 +812,33 @@ function better(candidate: Sanitised, current: Attempt | null): boolean {
   return candidate.text.length > current.clean.text.length * BETTER_BY;
 }
 
-function store(articleId: number, attempt: Attempt): ArticleContentDto {
+function store(
+  articleId: number,
+  attempt: Attempt,
+  partial = false
+): ArticleContentDto {
   const { clean, source } = attempt;
   const minutes = readingMinutes(clean.text);
   const headings = JSON.stringify(clean.headings);
+  const status = partial ? "partial" : "ok";
   getDb()
     .prepare(
       `INSERT INTO article_content
          (article_id, html, text, headings, reading_minutes, status, source, attempts, extracted_at)
-       VALUES (?, ?, ?, ?, ?, 'ok', ?, 0, datetime('now'))
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, datetime('now'))
        ON CONFLICT(article_id) DO UPDATE SET
          html = excluded.html, text = excluded.text, headings = excluded.headings,
-         reading_minutes = excluded.reading_minutes, status = 'ok',
+         reading_minutes = excluded.reading_minutes, status = excluded.status,
          source = excluded.source, attempts = 0, extracted_at = datetime('now')`
     )
-    .run(articleId, clean.html, clean.text, headings, minutes, source);
+    .run(articleId, clean.html, clean.text, headings, minutes, status, source);
   console.log(
-    `[extract] article ${articleId} via ${source} — ${clean.text.length} chars, ${minutes} min`
+    `[extract] article ${articleId} via ${source} — ${clean.text.length} chars, ${minutes} min` +
+      (partial ? " (partial)" : "")
   );
   return {
     article_id: articleId,
-    status: "ok",
+    status,
     html: clean.html,
     headings: clean.headings,
     reading_minutes: minutes,

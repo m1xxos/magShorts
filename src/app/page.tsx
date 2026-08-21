@@ -12,7 +12,7 @@ import {
   type Selection,
 } from "@/lib/types";
 import { AddFeedDialog } from "@/components/AddFeedDialog";
-import { Reader, UP_NEXT } from "@/components/Reader";
+import { Reader, after } from "@/components/Reader";
 import { CreateFolderDialog } from "@/components/CreateFolderDialog";
 import { ArticleCard } from "@/components/ArticleCard";
 import { SettingsDialog } from "@/components/SettingsDialog";
@@ -359,11 +359,10 @@ export default function HomePage() {
 
   // What follows this article in the list it was opened from, so finishing one
   // continues the queue instead of ending the session.
-  const upNext = reader.article
-    ? articles
-        .slice(articles.findIndex((a) => a.id === reader.article!.id) + 1)
-        .slice(0, UP_NEXT)
-    : [];
+  const upNext = after(
+    articles,
+    articles.findIndex((a) => a.id === reader.article?.id)
+  );
 
   async function toggleSave(article: ArticleDto) {
     const wasSaved = savedLinks.has(article.link);

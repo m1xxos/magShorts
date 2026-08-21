@@ -134,11 +134,15 @@ const BLOCK = new Set([
 ]);
 const INLINE = new Set(["em", "i", "strong", "b", "code", "sup", "sub", "br"]);
 
+// Quotes included: this escapes attribute values as well as text, and a
+// caption like `24" monitor` would otherwise close the attribute early and
+// leave the rest of the alt text parsed as bogus attributes.
 function escapeHtml(text: string): string {
   return text
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 // Some non-HTML tags carry a picture in their props — WIRED's `inline-embed`

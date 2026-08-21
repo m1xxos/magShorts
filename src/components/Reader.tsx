@@ -31,6 +31,16 @@ const WIDTH_STEPS = [
   { px: 720, label: "Normal" },
   { px: 880, label: "Wide" },
 ];
+// The items following `index` in a list, for the reader's list-order fallback.
+// The guard is the point: findIndex returns -1 when the reader was opened from
+// a link rather than from the list — a pasted ?article=, or a Read later row
+// the reader just un-saved out of the list — and `slice(-1 + 1)` is `slice(0)`,
+// which hands back the whole list and offers the first articles as if they
+// came after the one being read.
+export function after<T>(list: T[], index: number): T[] {
+  return index < 0 ? [] : list.slice(index + 1, index + 1 + UP_NEXT);
+}
+
 // How many cards the right rail holds. Exported because each page builds
 // its own list-order fallback and both have to agree on the length.
 export const UP_NEXT = 3;
@@ -448,7 +458,7 @@ export function Reader({
 
   // Split once per article, not once per keystroke of the Aa control.
   const segments = useMemo(
-    () => splitBody(content?.status === "ok" ? (content.html ?? "") : ""),
+    () => splitBody(content?.status === "failed" ? "" : (content?.html ?? "")),
     [content]
   );
 
@@ -472,7 +482,12 @@ export function Reader({
 
   const minutes = content?.reading_minutes ?? null;
   const left = minutes ? Math.max(0, Math.ceil(minutes * (1 - progress))) : null;
-  const note = content?.source ? SOURCE_LABEL[content.source] : "";
+  const note =
+    content?.status === "partial"
+      ? "only part of the article — the page gave up no more"
+      : content?.source
+        ? SOURCE_LABEL[content.source]
+        : "";
   const hasOutline = (content?.headings.length ?? 0) > 0;
 
   return (
@@ -680,7 +695,7 @@ export function Reader({
 
           {loading ? (
             <Skeleton />
-          ) : content?.status === "ok" && segments.length > 0 ? (
+          ) : content && content.status !== "failed" && segments.length > 0 ? (
             <div
               ref={bodyRef}
               className={type.serif ? "font-serif" : "font-sans"}
@@ -714,6 +729,9 @@ export function Reader({
                     dangerouslySetInnerHTML={{ __html: segment.html }}
                   />
                 )
+              )}
+              {content.status === "partial" && (
+                <Partial onRetry={() => load(true)} link={article.link} />
               )}
             </div>
           ) : (
@@ -881,6 +899,34 @@ function Skeleton() {
           style={{ width: `${(width / 12) * 100}%` }}
         />
       ))}
+    </div>
+  );
+}
+
+// A body that came through, but probably isn't all of it. Shown under the
+// text rather than in place of it — there is something to read, and the point
+// is to offer a way on rather than to apologise.
+function Partial({ onRetry, link }: { onRetry: () => void; link: string }) {
+  return (
+    <div className="mt-8 flex flex-wrap items-center gap-3 rounded-xl border border-line bg-paper-sunken px-5 py-4">
+      <p className="min-w-[220px] flex-1 font-sans text-[13px] leading-[1.55] text-ink-soft">
+        That may be all the page gave up — it looks shorter than a full
+        article.
+      </p>
+      <button
+        onClick={onRetry}
+        className="rounded-full bg-clay px-4 py-2 font-sans text-[13px] font-medium text-white transition hover:brightness-95"
+      >
+        Try again
+      </button>
+      <a
+        href={unlockUrl(link)}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="rounded-full border border-line bg-paper px-4 py-2 font-sans text-[13px] text-ink-soft transition hover:border-clay hover:text-clay"
+      >
+        Open the original
+      </a>
     </div>
   );
 }

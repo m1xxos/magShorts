@@ -44,12 +44,7 @@ export function useReader(
 
   const open = useCallback(
     (next: ArticleDto) => {
-      // Keep whatever the page already had in the URL (?feed=, ?folder=,
-      // ?view=): the grid resolves its selection from those on a reload, and
-      // dropping them would reopen the reader over the wrong list.
-      const params = new URLSearchParams(window.location.search);
-      params.set("article", String(next.id));
-      const url = `${window.location.pathname}?${params.toString()}`;
+      const url = readerUrl(next.id);
       if (current.current) {
         window.history.replaceState(null, "", url);
       } else {
@@ -111,12 +106,22 @@ export function useReader(
 // real href — the same URL the reader pushes — so middle-click and "open in
 // new tab" land on the article instead of doing nothing, and the modified
 // clicks the browser should handle are left to the browser.
+// The URL the reader pushes, with whatever the page already had in it. The
+// grid resolves its selection from ?feed= / ?folder= / ?view= on a cold load,
+// so a link that dropped them would open a new tab on the wrong list.
+function readerUrl(articleId: number): string {
+  if (typeof window === "undefined") return `?article=${articleId}`;
+  const params = new URLSearchParams(window.location.search);
+  params.set("article", String(articleId));
+  return `${window.location.pathname}?${params.toString()}`;
+}
+
 export function readerLink(
   article: ArticleDto,
   open: (article: ArticleDto) => void
 ): { href: string; onClick: (event: MouseEvent) => void } {
   return {
-    href: `?article=${article.id}`,
+    href: readerUrl(article.id),
     onClick: (event: MouseEvent) => {
       if (
         event.metaKey ||

@@ -325,7 +325,9 @@ the whole point of that page.
   2 from the page's data, 2 from the feed's own body, 3 that no route reaches.
 - **When nothing works** you get a "couldn't fetch the text" panel with
   *Try again* and *Open the original* — never an empty column, and never a
-  subscription wall.
+  subscription wall. A body that arrives but looks too short to be the whole
+  article is stored as `partial`: it is shown, it keeps the retry, and the
+  next open tries the chain again rather than settling for a teaser.
 - **Not everything is reachable.** nytimes.com answers `403` to any server
   fetch (774 bytes), has no Wayback snapshot for same-day articles (`404`), and
   marreta.link reports `HTTP_ERROR` for it. There is no technical route to a

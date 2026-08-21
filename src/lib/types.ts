@@ -157,9 +157,12 @@ export interface ReaderHeading {
 
 export interface ArticleContentDto {
   article_id: number;
+  // "partial" is a body worth showing that is probably not the whole article —
+  // a teaser the chain could not improve on. It is served like "ok" but keeps
+  // the Retry control, and the next open tries the chain again.
   // "missing" is the answer GET gives before anything has been extracted; it
   // is not stored, and it is what tells the reader to POST.
-  status: "ok" | "failed" | "missing";
+  status: "ok" | "partial" | "failed" | "missing";
   html: string | null;
   headings: ReaderHeading[];
   reading_minutes: number | null;

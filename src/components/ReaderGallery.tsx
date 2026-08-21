@@ -62,10 +62,14 @@ export function ReaderGallery({
         onScroll={onScroll}
         className="no-scrollbar flex snap-x snap-mandatory overflow-x-auto rounded-[10px] bg-paper-sunken"
       >
+        {/* Keyed by position, not by src: a carousel that reuses its opening
+            picture as its closer would otherwise produce duplicate keys, and
+            the track would disagree with the counter. The list never
+            reorders, so the index is stable. */}
         {slides.map((slide, at) => (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            key={slide.src}
+            key={at}
             src={slide.src}
             alt={slide.caption}
             width={slide.width || undefined}
@@ -85,9 +89,9 @@ export function ReaderGallery({
       />
 
       <div className="mt-2 flex gap-1">
-        {slides.map((slide, at) => (
+        {slides.map((_, at) => (
           <button
-            key={slide.src}
+            key={at}
             onClick={() => go(at)}
             aria-label={`Image ${at + 1}`}
             className={`h-[3px] flex-1 rounded-full transition ${

@@ -20,7 +20,7 @@ import { FeedAvatar } from "@/components/FeedAvatar";
 import { TopBar } from "@/components/TopBar";
 import { Toast, useToast } from "@/components/Toast";
 import { BookmarkIcon } from "@/components/SwipeableCard";
-import { Reader, UP_NEXT } from "@/components/Reader";
+import { Reader, after } from "@/components/Reader";
 import { SettingsDialog } from "@/components/SettingsDialog";
 import { readerLink, useReader } from "@/lib/useReader";
 import { useUser } from "@/lib/useUser";
@@ -196,16 +196,10 @@ export default function DigestPage() {
   }
   const reader = useReader(resolveArticle);
 
-  const upNext = reader.article
-    ? reading
-        .slice(
-          reading.findIndex(
-            (item) => item.article_id === reader.article!.id,
-          ) + 1,
-        )
-        .slice(0, UP_NEXT)
-        .map(asArticle)
-    : [];
+  const upNext = after(
+    reading,
+    reading.findIndex((item) => item.article_id === reader.article?.id),
+  ).map(asArticle);
 
   const readLater = useCallback(
     async (item: DigestItemDto) => {
@@ -220,8 +214,20 @@ export default function DigestPage() {
 
   async function toggleSave(article: ArticleDto) {
     if (!savedLinks.has(article.link)) {
+      // The reader may be showing something this digest doesn't list — a
+      // pasted ?article= link, or a card skipped earlier in the session. Save
+      // what the reader has rather than doing nothing at all: the annotation
+      // is a nicety, a control that silently ignores a click is not.
       const item = items.find((entry) => entry.article_id === article.id);
-      if (item) await readLater(item);
+      if (item) {
+        await readLater(item);
+        return;
+      }
+      const result = await saveToReadingList(article);
+      showToast(result.message, !result.ok);
+      if (result.ok) {
+        setSavedLinks((previous) => new Set(previous).add(article.link));
+      }
       return;
     }
     const result = await removeFromReadingList(article.link);
