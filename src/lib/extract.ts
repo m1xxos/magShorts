@@ -470,15 +470,19 @@ function parseArticle(rawHtml: string, url: string): Sanitised | null {
 // The article a page shipped as data rather than as markup. Costs no request:
 // it reads the HTML already in hand, which is why it sits between the direct
 // parse and the first unlock service.
-function parseEmbedded(rawHtml: string, url: string): Sanitised | null {
+function parseEmbedded(
+  rawHtml: string,
+  url: string
+): { clean: Sanitised; structured: boolean } | null {
   const found = bodyFromEmbeddedState(rawHtml);
   if (!found) return null;
   const clean = sanitizeArticleHtml(found.html, url);
   if (clean.text.length === 0) return null;
   console.log(
-    `[extract] embedded state at ${found.path} — ${clean.text.length} chars`
+    `[extract] embedded state at ${found.path} — ${clean.text.length} chars` +
+      (found.structured ? "" : " (flattened)")
   );
-  return clean;
+  return { clean, structured: found.structured };
 }
 
 // --------------------------------------------------------- the unlock chain
@@ -625,13 +629,23 @@ async function run(articleId: number): Promise<ArticleContentDto> {
     // of the DOM as a plausible 1 856 characters and out of the state as
     // 16 787.
     const embedded = parseEmbedded(page.html, page.url);
-    // Preferred on near-equal length rather than made to clear the usual 1.15x
-    // bar. When a page hands over the article as data, that data is the
-    // article; Readability is guessing at which parts of the markup were it,
-    // and on WIRED's product guides its guess opens with "Aug 19, 2026 7:31 AM"
-    // and the headline. Only a clearly shorter state body loses.
-    if (embedded && embedded.text.length >= (best?.clean.text.length ?? 0) * 0.8) {
-      best = { clean: embedded, source: "state" };
+    if (embedded) {
+      // A structured body is the site's own render, and it is preferred on
+      // near-equal length rather than made to clear the usual 1.15x bar:
+      // Readability is guessing at which parts of the markup were the article,
+      // and on WIRED's product guides its guess opens with "Aug 19, 2026
+      // 7:31 AM" and the headline.
+      //
+      // A flattened one — schema.org's plain-text articleBody — has to earn it
+      // the normal way. The Verge ships both a real DOM and a flat copy that is
+      // 3% longer with a third of the paragraphs, and letting length alone
+      // decide handed the reader an article with no pictures in it.
+      const enough = embedded.structured
+        ? (best?.clean.text.length ?? 0) * 0.8
+        : (best?.clean.text.length ?? 0) * BETTER_BY;
+      if (embedded.clean.text.length >= enough) {
+        best = { clean: embedded.clean, source: "state" };
+      }
     }
     if (best && !truncated(best.clean)) return store(articleId, best);
   }

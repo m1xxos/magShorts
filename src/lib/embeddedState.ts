@@ -40,6 +40,14 @@ export interface EmbeddedBody {
   html: string;
   // Where in the state it was found, for the log line.
   path: string;
+  // Did the page hand over a tree, or a flattened copy?
+  //
+  // A JsonML body is the site's own render: the paragraphs, links and pictures
+  // it would have drawn. schema.org's `articleBody` is a different thing — a
+  // plain-text rendition written for crawlers, with the markup deliberately
+  // thrown away. Both are worth reading, but only the first can be trusted
+  // over what a DOM parser found, and the caller needs to know which it has.
+  structured: boolean;
 }
 
 // ------------------------------------------------------------ JSON blobs
@@ -201,18 +209,35 @@ function textLength(html: string): number {
 
 // ------------------------------------------------------------------ search
 
-function renderContainer(value: unknown): string {
+// schema.org's articleBody is plain text: one newline between paragraphs, and
+// pictures written out as "[Image: caption https://…]" because the format has
+// nowhere else to put them. Both are worth honouring — this is the only body
+// some pages ship.
+function renderPlainText(value: string): string {
+  return value
+    .split(/\r?\n+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const marker = part.match(/^\[Image:\s*([\s\S]*?)\s*(https?:\/\/\S+?)\s*\]$/i);
+      if (marker) {
+        const caption = marker[1].trim();
+        const image = `<img src="${escapeHtml(marker[2])}" alt="${escapeHtml(caption)}">`;
+        return caption
+          ? `<figure>${image}<figcaption>${escapeHtml(caption)}</figcaption></figure>`
+          : image;
+      }
+      return `<p>${escapeHtml(part)}</p>`;
+    })
+    .join("");
+}
+
+function renderContainer(value: unknown): { html: string; structured: boolean } {
   if (typeof value === "string") {
-    // schema.org articleBody: plain text with blank lines between paragraphs.
-    if (/<[a-z][\s\S]*>/i.test(value)) return value;
-    return value
-      .split(/\n{2,}|\r\n\r\n/)
-      .map((part) => part.trim())
-      .filter(Boolean)
-      .map((part) => `<p>${escapeHtml(part)}</p>`)
-      .join("");
+    if (/<[a-z][\s\S]*>/i.test(value)) return { html: value, structured: true };
+    return { html: renderPlainText(value), structured: false };
   }
-  return render(value);
+  return { html: render(value), structured: true };
 }
 
 // Find the container that holds the article, preferring one the page itself
@@ -226,10 +251,17 @@ function bestContainer(root: unknown): (EmbeddedBody & { chars: number }) | null
       if (NOT_BODY.test(key)) continue;
       const here = path ? `${path}.${key}` : key;
       if (BODY_KEY.test(key)) {
-        const html = renderContainer(value);
+        const { html, structured } = renderContainer(value);
         const chars = textLength(html);
-        if (chars >= MIN_BODY_CHARS && (!best || chars > best.chars)) {
-          best = { html, path: here, chars };
+        // A tree beats a flattened copy of the same article regardless of
+        // length: The Verge ships both, and its plain articleBody is 3%
+        // longer with a third of the paragraphs.
+        const wins =
+          !best ||
+          (structured && !best.structured) ||
+          (structured === best.structured && chars > best.chars);
+        if (chars >= MIN_BODY_CHARS && wins) {
+          best = { html, path: here, chars, structured };
         }
       }
       walk(value, here, depth + 1);
@@ -251,7 +283,14 @@ export function bodyFromEmbeddedState(html: string): EmbeddedBody | null {
       continue;
     }
     const found = bestContainer(parsed);
-    if (found && (!best || found.chars > best.chars)) best = found;
+    if (!found) continue;
+    const wins =
+      !best ||
+      (found.structured && !best.structured) ||
+      (found.structured === best.structured && found.chars > best.chars);
+    if (wins) best = found;
   }
-  return best ? { html: best.html, path: best.path } : null;
+  return best
+    ? { html: best.html, path: best.path, structured: best.structured }
+    : null;
 }

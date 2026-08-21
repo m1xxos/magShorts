@@ -309,6 +309,12 @@ the whole point of that page.
   length: when a page hands over the article as data, that data *is* the
   article, while Readability is guessing which parts of the markup were it.
   On WIRED's product guides the guess opens with "Aug 19, 2026 7:31 AM".
+  Only a *structured* body earns that preference. schema.org's plain-text
+  `articleBody` is a copy written for crawlers with the markup thrown away, so
+  it has to clear the usual bar instead — The Verge ships both, and its flat
+  copy is 3% longer with a third of the paragraphs and none of the pictures.
+  When it is the only body on offer, its `[Image: caption url]` markers become
+  real figures.
 - **The unlock chain.** The page is read directly first, then as data. If both
   come back short, or with a "subscribe to continue" in place of the article,
   the reader keeps going: the publisher's own AMP/print rendering, then
