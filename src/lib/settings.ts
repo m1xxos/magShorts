@@ -81,6 +81,17 @@ function matchesDomainList(articleUrl: string, key: SettingKey): boolean {
     .some((domain) => host === domain || host.endsWith(`.${domain}`));
 }
 
+// archive_url may name more than one archive, comma- or whitespace-separated.
+// One archive is never enough on its own — the Wayback Machine has no snapshot
+// of most articles published today — and which mirrors to reach for is the
+// reader's decision to make, not something to hard-code.
+export function archiveBases(): string[] {
+  return getSetting("archive_url")
+    .split(/[,\s]+/)
+    .map((base) => base.trim().replace(/\/+$/, ""))
+    .filter(Boolean);
+}
+
 export function isDirectDomain(articleUrl: string): boolean {
   return matchesDomainList(articleUrl, "direct_domains");
 }

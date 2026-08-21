@@ -4,6 +4,10 @@ import { DISCOVERY_UA } from "./rss";
 import { fetchTextMaybeProxied } from "./net";
 
 const CONCURRENCY = 4;
+// Enough for the og:image tags in the head, which is all the cover backfill
+// needs. The reader asks for more: a page that renders its article in the
+// browser can carry half a megabyte of JSON state after the markup, and a
+// truncated blob is an unparseable one.
 const PAGE_BYTE_LIMIT = 500_000;
 
 // Pull the cover a page advertises for link previews: og:image first,
@@ -45,7 +49,9 @@ type PageImageResult =
 // Fetch an article page as HTML. Shared with the digest, which reads the body
 // text out of the same document rather than opening a second connection.
 export async function fetchPageHtml(
-  link: string
+  link: string,
+  timeoutMs = 10_000,
+  byteLimit = PAGE_BYTE_LIMIT
 ): Promise<{ html: string; url: string } | null> {
   try {
     const parsed = new URL(link);
@@ -57,10 +63,10 @@ export async function fetchPageHtml(
         Accept: "text/html,application/xhtml+xml,*/*",
       },
       redirect: "follow",
-      timeoutMs: 10_000,
+      timeoutMs,
     });
     if (!page) return null;
-    return { html: page.text.slice(0, PAGE_BYTE_LIMIT), url: page.url };
+    return { html: page.text.slice(0, byteLimit), url: page.url };
   } catch {
     return null;
   }

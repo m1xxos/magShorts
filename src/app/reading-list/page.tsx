@@ -1,21 +1,70 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { type ReadingItemDto, timeAgo } from "@/lib/types";
-import { cachedImageUrl, recordEvent, unlockUrl } from "@/lib/actions";
+import { useCallback, useEffect, useState } from "react";
+import { type ArticleDto, type ReadingItemDto, timeAgo } from "@/lib/types";
+import {
+  cachedImageUrl,
+  recordEvent,
+  removeFromReadingList,
+  saveToReadingList,
+  unlockUrl,
+} from "@/lib/actions";
 import { Toast, useToast } from "@/components/Toast";
 import { TopBar } from "@/components/TopBar";
 import { ExternalIcon } from "@/components/SwipeableCard";
 import { SurveyDialog, type SurveyChoice } from "@/components/SurveyDialog";
+import { Reader, after } from "@/components/Reader";
+import { readerLink, useReader } from "@/lib/useReader";
 import { useUser } from "@/lib/useUser";
+
+// A saved snapshot, seen as the article the reader needs. Read later stores
+// its own copy of title, summary and cover, so everything but the ids is
+// already here.
+function asArticle(item: ReadingItemDto): ArticleDto | null {
+  if (item.article_id === null) return null;
+  return {
+    id: item.article_id,
+    feed_id: item.feed_id ?? 0,
+    title: item.title,
+    link: item.link,
+    summary: item.summary,
+    image_url: item.image_url,
+    published_at: item.published_at,
+    topic: null,
+    feed_title: item.feed_title ?? "",
+  };
+}
 
 export default function ReadingListPage() {
   const user = useUser();
   const [items, setItems] = useState<ReadingItemDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [surveyItem, setSurveyItem] = useState<ReadingItemDto | null>(null);
+  // Un-saving from the reader takes the item straight off the list, so this is
+  // only ever "the one the reader is showing, which I just un-saved and might
+  // put back".
+  const [unsaved, setUnsaved] = useState<ArticleDto | null>(null);
   const { toast, showToast } = useToast();
+
+  const resolveArticle = useCallback(
+    async (id: number): Promise<ArticleDto | null> => {
+      const saved = items.find((item) => item.article_id === id);
+      if (saved) return asArticle(saved);
+      const response = await fetch(`/api/articles/${id}`);
+      return response.ok ? ((await response.json()) as ArticleDto) : null;
+    },
+    [items]
+  );
+  const reader = useReader(resolveArticle);
+
+  // The rest of the list, so finishing one saved article offers the next.
+  const upNext = after(
+    items,
+    items.findIndex((item) => item.article_id === reader.article?.id)
+  )
+    .map(asArticle)
+    .filter((article): article is ArticleDto => article !== null);
 
   useEffect(() => {
     if (!user) return;
@@ -24,6 +73,26 @@ export default function ReadingListPage() {
       .then(setItems)
       .finally(() => setLoading(false));
   }, [user]);
+
+  // On this page a save is the reason the row exists, so un-saving removes it
+  // rather than leaving a Read later list with something that isn't saved.
+  // Putting it back reloads the list, which also restores its place in it.
+  async function toggleSave(article: ArticleDto) {
+    if (unsaved?.link === article.link) {
+      const result = await saveToReadingList(article);
+      showToast(result.message, !result.ok);
+      if (!result.ok) return;
+      setUnsaved(null);
+      const response = await fetch("/api/reading-list");
+      setItems(await response.json());
+      return;
+    }
+    const result = await removeFromReadingList(article.link);
+    showToast(result.message, !result.ok);
+    if (!result.ok) return;
+    setUnsaved(article);
+    setItems((previous) => previous.filter((it) => it.link !== article.link));
+  }
 
   async function finishSurvey(item: ReadingItemDto, choice: SurveyChoice) {
     setSurveyItem(null);
@@ -77,15 +146,27 @@ export default function ReadingListPage() {
                   />
                 )}
                 <div className="min-w-0 flex-1">
-                  <a
-                    href={unlockUrl(item.link)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title="Opens paywall-free via Marreta"
-                    className="line-clamp-2 font-serif text-[16px] leading-snug font-medium text-ink hover:text-clay"
-                  >
-                    {item.title}
-                  </a>
+                  {/* The reader when the article is still on file; the
+                      unlock route when it isn't, so an old save never becomes
+                      a dead headline. */}
+                  {asArticle(item) ? (
+                    <a
+                      {...readerLink(asArticle(item)!, reader.open)}
+                      className="line-clamp-2 font-serif text-[16px] leading-snug font-medium text-ink hover:text-clay"
+                    >
+                      {item.title}
+                    </a>
+                  ) : (
+                    <a
+                      href={unlockUrl(item.link)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="Opens paywall-free via Marreta"
+                      className="line-clamp-2 font-serif text-[16px] leading-snug font-medium text-ink hover:text-clay"
+                    >
+                      {item.title}
+                    </a>
+                  )}
                   <p className="mt-1 text-[13px] text-ink-faint">
                     {item.feed_title}
                     {item.feed_title && <span className="mx-1.5">·</span>}
@@ -120,6 +201,17 @@ export default function ReadingListPage() {
           </ul>
         )}
       </main>
+      {reader.article && (
+        <Reader
+          article={reader.article}
+          originLabel="Read later"
+          upNext={upNext}
+          saved={unsaved?.link !== reader.article.link}
+          onToggleSave={() => toggleSave(reader.article!)}
+          onOpenArticle={reader.open}
+          onClose={reader.close}
+        />
+      )}
       {surveyItem && (
         <SurveyDialog
           item={surveyItem}

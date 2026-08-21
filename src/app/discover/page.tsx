@@ -11,7 +11,12 @@ import {
   type FeedDto,
   type FolderDto,
 } from "@/lib/types";
-import { cachedImageUrl, recordEvent, saveToReadingList } from "@/lib/actions";
+import {
+  cachedImageUrl,
+  recordEvent,
+  removeFromReadingList,
+  saveToReadingList,
+} from "@/lib/actions";
 import { TopBar } from "@/components/TopBar";
 import { Sidebar } from "@/components/Sidebar";
 import { BookmarkIcon } from "@/components/SwipeableCard";
@@ -132,7 +137,7 @@ function ArticleCard({
         </span>
         <button
           onClick={() => onSave(article)}
-          title={saved ? "Saved to Read later" : "Save to Read later"}
+          title={saved ? "Remove from Read later" : "Save to Read later"}
           aria-pressed={saved}
           className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition ${
             saved
@@ -415,8 +420,23 @@ export default function DiscoverPage() {
   // Saving keeps working on a catalog article: Read later stores a snapshot by
   // link, so it survives the publication never being subscribed to and the
   // article being trimmed out of the shallow catalog window.
+  // Clicking a filled bookmark takes it back off the list: a state you can
+  // reach but not leave is a trap, and this is the same control either way.
   const save = useCallback(
     async (article: CatalogArticleDto) => {
+      if (savedLinks.has(article.link)) {
+        const result = await removeFromReadingList(article.link);
+        if (result.ok) {
+          setReadingCount((prev) => Math.max(0, prev - 1));
+          setSavedLinks((prev) => {
+            const next = new Set(prev);
+            next.delete(article.link);
+            return next;
+          });
+        }
+        showToast(result.message, !result.ok);
+        return;
+      }
       const result = await saveToReadingList({
         id: article.id,
         feed_id: article.feed_id,
@@ -429,9 +449,7 @@ export default function DiscoverPage() {
         feed_title: article.feed_title,
       });
       if (result.ok) {
-        // Saving the same link twice is an upsert server-side, so the badge
-        // only moves the first time.
-        setReadingCount((prev) => (savedLinks.has(article.link) ? prev : prev + 1));
+        setReadingCount((prev) => prev + 1);
         setSavedLinks((prev) => new Set(prev).add(article.link));
       }
       showToast(result.message, !result.ok);

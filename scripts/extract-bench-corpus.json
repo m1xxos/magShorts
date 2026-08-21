@@ -1,0 +1,47 @@
+[
+  {
+    "feed": "The Verge",
+    "title": "We reviewed the new Pixel lineup, ask us anything",
+    "link": "https://www.theverge.com/tech/981537/pixel-11-pro-fold-watch-5-ama"
+  },
+  {
+    "feed": "The Atlantic",
+    "title": "Photos: Drone Attacks on Russia’s Wildberries Warehouses",
+    "link": "https://www.theatlantic.com/photography/2026/08/photos-drone-attacks-on-russias-wildberries-warehouses/688326/?utm_source=feed"
+  },
+  {
+    "feed": "The New York Times",
+    "title": "Markets Rally After U.S. Treasury Tries to Ease Bond Market Stress",
+    "link": "https://www.nytimes.com/2026/08/19/business/bond-yields-treasury-department.html"
+  },
+  {
+    "feed": "WIRED",
+    "title": "Coders Say They Already Found Workarounds to Claude’s Invisible Watermarks",
+    "link": "https://www.wired.com/story/coders-say-they-already-found-workarounds-to-claudes-invisible-watermarks/"
+  },
+  {
+    "feed": "Habr",
+    "title": "От мирового признания до трагедии: две истории, две стороны киберпреступности",
+    "link": "https://habr.com/ru/companies/timeweb/articles/1072112/?utm_source=habrahabr&utm_medium=rss&utm_campaign=1072112"
+  },
+  {
+    "feed": "The Pudding",
+    "title": "Why some people mow a lawn better than others.",
+    "link": "https://pudding.cool/2026/06/mow"
+  },
+  {
+    "feed": "Sean Goedecke",
+    "title": "Help peer",
+    "link": "https://seangoedecke.com/help-peer/"
+  },
+  {
+    "feed": "Terence Eden’s Blog",
+    "title": "Asymmetric Agents",
+    "link": "https://shkspr.mobi/blog/2026/08/asymmetric-agents/"
+  },
+  {
+    "feed": "The Cloudflare Blog",
+    "title": "A revisit of remote Spectre attacks on Cloudflare Workers",
+    "link": "https://blog.cloudflare.com/revisiting-spectre-attacks-on-workers/"
+  }
+]

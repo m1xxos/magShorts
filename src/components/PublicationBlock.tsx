@@ -90,10 +90,10 @@ function ArticleTile({
         </span>
         <button
           onClick={() => onSave(article)}
-          title={saved ? "Saved to Read later" : "Save to Read later"}
+          title={saved ? "Remove from Read later" : "Save to Read later"}
           aria-label={
             saved
-              ? `${article.title} is in Read later`
+              ? `Remove ${article.title} from Read later`
               : `Save ${article.title} to Read later`
           }
           aria-pressed={saved}

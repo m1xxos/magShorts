@@ -248,6 +248,98 @@ the RSS/Atom feed is discovered automatically — plus rename feeds, move them
 between folders, pause them, pick per-domain routing (Marreta / Direct /
 Archive) and create, rename, hide or delete folders.
 
+## Reader (v2.4)
+
+Clicking an article in the home grid, in Read later or in the digest no longer
+sends you to another tab — it opens **over** the list, with the full text
+extracted from the page. Closing it puts you back exactly where you were,
+still scrolled to the same card. Shorts and Discover keep opening the
+original: in Discover you are judging the publication's own site, which is
+the whole point of that page.
+
+- **Lazy by construction.** The text is fetched on exactly two triggers:
+  opening the reader, and saving to Read later. Nothing a list render, a
+  scroll or a hover does can reach the network. The result is cached in
+  SQLite (`article_content`), so a second open makes no request to the
+  publisher at all.
+- **Layout** — reading column with the outline on the left ("in this article",
+  built from the article's own sub-headings, following your scroll) and
+  *Up next* on the right.
+- **Up next is about what you are reading**, not about where you opened it
+  from: articles ranked by cosine against the current one, with the taste
+  profile as a tie-breaker and a per-publication penalty so the rail doesn't
+  become three cards from The Verge. The floor is .85 — above the *99th*
+  percentile of random pairs, measured over 3 760 embedded articles — because
+  below that the scores flatten into a band where a genuinely related piece is
+  indistinguishable from noise. An article whose subject nothing else covers
+  offers one card, or none, and the list order fills the rest.
+  A progress rule under the top bar, and "N min left" that counts down.
+  Both rails stay pinned as you scroll; a long outline scrolls inside itself.
+  Where you stopped is remembered per article.
+- **Aa** sets the body's text size, the column width (620 / 720 / 880px) and
+  switches between serif and sans; all three persist.
+- **Image galleries** come through as galleries. Where the page marks a
+  slideshow in its own markup — `aria-label="carousel"`, a `gallery` class, a
+  `<figure>` holding several images — the extractor tags those images before
+  the parser flattens them and rebuilds the group afterwards, and the reader
+  renders a real carousel in their place — arrows, a segment bar, a caption
+  that follows the slide, and a track that swipes on a phone. No
+  guessing from layout: three illustrations in a row are an illustrated
+  article, not a carousel.
+  A slideshow's own furniture — the publisher's "1/4" counter and the caption
+  of whichever slide was showing — is dropped, since the reader draws its own.
+- **Click any picture** to open it over the article, at the full size the
+  publisher linked to, with its caption. Arrow keys and the on-screen arrows
+  walk a gallery without leaving the lightbox; `Esc` closes it and leaves the
+  reader where it was. An image that is a link to somewhere other than an
+  image file still follows that link.
+- **The bookmark toggles.** Clicking it while it is filled takes the article
+  back off Read later — here, on a Discover tile, and in the digest — and
+  removes the `save` event with it, so a change of mind doesn't leave a
+  positive signal behind in the taste profile.
+- **The URL** becomes `?article=<id>`. It is a real, linkable URL and the
+  browser's Back button closes the reader — but it is pushed with
+  `history.pushState`, so the list underneath is never unmounted. `Esc`
+  closes too.
+- **Articles that aren't in the markup.** A growing number of publishers ship a
+  shell of HTML and the article itself as JSON for the browser to render —
+  WIRED's pages carry 25 paragraphs of furniture and a 520 KB
+  `window.__PRELOADED_STATE__`. The reader reads that state, as JsonML with its
+  real paragraph boundaries, and prefers it to the DOM parse on near-equal
+  length: when a page hands over the article as data, that data *is* the
+  article, while Readability is guessing which parts of the markup were it.
+  On WIRED's product guides the guess opens with "Aug 19, 2026 7:31 AM".
+  Only a *structured* body earns that preference. schema.org's plain-text
+  `articleBody` is a copy written for crawlers with the markup thrown away, so
+  it has to clear the usual bar instead — The Verge ships both, and its flat
+  copy is 3% longer with a third of the paragraphs and none of the pictures.
+  When it is the only body on offer, its `[Image: caption url]` markers become
+  real figures.
+- **The unlock chain.** The page is read directly first, then as data. If both
+  come back short, or with a "subscribe to continue" in place of the article,
+  the reader keeps going: the publisher's own AMP/print rendering, then
+  [Marreta](https://github.com/manualdousuario/marreta), then each archive in
+  `ARCHIVE_URL` (comma-separated — the reader tries them in order). Whichever
+  hop answered is named in the left rail, so it is never a mystery where the
+  text came from. Measured over the 30 busiest publications here: 23 direct,
+  2 from the page's data, 2 from the feed's own body, 3 that no route reaches.
+- **When nothing works** you get a "couldn't fetch the text" panel with
+  *Try again* and *Open the original* — never an empty column, and never a
+  subscription wall. A body that arrives but looks too short to be the whole
+  article is stored as `partial`: it is shown, it keeps the retry, and the
+  next open tries the chain again rather than settling for a teaser.
+- **Not everything is reachable.** nytimes.com answers `403` to any server
+  fetch (774 bytes), has no Wayback snapshot for same-day articles (`404`), and
+  marreta.link reports `HTTP_ERROR` for it. There is no technical route to a
+  NYT article. Point `ARCHIVE_URL` at an archive that does carry it, or run your
+  own Marreta on an address they don't block, and the same chain will pick it
+  up.
+- Extraction is [`@mozilla/readability`](https://github.com/mozilla/readability)
+  over a `linkedom` DOM, chosen by measurement — see
+  [`docs/extraction-bench.md`](docs/extraction-bench.md). The body is
+  sanitised against a tag/attribute allowlist before it is stored, and its
+  images are rewritten through `/api/images`.
+
 ## Swipes, reading list & integrations
 
 - **Swipe right** on any card (home grid or Shorts) — or use the bookmark
@@ -260,7 +352,8 @@ Archive) and create, rename, hide or delete folders.
 - **No paywall** opens the article through a [Marreta](https://github.com/manualdousuario/marreta)
   instance (`https://marreta.link` by default; change it in Settings or with
   `MARRETA_URL` if you host your own). Which route a given publication takes
-  (Marreta / Direct / Archive) is set per feed in **Manage sources**.
+  (Marreta / Direct / Archive) is set per feed in **Manage sources**. The
+  in-app reader uses the same settings server-side.
 
 ## How it works
 
@@ -311,9 +404,17 @@ All data routes require a session cookie (sign in at `/login`).
 | PATCH | `/api/folders/:id` | Update: `{ "name"?, "include_in_main"? }` |
 | DELETE | `/api/folders/:id` | Delete a folder (its feeds move to the root) |
 | GET | `/api/articles` | Articles; `?feed=ID`, `?folder=ID`, `?mix=1`, `?limit=`, `?offset=` |
+| GET | `/api/articles/:id` | One article, for the reader's `?article=` deep link |
+| GET | `/api/articles/:id/related` | What to read next, ranked against this article |
+| GET | `/api/articles/:id/content` | Extracted body from cache; never fetches |
+| POST | `/api/articles/:id/content` | Extract or return cache; `?retry=1` re-runs a failed one |
 | GET | `/api/recommendations` | Personalized feed; `?window=day\|week\|month`, `?limit=`, `?offset=` |
 | GET | `/api/shorts` | The Shorts deck; `?limit=`, `?folder=ID` |
 | POST | `/api/events` | Taste signal: `{ "link", "action": like\|dislike\|skip\|open\|save }` |
+| GET | `/api/reading-list` | Saved items, each with the `article_id` behind its link |
+| POST | `/api/reading-list` | Save a snapshot; also kicks the reader's extraction |
+| DELETE | `/api/reading-list` | Un-save by `?link=` (drops the `save` event too) |
+| DELETE | `/api/reading-list/:id` | Un-save one row by id |
 | GET | `/api/discover/publications` | Catalog publications; `?topic=`, `?q=`, `?limit=`, `?offset=` |
 | GET | `/api/discover/articles` | The catalog flattened to articles; same filters |
 | POST | `/api/discover/suggest` | Fill the catalog: `{ "seed": true }` for the curated list, `{}` to ask the model |

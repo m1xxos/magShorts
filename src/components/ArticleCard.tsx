@@ -9,6 +9,7 @@ import {
   sendToOmnivore,
   unlockUrl,
 } from "@/lib/actions";
+import { readerLink } from "@/lib/useReader";
 import { FeedAvatar } from "./FeedAvatar";
 import {
   BookmarkIcon,
@@ -75,10 +76,15 @@ export function ArticleCard({
   article,
   density = "cards",
   onToast,
+  onOpen,
 }: {
   article: ArticleDto;
   density?: Density;
   onToast: (message: string, error?: boolean) => void;
+  // Present on the pages that host the reader. Without it the card keeps its
+  // original behaviour — the unlock route in a new tab — which is what Shorts,
+  // the digest and Discover still want.
+  onOpen?: (article: ArticleDto) => void;
 }) {
   const [imageFailed, setImageFailed] = useState(false);
   const showImage = article.image_url && !imageFailed;
@@ -153,12 +159,14 @@ export function ArticleCard({
     );
   }
 
-  const linkProps = {
-    href: unlockUrl(article.link),
-    target: "_blank",
-    rel: "noopener noreferrer",
-    onClick: () => recordEvent(article.link, "open"),
-  };
+  const linkProps = onOpen
+    ? readerLink(article, onOpen)
+    : {
+        href: unlockUrl(article.link),
+        target: "_blank",
+        rel: "noopener noreferrer",
+        onClick: () => recordEvent(article.link, "open"),
+      };
   const overlayActions =
     "absolute top-2 right-2 flex gap-1.5 opacity-0 transition group-hover:opacity-100 pointer-coarse:opacity-100";
 

@@ -126,6 +126,23 @@ function extractContent(item: Parser.Item & CustomItem): string | null {
   return text.slice(0, CONTENT_MAX_LENGTH);
 }
 
+// Some feeds publish item links as site-relative paths — Harper's does. Stored
+// raw they are unusable: nothing can fetch them and the card opens nowhere.
+// Resolve against the publication's own site, falling back to the feed URL's
+// origin when the feed has no site_url.
+function absoluteLink(
+  link: string | undefined,
+  feed: Pick<Feed, "url" | "site_url">
+): string | null {
+  if (!link) return null;
+  if (/^https?:\/\//i.test(link)) return link;
+  try {
+    return new URL(link, feed.site_url ?? feed.url).toString();
+  } catch {
+    return null;
+  }
+}
+
 // Feed categories range from one clean word ("Security") to a dozen tags or a
 // whole taxonomy path, so only short word-like ones become a topic; everything
 // else falls back to the folder the feed lives in.
@@ -321,7 +338,7 @@ export function refreshFeedArticles(feed: FeedWithFolder): Promise<void> {
     const items = (parsed.items ?? []).slice(0, MAX_ITEMS_PER_FEED);
     const insertAll = db.transaction(() => {
       for (const item of items) {
-        const link = item.link?.trim();
+        const link = absoluteLink(item.link?.trim(), feed);
         const title = item.title?.trim();
         if (!link || !title) continue;
         const publishedAt = item.isoDate ?? (item.pubDate ? new Date(item.pubDate).toISOString() : null);
