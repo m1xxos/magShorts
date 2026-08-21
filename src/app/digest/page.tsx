@@ -20,7 +20,7 @@ import { FeedAvatar } from "@/components/FeedAvatar";
 import { TopBar } from "@/components/TopBar";
 import { Toast, useToast } from "@/components/Toast";
 import { BookmarkIcon } from "@/components/SwipeableCard";
-import { Reader } from "@/components/Reader";
+import { Reader, UP_NEXT } from "@/components/Reader";
 import { SettingsDialog } from "@/components/SettingsDialog";
 import { readerLink, useReader } from "@/lib/useReader";
 import { useUser } from "@/lib/useUser";
@@ -203,7 +203,7 @@ export default function DigestPage() {
             (item) => item.article_id === reader.article!.id,
           ) + 1,
         )
-        .slice(0, 2)
+        .slice(0, UP_NEXT)
         .map(asArticle)
     : [];
 

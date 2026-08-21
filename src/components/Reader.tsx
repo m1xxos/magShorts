@@ -31,7 +31,9 @@ const WIDTH_STEPS = [
   { px: 720, label: "Normal" },
   { px: 880, label: "Wide" },
 ];
-const UP_NEXT = 2;
+// How many cards the right rail holds. Exported because each page builds
+// its own list-order fallback and both have to agree on the length.
+export const UP_NEXT = 3;
 const PROGRESS_KEY = "ms_read_progress";
 const TYPE_KEY = "ms_reader_type";
 // Clears the sticky top bar (64px) and the progress rule (3px), plus a little

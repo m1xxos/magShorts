@@ -14,7 +14,7 @@ import { Toast, useToast } from "@/components/Toast";
 import { TopBar } from "@/components/TopBar";
 import { ExternalIcon } from "@/components/SwipeableCard";
 import { SurveyDialog, type SurveyChoice } from "@/components/SurveyDialog";
-import { Reader } from "@/components/Reader";
+import { Reader, UP_NEXT } from "@/components/Reader";
 import { readerLink, useReader } from "@/lib/useReader";
 import { useUser } from "@/lib/useUser";
 
@@ -64,7 +64,7 @@ export default function ReadingListPage() {
         .slice(items.findIndex((item) => item.article_id === reader.article!.id) + 1)
         .map(asArticle)
         .filter((article): article is ArticleDto => article !== null)
-        .slice(0, 2)
+        .slice(0, UP_NEXT)
     : [];
 
   useEffect(() => {
