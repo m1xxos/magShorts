@@ -210,6 +210,15 @@ export function markGalleries(document: Document): void {
   }
 }
 
+const COMMENT_NODE = 8;
+
+function dropComments(node: Node): void {
+  for (const child of [...node.childNodes]) {
+    if (child.nodeType === COMMENT_NODE) child.remove();
+    else if (child.hasChildNodes()) dropComments(child);
+  }
+}
+
 function slug(text: string, index: number): string {
   const base = text
     .toLowerCase()
@@ -309,6 +318,12 @@ export function sanitizeArticleHtml(bodyHtml: string, baseUrl: string): Sanitise
 
   // Readability leaves the headline as an <h1>; the reader draws that itself.
   for (const h1 of [...document.querySelectorAll("h1")]) h1.remove();
+
+  // Comments are inert in a browser but they are not free: the walk below
+  // only sees elements, so a commented-out template — Octopus ships one at the
+  // foot of every post — would otherwise be stored with the article forever.
+  dropComments(document.body);
+
   for (const child of [...document.body.children]) walk(child as Element);
 
   collectGalleries(document as unknown as Document);
