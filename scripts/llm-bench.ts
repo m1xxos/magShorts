@@ -6,6 +6,12 @@
 // Falls back to LLM_PROVIDERS when LLM_BENCH_PROVIDERS is unset. Writes
 // docs/llm-bench.md: a speed table plus every annotation side by side, one
 // column per model, so quality is judged by eye.
+//
+// Not read-only: it feeds the models exactly what the digest feeds them, which
+// since the digest stopped summarising raw pages means running the reader's
+// extractor over any corpus article whose feed shipped no body — a live fetch,
+// and a row written to article_content in ./data. Point DATA_DIR at a copy if
+// that matters.
 
 import fs from "node:fs";
 import path from "node:path";

@@ -18,14 +18,16 @@ import {
 // Full-text extraction for the in-app reader.
 //
 // Lazy by construction: nothing in here runs on a list render, a scroll or a
-// hover. There are exactly two callers — opening the reader and saving to Read
-// later — and the first thing both hit is the cache. A second open of the same
-// article costs one indexed SELECT and no outbound request.
+// hover. Three callers reach it — opening the reader, saving to Read later,
+// and the digest's annotator — and the first thing all three hit is the cache.
+// A second open of the same article costs one indexed SELECT and no outbound
+// request. The first two are triggered by a reader; the third runs in the
+// background scheduler, for the dozen cards a digest annotates.
 //
 // The parser is @mozilla/readability over a linkedom DOM. That was measured
 // rather than assumed: see docs/extraction-bench.md, where the regex strip the
-// digest uses returns 99 characters of The Atlantic and Readability returns
-// 2 448 across 26 paragraphs.
+// digest used to summarise from returns 99 characters of The Atlantic and
+// Readability returns 2 448 across 26 paragraphs.
 
 // Below this, a body is a teaser and the chain should keep going. RSS excerpts
 // commonly run 300–800 characters, so the floor sits above them.
@@ -107,12 +109,17 @@ export function readContent(articleId: number): ArticleContentDto | null {
 // The same body as plain text, for callers that summarise it rather than
 // render it — the digest's annotator and the LLM bench behind it. Null when
 // the chain never came back with one.
+//
+// Status is deliberately not consulted. A row that once extracted cleanly and
+// was re-run on a day the publisher answered 403 comes out of storeFailure
+// marked 'failed' with its text still in place — that is the same text the
+// reader is still being shown from cache, and dropping it here would send the
+// summariser back to the RSS teaser for an article we have in full.
 export function readContentText(articleId: number): string | null {
   const row = getDb()
-    .prepare("SELECT text, status FROM article_content WHERE article_id = ?")
-    .get(articleId) as { text: string | null; status: string } | undefined;
-  if (!row || row.status === "failed") return null;
-  return row.text?.trim() || null;
+    .prepare("SELECT text FROM article_content WHERE article_id = ?")
+    .get(articleId) as { text: string | null } | undefined;
+  return row?.text?.trim() || null;
 }
 
 // ------------------------------------------------------------- sanitising

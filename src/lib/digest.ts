@@ -146,13 +146,31 @@ type TextSource = Pick<Article, "id" | "title" | "summary" | "content">;
 // Scraped text is still never written back to articles.content — that stays
 // what the feed published. It lands in article_content, where the reader wants
 // it anyway, so annotating a digest also makes those articles open instantly.
-// A digest annotates at most thirteen cards, so this is thirteen extractions,
-// most of which the reader has already paid for.
-export async function articleFullText(article: TextSource): Promise<string> {
+// A digest annotates at most thirteen cards, so this is at most thirteen
+// extractions, and a cached one is a single SELECT. The exception is a page
+// stored 'partial': extractArticle re-runs the whole chain for those by
+// design, since a teaser is usually a page that was slow that day, so a feed
+// that always answers short pays the hops again on every build.
+//
+// `extract: false` reads the cache and stops there — see annotate().
+export async function articleFullText(
+  article: TextSource,
+  options: { extract?: boolean } = {}
+): Promise<string> {
   const stored = article.content?.trim() ?? "";
   if (stored.length >= TEXT_TRUSTED_LENGTH) return stored.slice(0, TEXT_MAX_LENGTH);
 
-  await extractArticle(article.id);
+  if (options.extract !== false) {
+    // The chain parses hostile HTML and writes SQLite, so unlike the page
+    // fetch it replaces it can reject. One article must not cost the whole
+    // snapshot: a build that throws here writes no digest at all, while a
+    // build that catches loses one card its full text and keeps the rest.
+    try {
+      await extractArticle(article.id);
+    } catch (error) {
+      console.log(`[digest] extraction failed for article ${article.id}: ${error}`);
+    }
+  }
   const extracted = readContentText(article.id) ?? "";
   if (extracted.length >= TEXT_MIN_LENGTH && extracted.length > stored.length) {
     return extracted.slice(0, TEXT_MAX_LENGTH);
@@ -362,10 +380,15 @@ async function annotate(
   sentences: number,
   system: string
 ): Promise<Annotated> {
-  const text = await articleFullText(article);
+  // With no model configured the digest is extractive and the full text buys
+  // only the reading time — not worth thirteen page fetches on a schedule the
+  // user never asked for. The cache is still read, so an article the reader
+  // has already opened keeps its real minutes.
+  const configured = llmConfigured();
+  const text = await articleFullText(article, { extract: configured });
   const minutes = readingMinutes(text);
   const extractive = firstSentences(teaserSource(article), sentences);
-  if (!llmConfigured()) {
+  if (!configured) {
     return { article, summary: extractive, minutes, wrote: null };
   }
   const result = await complete(
