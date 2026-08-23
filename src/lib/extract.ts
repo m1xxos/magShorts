@@ -104,6 +104,17 @@ export function readContent(articleId: number): ArticleContentDto | null {
   return row ? toDto(row) : null;
 }
 
+// The same body as plain text, for callers that summarise it rather than
+// render it — the digest's annotator and the LLM bench behind it. Null when
+// the chain never came back with one.
+export function readContentText(articleId: number): string | null {
+  const row = getDb()
+    .prepare("SELECT text, status FROM article_content WHERE article_id = ?")
+    .get(articleId) as { text: string | null; status: string } | undefined;
+  if (!row || row.status === "failed") return null;
+  return row.text?.trim() || null;
+}
+
 // ------------------------------------------------------------- sanitising
 
 // Everything a reading column legitimately needs, and nothing that can execute,

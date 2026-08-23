@@ -5,8 +5,7 @@ import {
   rankForDigest,
   type DigestCandidate,
 } from "./recommend";
-import { fetchPageHtml } from "./articleImages";
-import { decodeEntities } from "./rss";
+import { extractArticle, readContentText } from "./extract";
 import { complete, llmConfigured, rankProviders } from "./llm";
 import { getCountSetting, getSetting } from "./settings";
 import {
@@ -128,34 +127,35 @@ export function duePeriodKey(kind: DigestKind, now = new Date()): string {
 
 // ------------------------------------------------------------- article text
 
-function htmlToText(html: string): string {
-  // Prefer the article body when the page marks one; otherwise take the whole
-  // document minus the furniture.
-  const article = html.match(/<article\b[^>]*>([\s\S]*?)<\/article>/i);
-  let body = article?.[1] ?? html;
-  body = body.replace(
-    /<(script|style|noscript|svg|head|nav|header|footer|aside|form|figure)\b[\s\S]*?<\/\1>/gi,
-    " "
-  );
-  return decodeEntities(body.replace(/<[^>]*>/g, " "))
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-type TextSource = Pick<Article, "id" | "link" | "title" | "summary" | "content">;
+type TextSource = Pick<Article, "id" | "title" | "summary" | "content">;
 
 // What the model (and the bench) actually sees: the stored feed body when the
-// feed ships a real one, otherwise the article page. Scraped text is never
-// written back — articles.content stays what the feed published, and a page
-// fetch costs four requests a day.
+// feed ships a real one, otherwise the reader's extractor.
+//
+// This used to strip the tags off the raw page, and the model then summarised
+// the furniture along with the article. Measured on The Verge's Fairphone 6
+// Plus piece, the old path handed over 4 401 characters that open with the
+// "Tech Gadgets News" nav, the byline and the author's biography, and close
+// with the "Most Popular" rail — five unrelated headlines and an ad slot — so
+// a summary of a phone review could come back mentioning a laptop from the
+// sidebar. Through the extractor the same page is 2 791 characters, all of
+// them the article. WIRED, whose body is only in the page's JSON, went from a
+// truncated 6 000 characters starting "Save this story Save this story" to
+// 6 225 of real text.
+//
+// Scraped text is still never written back to articles.content — that stays
+// what the feed published. It lands in article_content, where the reader wants
+// it anyway, so annotating a digest also makes those articles open instantly.
+// A digest annotates at most thirteen cards, so this is thirteen extractions,
+// most of which the reader has already paid for.
 export async function articleFullText(article: TextSource): Promise<string> {
   const stored = article.content?.trim() ?? "";
   if (stored.length >= TEXT_TRUSTED_LENGTH) return stored.slice(0, TEXT_MAX_LENGTH);
 
-  const page = await fetchPageHtml(article.link);
-  const fetched = page ? htmlToText(page.html).slice(0, TEXT_MAX_LENGTH) : "";
-  if (fetched.length >= TEXT_MIN_LENGTH && fetched.length > stored.length) {
-    return fetched;
+  await extractArticle(article.id);
+  const extracted = readContentText(article.id) ?? "";
+  if (extracted.length >= TEXT_MIN_LENGTH && extracted.length > stored.length) {
+    return extracted.slice(0, TEXT_MAX_LENGTH);
   }
   return stored || article.summary?.trim() || article.title;
 }

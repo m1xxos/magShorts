@@ -192,6 +192,13 @@ The blurbs are written by a language model:
 - **No model, no problem.** With `LLM_PROVIDERS` empty (the default) the digest
   still builds — the blurbs become the articles' own opening lines and the
   three lines become counts. Nothing about the app requires an LLM.
+- **The model reads the article, not the page.** The feed's own body when it
+  ships a real one, otherwise the reader's extractor — the same chain that
+  fills the reading view. Stripping the tags off the raw page instead handed
+  the summariser the navigation, the byline, the author's biography and the
+  "Most Popular" rail, so a blurb about a phone could come back mentioning a
+  laptop from the sidebar. Annotating fills the reader's cache on the way
+  past, so a digested article opens instantly.
 - **Nine calls per digest** — one to rank, one per annotated card, one for the
   summary panel — all in the background scheduler. No request ever waits on a
   model.
