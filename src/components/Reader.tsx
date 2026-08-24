@@ -13,7 +13,6 @@ import { BookmarkIcon, ExternalIcon } from "./SwipeableCard";
 import { ReaderGallery, type Slide } from "./ReaderGallery";
 import { ReaderOutline } from "./ReaderOutline";
 import { ReaderUpNext } from "./ReaderUpNext";
-import { Menu } from "./ui/Menu";
 import { Sheet } from "./ui/Sheet";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 
@@ -47,7 +46,7 @@ export function after<T>(list: T[], index: number): T[] {
 
 // How many cards the right rail holds. Exported because each page builds
 // its own list-order fallback and both have to agree on the length.
-export const UP_NEXT = 3;
+export const UP_NEXT = 4;
 const TYPE_KEY = "ms_reader_type";
 // Clears the sticky top bar (64px) and the progress rule (3px), plus a little
 // air. Used by both rails and by the outline's own scroll box.
@@ -594,19 +593,24 @@ export function Reader({
               )}
             </div>
 
-            <Menu
-              align="right"
-              items={[
-                {
-                  label: "Open the original",
-                  hint: sourceNote || undefined,
-                  onSelect: () => {
-                    recordEvent(article.link, "open");
-                    window.open(unlockUrl(article.link), "_blank", "noopener");
-                  },
-                },
-              ]}
-            />
+            {/* The source note rides along as the tooltip rather than
+                earning a menu of its own: it is diagnostic, and a ⋯ holding a
+                single item is a worse answer than no ⋯. */}
+            <a
+              href={unlockUrl(article.link)}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => recordEvent(article.link, "open")}
+              title={
+                sourceNote
+                  ? `Open the original — this text was ${sourceNote}`
+                  : "Open the original"
+              }
+              className="inline-flex items-center gap-1.5 rounded-full border border-line bg-paper-raised px-3 py-1.5 text-[12.5px] text-ink-soft transition hover:border-clay hover:text-clay pointer-coarse:min-h-11 pointer-coarse:px-4"
+            >
+              <ExternalIcon size={13} />
+              <span className="hidden sm:inline">Original</span>
+            </a>
             <button
               onClick={close}
               aria-label="Close the reader"
@@ -788,7 +792,11 @@ export function Reader({
               along with the two actions that were only in the header. */}
           {nextUp.length > 0 && (
             <div className="mt-10 border-t border-line pt-6 xl:hidden">
-              <ReaderUpNext items={nextUp} onOpen={onOpenArticle} />
+              <ReaderUpNext
+                items={nextUp}
+                onOpen={onOpenArticle}
+                layout="grid"
+              />
             </div>
           )}
           <div className="mt-8 flex gap-2.5 xl:hidden">

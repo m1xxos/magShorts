@@ -131,18 +131,23 @@ export function ShortCard({
             </div>
           </div>
 
-          <div className="flex min-h-0 flex-col gap-4 overflow-y-auto p-7 md:p-8">
+          <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-7 pb-4 md:p-8 md:pb-4">
             <h2 className="font-serif text-2xl leading-snug text-ink md:text-[28px] pointer-coarse:text-[34px]">
               {article.title}
             </h2>
 
             {article.summary && (
-              <p className="text-[15px] leading-relaxed text-ink-soft pointer-coarse:text-[17px]">
+              <p className="line-clamp-6 text-[15px] leading-relaxed text-ink-soft pointer-coarse:text-[17px]">
                 {article.summary}
               </p>
             )}
 
-            <div className="mt-auto flex flex-nowrap items-center gap-1.5 pt-2 md:gap-2">
+          </div>
+
+          {/* Pinned, not the last thing in the scroller. A long summary used to
+              push Read now and Save off the bottom of the card, which are the
+              two things the deck exists for. */}
+          <div className="flex shrink-0 flex-nowrap items-center gap-1.5 border-t border-line px-7 py-3.5 md:gap-2 md:px-8">
               <a
                 href={unlockUrl(article.link)}
                 target="_blank"
@@ -152,7 +157,7 @@ export function ShortCard({
                   recordEvent(article.link, "open");
                   onActed?.();
                 }}
-                className="inline-flex shrink-0 items-center gap-2 rounded-full bg-clay px-4 py-2.5 text-sm font-medium text-white transition hover:brightness-95 md:px-5 pointer-coarse:min-h-14 pointer-coarse:px-6 pointer-coarse:text-[16px]"
+                className="inline-flex shrink-0 items-center gap-2 rounded-full bg-clay px-4 py-2.5 text-sm font-medium text-white transition hover:brightness-95 md:px-5 pointer-coarse:min-h-12 pointer-coarse:px-5 pointer-coarse:text-[15px]"
               >
                 Read now
               </a>
@@ -161,7 +166,7 @@ export function ShortCard({
               <button
                 onClick={() => swipeRef.current?.swipe("right")}
                 title="Save to Read later"
-                className="inline-flex shrink-0 items-center gap-2 rounded-full border border-line px-4 py-2.5 text-sm text-ink-soft transition hover:border-clay hover:text-clay md:px-5 pointer-coarse:min-h-14 pointer-coarse:px-6 pointer-coarse:text-[16px]"
+                className="inline-flex shrink-0 items-center gap-2 rounded-full border border-line px-4 py-2.5 text-sm text-ink-soft transition hover:border-clay hover:text-clay md:px-5 pointer-coarse:min-h-12 pointer-coarse:px-5 pointer-coarse:text-[15px]"
               >
                 <BookmarkIcon size={15} /> Save
               </button>
@@ -187,7 +192,6 @@ export function ShortCard({
               >
                 <ExternalIcon size={16} />
               </a>
-            </div>
           </div>
         </article>
       </SwipeableCard>

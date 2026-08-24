@@ -49,7 +49,7 @@ function ArticleRow({
   saved: boolean;
 }) {
   return (
-    <li className="flex items-center gap-3.5">
+    <li className="flex items-center gap-3">
       <a
         // Straight to the publisher, not through Marreta: in Discover you are
         // judging an unfamiliar publication, and its own site — design, ads,
@@ -234,7 +234,10 @@ export function PublicationBlock({
         )}
       </div>
 
-      <ul className="flex flex-col gap-3.5 px-5 py-[18px]">
+      {/* Three across where there is room, one column on a narrow window:
+          the rows are small enough that stacking them wastes the width the
+          thumbnail layout just freed up. */}
+      <ul className="grid gap-x-5 gap-y-3.5 px-5 py-[18px] sm:grid-cols-2 xl:grid-cols-3">
         {[...publication.articles, ...more].map((article) => (
           <ArticleRow
             key={article.id}
