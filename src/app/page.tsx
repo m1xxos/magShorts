@@ -96,6 +96,10 @@ export default function HomePage() {
   const [density, setDensity] = useState<Density>("cards");
   const [coldStart, setColdStart] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Whether a headline opens here or leaves for the publisher. ArticleCard
+  // already branches on whether it was given an onOpen, so the setting is
+  // applied by withholding the handler rather than by new code in the card.
+  const [openInReader, setOpenInReader] = useState(true);
   const [readingCount, setReadingCount] = useState(0);
   // Links already in Read later, so the reader's bookmark pill starts in the
   // right state. Kept by link because that is what Read later itself stores.
@@ -187,9 +191,11 @@ export default function HomePage() {
       if (params.get("view") === "forYou") return { kind: "forYou" };
       if (params.get("view") === "all") return { kind: "all" };
 
-      const settings: { default_view?: string } = await fetch("/api/settings")
-        .then((response) => response.json())
-        .catch(() => ({}));
+      const settings: { default_view?: string; open_in_reader?: string } =
+        await fetch("/api/settings")
+          .then((response) => response.json())
+          .catch(() => ({}));
+      setOpenInReader(settings.open_in_reader !== "off");
       const view = settings.default_view ?? "";
       if (view === "forYou") return { kind: "forYou" };
       if (view.startsWith("folder:")) {
@@ -492,7 +498,7 @@ export default function HomePage() {
                     key={article.id}
                     article={article}
                     density={density}
-                    onOpen={reader.open}
+                    onOpen={openInReader ? reader.open : undefined}
                     onToast={(message, error) => {
                       showToast(message, error);
                       if (!error) loadReadingCount();
