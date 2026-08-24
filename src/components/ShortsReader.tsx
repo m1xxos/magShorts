@@ -8,8 +8,6 @@ import { type ArticleDto, type FolderDto } from "@/lib/types";
 import { ShortCard } from "./ShortCard";
 import {
   BookmarkIcon,
-  ExternalIcon,
-  OmnivoreIcon,
   type SwipeableCardHandle,
 } from "./SwipeableCard";
 import { Toast, useToast } from "./Toast";
@@ -31,6 +29,7 @@ export function ShortsReader() {
   const [folders, setFolders] = useState<FolderDto[]>([]);
   // null = All: the default deck across every enabled feed and folder.
   const [folderId, setFolderId] = useState<number | null>(null);
+  const [keysOpen, setKeysOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const cardHandles = useRef<Map<number, SwipeableCardHandle>>(new Map());
   const actedCards = useRef<Set<number>>(new Set());
@@ -225,6 +224,35 @@ export function ShortsReader() {
         >
           ← <span className="font-serif">magShorts</span>
         </Link>
+        {/* The folder pills used to have a floating row of their own directly
+            under this one, which cost the card about 50px. */}
+        {!feedParam && folders.length > 0 && (
+          <div className="pointer-events-auto no-scrollbar mx-3 flex min-w-0 flex-1 justify-center gap-1 overflow-x-auto">
+            <button
+              onClick={() => setFolderId(null)}
+              className={`shrink-0 rounded-full px-3.5 py-1.5 text-[13px] whitespace-nowrap backdrop-blur transition pointer-coarse:min-h-11 ${
+                folderId === null
+                  ? "bg-clay text-white"
+                  : "border border-line bg-paper-raised/90 text-ink-soft hover:text-ink"
+              }`}
+            >
+              All
+            </button>
+            {folders.map((folder) => (
+              <button
+                key={folder.id}
+                onClick={() => setFolderId(folder.id)}
+                className={`shrink-0 rounded-full px-3.5 py-1.5 text-[13px] whitespace-nowrap backdrop-blur transition pointer-coarse:min-h-11 ${
+                  folderId === folder.id
+                    ? "bg-clay text-white"
+                    : "border border-line bg-paper-raised/90 text-ink-soft hover:text-ink"
+                }`}
+              >
+                {folder.name}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="flex items-center gap-2">
           <Link
             id="shorts-read-later"
@@ -235,48 +263,52 @@ export function ShortsReader() {
             <BookmarkIcon size={13} />
             <span className="tabular-nums">{readingCount}</span>
           </Link>
-          {articles.length > 0 && (
-            <span className="rounded-full border border-line bg-paper-raised/90 px-3.5 py-2 text-[13px] tabular-nums text-ink-faint backdrop-blur">
-              {current + 1} / {articles.length}
-            </span>
-          )}
+          {/* The full shortcut list lives here now; the legend below is
+              three lines long and this is where the rest went. */}
+          <button
+            onClick={() => setKeysOpen((open) => !open)}
+            title="Keyboard shortcuts"
+            aria-label="Keyboard shortcuts"
+            className="pointer-events-auto hidden h-9 w-9 items-center justify-center rounded-full border border-line bg-paper-raised/90 text-[13px] text-ink-faint backdrop-blur transition hover:text-ink md:flex"
+          >
+            ?
+          </button>
         </div>
       </div>
 
-      {/* Folder deck switcher (algorithmic mode only) */}
-      {!feedParam && folders.length > 0 && (
-        <div className="pointer-events-none absolute inset-x-0 top-[4.25rem] z-30 flex justify-center md:top-5">
-          <div className="pointer-events-auto no-scrollbar flex max-w-full gap-1 overflow-x-auto rounded-full border border-line bg-paper-raised/90 p-1 backdrop-blur">
-            <button
-              onClick={() => setFolderId(null)}
-              className={`shrink-0 rounded-full px-3.5 py-1.5 text-[13px] transition ${
-                folderId === null
-                  ? "bg-clay text-white"
-                  : "text-ink-soft hover:text-ink"
-              }`}
-            >
-              All
-            </button>
-            {folders.map((folder) => (
-              <button
-                key={folder.id}
-                onClick={() => setFolderId(folder.id)}
-                className={`shrink-0 rounded-full px-3.5 py-1.5 text-[13px] transition ${
-                  folderId === folder.id
-                    ? "bg-clay text-white"
-                    : "text-ink-soft hover:text-ink"
-                }`}
-              >
-                {folder.name}
-              </button>
-            ))}
+      {/* Where you are in the deck, as a rail rather than "7 / 40" — a
+          fraction of a number that grows as pages load is not a position. */}
+      {articles.length > 0 && (
+        <div className="pointer-events-none absolute top-1/2 left-4 z-30 hidden -translate-y-1/2 flex-col items-center gap-2 md:flex">
+          <span className="text-[11px] tabular-nums text-ink-faint">
+            {current + 1}
+          </span>
+          <div className="flex flex-col gap-1.5">
+            {Array.from({ length: Math.min(5, articles.length) }, (_, tick) => {
+              const at = Math.round(
+                (tick / Math.max(1, Math.min(5, articles.length) - 1)) *
+                  (articles.length - 1)
+              );
+              const near = Math.abs(at - current) < articles.length / 10;
+              return (
+                <span
+                  key={tick}
+                  className={`w-[3px] rounded-full transition-all ${
+                    near ? "h-6 bg-clay" : "h-3 bg-line"
+                  }`}
+                />
+              );
+            })}
           </div>
+          <span className="text-[11px] tabular-nums text-ink-faint">
+            {articles.length}
+          </span>
         </div>
       )}
 
       {/* Prev / next arrows */}
       {articles.length > 0 && (
-        <div className="absolute right-5 bottom-5 z-30 hidden flex-col gap-2 md:flex">
+        <div className="absolute right-5 bottom-5 z-30 hidden flex-col gap-2 md:flex pointer-coarse:hidden">
           <button
             aria-label="Previous article"
             onClick={() => scrollToIndex(Math.max(current - 1, 0))}
@@ -338,38 +370,59 @@ export function ShortsReader() {
         </div>
       )}
 
-      {/* Legend for buttons and keyboard shortcuts */}
+      {/* Three shortcuts, not five, and out of the middle of the screen.
+          The rest are behind the ? in the header — a legend you have read once
+          should not keep taking the bottom of every card. */}
       {articles.length > 0 && (
         <div className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex justify-center md:hidden">
-          <div className="flex items-center gap-2 rounded-full border border-line bg-paper-raised/90 px-4 py-2 text-[12px] text-ink-faint backdrop-blur">
-            swipe <BookmarkIcon size={12} /> save →
-            <Dot />← <OmnivoreIcon size={12} /> Omnivore
+          <div className="rounded-full border border-line bg-paper-raised/90 px-4 py-2 text-[12px] text-ink-faint backdrop-blur">
+            Swipe up for the next · swipe right to save
           </div>
         </div>
       )}
       {articles.length > 0 && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-5 z-30 hidden justify-center md:flex">
-          <div className="flex items-center gap-4 rounded-full border border-line bg-paper-raised/90 px-5 py-2.5 text-[12px] text-ink-faint backdrop-blur">
+        <div className="pointer-events-none absolute bottom-5 left-5 z-30 hidden md:block">
+          <div className="flex items-center gap-3 rounded-full border border-line bg-paper-raised/90 px-4 py-2 text-[12px] text-ink-faint backdrop-blur">
             <span className="flex items-center gap-1.5">
               <Key>↑</Key>
               <Key>↓</Key> browse
             </span>
             <Dot />
             <span className="flex items-center gap-1.5">
-              <BookmarkIcon size={12} /> or <Key>→</Key> read later
-            </span>
-            <Dot />
-            <span className="flex items-center gap-1.5">
-              <OmnivoreIcon size={12} /> or <Key>←</Key> send to Omnivore
-            </span>
-            <Dot />
-            <span className="flex items-center gap-1.5">
-              <ExternalIcon size={12} /> open the original
+              <Key>→</Key> save
             </span>
             <Dot />
             <span className="flex items-center gap-1.5">
               <Key>Esc</Key> exit
             </span>
+          </div>
+        </div>
+      )}
+      {keysOpen && (
+        <div
+          className="absolute inset-0 z-40 flex items-center justify-center bg-ink/20 p-4 backdrop-blur-sm"
+          onClick={() => setKeysOpen(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl border border-line bg-paper-raised p-5 shadow-xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 className="font-serif text-[19px] text-ink">Shortcuts</h2>
+            <ul className="mt-3 space-y-2 text-[13px] text-ink-soft">
+              <li className="flex items-center gap-2">
+                <Key>↑</Key>
+                <Key>↓</Key> browse the deck
+              </li>
+              <li className="flex items-center gap-2">
+                <Key>→</Key> save to Read later
+              </li>
+              <li className="flex items-center gap-2">
+                <Key>←</Key> send to Omnivore
+              </li>
+              <li className="flex items-center gap-2">
+                <Key>Esc</Key> back to the feed
+              </li>
+            </ul>
           </div>
         </div>
       )}

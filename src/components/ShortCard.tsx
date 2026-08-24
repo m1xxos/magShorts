@@ -105,32 +105,39 @@ export function ShortCard({
                 </span>
               </div>
             )}
-          </div>
-
-          <div className="flex min-h-0 flex-col gap-4 overflow-y-auto p-7 md:p-8">
-            <div className="flex items-center gap-2.5">
+            {/* Who wrote it, when, and how long it is — on the picture rather
+                than above the headline, which leaves the body to the two
+                things you actually read. */}
+            <div className="absolute bottom-3 left-3 flex max-w-[calc(100%-24px)] items-center gap-2 rounded-full bg-paper-raised/92 py-1.5 pr-3.5 pl-1.5 backdrop-blur">
               <FeedAvatar
                 feedId={article.feed_id}
                 title={article.feed_title}
                 siteUrl={article.link}
-                size={26}
+                size={22}
               />
-              <span className="text-[13px] font-medium text-ink-soft">
+              <span className="truncate text-[12.5px] font-medium text-ink-soft">
                 {article.feed_title}
               </span>
               {article.published_at && (
-                <span className="text-[13px] text-ink-faint">
+                <span className="shrink-0 text-[12.5px] text-ink-faint">
                   · {timeAgo(article.published_at)}
                 </span>
               )}
+              {article.reading_minutes ? (
+                <span className="shrink-0 text-[12.5px] text-ink-faint">
+                  · {article.reading_minutes} min
+                </span>
+              ) : null}
             </div>
+          </div>
 
-            <h2 className="font-serif text-2xl leading-snug text-ink md:text-[28px]">
+          <div className="flex min-h-0 flex-col gap-4 overflow-y-auto p-7 md:p-8">
+            <h2 className="font-serif text-2xl leading-snug text-ink md:text-[28px] pointer-coarse:text-[34px]">
               {article.title}
             </h2>
 
             {article.summary && (
-              <p className="text-[15px] leading-relaxed text-ink-soft">
+              <p className="text-[15px] leading-relaxed text-ink-soft pointer-coarse:text-[17px]">
                 {article.summary}
               </p>
             )}
@@ -145,24 +152,28 @@ export function ShortCard({
                   recordEvent(article.link, "open");
                   onActed?.();
                 }}
-                className="inline-flex shrink-0 items-center gap-2 rounded-full bg-clay px-4 py-2.5 text-sm font-medium text-white transition hover:brightness-95 md:px-5"
+                className="inline-flex shrink-0 items-center gap-2 rounded-full bg-clay px-4 py-2.5 text-sm font-medium text-white transition hover:brightness-95 md:px-5 pointer-coarse:min-h-14 pointer-coarse:px-6 pointer-coarse:text-[16px]"
               >
-                Read the article →
+                Read now
               </a>
-              <span className="flex-1" />
+              {/* Was an icon. Save is the action this deck exists for, and an
+                  outline bookmark is not a word. */}
               <button
                 onClick={() => swipeRef.current?.swipe("right")}
-                title="Read later"
-                aria-label="Read later"
-                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line md:h-10 md:w-10 text-ink-soft transition hover:border-clay hover:text-clay"
+                title="Save to Read later"
+                className="inline-flex shrink-0 items-center gap-2 rounded-full border border-line px-4 py-2.5 text-sm text-ink-soft transition hover:border-clay hover:text-clay md:px-5 pointer-coarse:min-h-14 pointer-coarse:px-6 pointer-coarse:text-[16px]"
               >
-                <BookmarkIcon size={16} />
+                <BookmarkIcon size={15} /> Save
               </button>
+              <span className="flex-1" />
+              {/* Both stay icon-only, and both step aside on a touch screen:
+                  a swipe left already sends to Omnivore, and the row has to
+                  hold two 56px buttons there. */}
               <button
                 onClick={() => swipeRef.current?.swipe("left")}
                 title="Send to Omnivore"
                 aria-label="Send to Omnivore"
-                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line md:h-10 md:w-10 text-ink-soft transition hover:border-clay hover:text-clay"
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line md:h-10 md:w-10 text-ink-soft transition hover:border-clay hover:text-clay pointer-coarse:hidden"
               >
                 <OmnivoreIcon size={16} />
               </button>
@@ -172,7 +183,7 @@ export function ShortCard({
                 rel="noopener noreferrer"
                 title="Open the original"
                 aria-label="Open the original"
-                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line md:h-10 md:w-10 text-ink-soft transition hover:border-clay hover:text-clay"
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line md:h-10 md:w-10 text-ink-soft transition hover:border-clay hover:text-clay pointer-coarse:hidden"
               >
                 <ExternalIcon size={16} />
               </a>
