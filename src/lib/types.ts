@@ -128,6 +128,9 @@ export interface CatalogArticleDto {
   site_url: string | null;
   is_subscribed: boolean;
   score: number;
+  // From the feed body, so a thumbnail row can say how long the piece is
+  // before you leave for a publication you have never read.
+  reading_minutes: number | null;
 }
 
 export interface CatalogPublicationDto {
