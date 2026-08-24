@@ -2,7 +2,13 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { type ArticleDto, type ReadingItemDto, timeAgo } from "@/lib/types";
+import {
+  type ArticleDto,
+  type FeedDto,
+  type FolderDto,
+  type ReadingItemDto,
+  timeAgo,
+} from "@/lib/types";
 import {
   cachedImageUrl,
   recordEvent,
@@ -12,6 +18,8 @@ import {
 } from "@/lib/actions";
 import { Toast, useToast } from "@/components/Toast";
 import { TopBar } from "@/components/TopBar";
+import { Sidebar } from "@/components/Sidebar";
+import { SettingsDialog } from "@/components/SettingsDialog";
 import { ExternalIcon } from "@/components/SwipeableCard";
 import { SurveyDialog, type SurveyChoice } from "@/components/SurveyDialog";
 import { Reader, after } from "@/components/Reader";
@@ -46,6 +54,11 @@ export default function ReadingListPage() {
   // put back".
   const [unsaved, setUnsaved] = useState<ArticleDto | null>(null);
   const { toast, showToast } = useToast();
+  // The rail names every destination, so it needs the same feeds and folders
+  // the home grid draws. Two reads of already-cached routes.
+  const [feeds, setFeeds] = useState<FeedDto[]>([]);
+  const [folders, setFolders] = useState<FolderDto[]>([]);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const resolveArticle = useCallback(
     async (id: number): Promise<ArticleDto | null> => {
@@ -72,6 +85,14 @@ export default function ReadingListPage() {
       .then((response) => response.json())
       .then(setItems)
       .finally(() => setLoading(false));
+    fetch("/api/feeds")
+      .then((response) => response.json())
+      .then((data) => setFeeds(Array.isArray(data) ? data : []))
+      .catch(() => {});
+    fetch("/api/folders")
+      .then((response) => response.json())
+      .then((data) => setFolders(Array.isArray(data) ? data : []))
+      .catch(() => {});
   }, [user]);
 
   // On this page a save is the reason the row exists, so un-saving removes it
@@ -111,10 +132,23 @@ export default function ReadingListPage() {
   return (
     <div className="min-h-screen">
       <TopBar username={user?.username} />
-      <main className="mx-auto max-w-3xl px-5 py-8 md:px-8">
+      <div className="flex">
+        <Sidebar
+          feeds={feeds}
+          folders={folders}
+          selection={null}
+          readingCount={items.length}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
+        <main className="mx-auto min-w-0 max-w-[760px] flex-1 px-5 py-8 md:px-8">
         <div className="flex items-baseline justify-between">
           <h1 className="font-serif text-3xl text-ink">Read later</h1>
-          <Link href="/" className="text-sm text-clay hover:underline">
+          {/* The rail is the way back, but it stops at lg and an iPad in
+              portrait is 834px. Kept below that, dropped above it. */}
+          <Link
+            href="/"
+            className="text-sm text-clay hover:underline lg:hidden"
+          >
             ← Back to feed
           </Link>
         </div>
@@ -200,7 +234,14 @@ export default function ReadingListPage() {
             ))}
           </ul>
         )}
-      </main>
+        </main>
+      </div>
+      {settingsOpen && (
+        <SettingsDialog
+          onClose={() => setSettingsOpen(false)}
+          onSaved={(message) => showToast(message)}
+        />
+      )}
       {reader.article && (
         <Reader
           article={reader.article}

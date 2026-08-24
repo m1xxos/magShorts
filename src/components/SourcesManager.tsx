@@ -8,7 +8,8 @@ import {
   type SettingsForm,
 } from "@/lib/types";
 import { FeedAvatar } from "./FeedAvatar";
-import { FolderIcon } from "./Sidebar";
+import { FolderIcon, Sidebar } from "./Sidebar";
+import { SettingsDialog } from "./SettingsDialog";
 import { Toast, useToast } from "./Toast";
 import { TopBar } from "./TopBar";
 import { useUser } from "@/lib/useUser";
@@ -51,6 +52,10 @@ export function SourcesManager() {
   const [folders, setFolders] = useState<FolderDto[]>([]);
   const [settings, setSettings] = useState<SettingsForm | null>(null);
   const [loading, setLoading] = useState(true);
+  // Only so the rail's Read later row can carry its count, the same number it
+  // shows on every other page.
+  const [readingCount, setReadingCount] = useState(0);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const [addUrl, setAddUrl] = useState("");
   const [addFolder, setAddFolder] = useState<string>("");
@@ -60,14 +65,17 @@ export function SourcesManager() {
   const [renameValue, setRenameValue] = useState("");
 
   const reload = useCallback(async () => {
-    const [feedsRes, foldersRes, settingsRes] = await Promise.all([
+    const [feedsRes, foldersRes, settingsRes, savedRes] = await Promise.all([
       fetch("/api/feeds"),
       fetch("/api/folders"),
       fetch("/api/settings"),
+      fetch("/api/reading-list"),
     ]);
     setFeeds(await feedsRes.json());
     setFolders(await foldersRes.json());
     setSettings(await settingsRes.json());
+    const saved = await savedRes.json();
+    setReadingCount(Array.isArray(saved) ? saved.length : 0);
   }, []);
 
   useEffect(() => {
@@ -366,10 +374,19 @@ export function SourcesManager() {
   return (
     <div className="min-h-screen">
       <TopBar username={user?.username} />
-      <main className="mx-auto max-w-4xl px-5 py-8 md:px-8">
+      <div className="flex">
+        <Sidebar
+          feeds={feeds}
+          folders={folders}
+          selection={null}
+          readingCount={readingCount}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
+        <main className="mx-auto min-w-0 max-w-[900px] flex-1 px-5 py-8 md:px-8">
         <div className="flex items-baseline justify-between">
           <h1 className="font-serif text-3xl text-ink">Sources</h1>
-          <Link href="/" className="text-sm text-clay hover:underline">
+          {/* Kept below lg, where the rail is not rendered. */}
+          <Link href="/" className="text-sm text-clay hover:underline lg:hidden">
             ← Back to feed
           </Link>
         </div>
@@ -535,7 +552,14 @@ export function SourcesManager() {
             })}
           </>
         )}
-      </main>
+        </main>
+      </div>
+      {settingsOpen && (
+        <SettingsDialog
+          onClose={() => setSettingsOpen(false)}
+          onSaved={(message) => showToast(message)}
+        />
+      )}
       <Toast toast={toast} />
     </div>
   );

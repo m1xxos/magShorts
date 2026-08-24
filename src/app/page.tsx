@@ -11,9 +11,7 @@ import {
   type RecWindow,
   type Selection,
 } from "@/lib/types";
-import { AddFeedDialog } from "@/components/AddFeedDialog";
 import { Reader, after } from "@/components/Reader";
-import { CreateFolderDialog } from "@/components/CreateFolderDialog";
 import { ArticleCard } from "@/components/ArticleCard";
 import { SettingsDialog } from "@/components/SettingsDialog";
 import { FolderIcon, Sidebar, SparkleIcon } from "@/components/Sidebar";
@@ -97,8 +95,6 @@ export default function HomePage() {
   const [recWindow, setRecWindow] = useState<RecWindow>("week");
   const [density, setDensity] = useState<Density>("cards");
   const [coldStart, setColdStart] = useState(false);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [folderDialogOpen, setFolderDialogOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [readingCount, setReadingCount] = useState(0);
   // Links already in Read later, so the reader's bookmark pill starts in the
@@ -308,41 +304,8 @@ export default function HomePage() {
     loadArticles(selection, recWindow);
   }, [user, selection, recWindow, loadArticles]);
 
-  async function removeFeed(feed: FeedDto) {
-    if (!confirm(`Unsubscribe from “${feed.title}”?`)) return;
-    await fetch(`/api/feeds/${feed.id}`, { method: "DELETE" });
-    if (selectedFeedId === feed.id) setSelection({ kind: "all" });
-    else if (selection) loadArticles(selection, recWindow);
-    loadFeeds();
-  }
 
-  async function toggleFolder(folder: FolderDto) {
-    await fetch(`/api/folders/${folder.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ include_in_main: !folder.include_in_main }),
-    });
-    showToast(
-      folder.include_in_main
-        ? `${folder.name} won’t feed For you`
-        : `${folder.name} now feeds For you`
-    );
-    loadFeeds();
-    if (selection) loadArticles(selection, recWindow);
-  }
 
-  async function toggleFeed(feed: FeedDto) {
-    await fetch(`/api/feeds/${feed.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled: !feed.enabled }),
-    });
-    showToast(
-      feed.enabled ? `${feed.title} turned off` : `${feed.title} turned on`
-    );
-    loadFeeds();
-    if (selection) loadArticles(selection, recWindow);
-  }
 
   // The reader's article may not be on a page the grid has loaded — a pasted
   // ?article= link, or the tail of a long list — so fall back to fetching it.
@@ -384,11 +347,6 @@ export default function HomePage() {
           selection={selection}
           readingCount={readingCount}
           onSelect={setSelection}
-          onRemove={removeFeed}
-          onToggle={toggleFeed}
-          onToggleFolder={toggleFolder}
-          onAddClick={() => setDialogOpen(true)}
-          onNewFolder={() => setFolderDialogOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
         />
         <main className="min-w-0 flex-1 px-5 py-6 md:px-8">
@@ -444,12 +402,14 @@ export default function HomePage() {
                 <FolderIcon size={11} /> {folder.name}
               </button>
             ))}
-            <button
-              onClick={() => setDialogOpen(true)}
+            {/* Below lg there is no rail, so this is the only way to reach
+                subscriptions from the grid. It goes where adding now lives. */}
+            <Link
+              href="/sources"
               className="shrink-0 rounded-full border border-dashed border-line px-3.5 py-1.5 text-[13px] text-clay"
             >
               + Add
-            </button>
+            </Link>
             <Link
               href="/reading-list"
               className="shrink-0 rounded-full border border-line bg-paper-raised px-3.5 py-1.5 text-[13px] text-ink-soft"
@@ -551,21 +511,6 @@ export default function HomePage() {
         </main>
       </div>
 
-      {dialogOpen && (
-        <AddFeedDialog
-          onClose={() => setDialogOpen(false)}
-          onAdded={() => {
-            loadFeeds();
-            if (selection) loadArticles(selection, recWindow);
-          }}
-        />
-      )}
-      {folderDialogOpen && (
-        <CreateFolderDialog
-          onClose={() => setFolderDialogOpen(false)}
-          onCreated={() => loadFeeds()}
-        />
-      )}
       {settingsOpen && (
         <SettingsDialog
           onClose={() => setSettingsOpen(false)}
