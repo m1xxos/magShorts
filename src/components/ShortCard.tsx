@@ -25,10 +25,15 @@ export function ShortCard({
   onToast,
   onSaved,
   onActed,
+  onRead,
   ref,
 }: {
   article: ArticleDto;
   index: number;
+  // Given when the deck can open the reader over itself. Without it — the
+  // setting turned off — Read now leaves for the publisher's own page, which
+  // is how this button behaved before the reader existed.
+  onRead?: (article: ArticleDto) => void;
   onToast: (message: string, error?: boolean) => void;
   onSaved?: () => void;
   onActed?: () => void;
@@ -148,19 +153,32 @@ export function ShortCard({
               push Read now and Save off the bottom of the card, which are the
               two things the deck exists for. */}
           <div className="flex shrink-0 flex-nowrap items-center gap-1.5 border-t border-line px-7 py-3.5 md:gap-2 md:px-8">
-              <a
-                href={unlockUrl(article.link)}
-                target="_blank"
-                rel="noopener noreferrer"
-                title="Opens paywall-free via Marreta"
-                onClick={() => {
-                  recordEvent(article.link, "open");
-                  onActed?.();
-                }}
-                className="inline-flex shrink-0 items-center gap-2 rounded-full bg-clay px-4 py-2.5 text-sm font-medium text-white transition hover:brightness-95 md:px-5 pointer-coarse:min-h-12 pointer-coarse:px-5 pointer-coarse:text-[15px]"
-              >
-                Read now
-              </a>
+              {onRead ? (
+                <button
+                  onClick={() => {
+                    recordEvent(article.link, "open");
+                    onActed?.();
+                    onRead(article);
+                  }}
+                  className="inline-flex shrink-0 items-center gap-2 rounded-full bg-clay px-4 py-2.5 text-sm font-medium text-white transition hover:brightness-95 md:px-5 pointer-coarse:min-h-12 pointer-coarse:px-5 pointer-coarse:text-[15px]"
+                >
+                  Read now
+                </button>
+              ) : (
+                <a
+                  href={unlockUrl(article.link)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Opens paywall-free via Marreta"
+                  onClick={() => {
+                    recordEvent(article.link, "open");
+                    onActed?.();
+                  }}
+                  className="inline-flex shrink-0 items-center gap-2 rounded-full bg-clay px-4 py-2.5 text-sm font-medium text-white transition hover:brightness-95 md:px-5 pointer-coarse:min-h-12 pointer-coarse:px-5 pointer-coarse:text-[15px]"
+                >
+                  Read now
+                </a>
+              )}
               {/* Was an icon. Save is the action this deck exists for, and an
                   outline bookmark is not a word. */}
               <button

@@ -3,7 +3,11 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { recordEvent } from "@/lib/actions";
+import {
+  recordEvent,
+  removeFromReadingList,
+  saveToReadingList,
+} from "@/lib/actions";
 import { type ArticleDto, type FolderDto } from "@/lib/types";
 import { ShortCard } from "./ShortCard";
 import {
@@ -11,6 +15,8 @@ import {
   type SwipeableCardHandle,
 } from "./SwipeableCard";
 import { Toast, useToast } from "./Toast";
+import { Reader, after } from "./Reader";
+import { useReader } from "@/lib/useReader";
 import { useUser } from "@/lib/useUser";
 
 const SHORTS_PAGE = 40;
@@ -30,6 +36,10 @@ export function ShortsReader() {
   // null = All: the default deck across every enabled feed and folder.
   const [folderId, setFolderId] = useState<number | null>(null);
   const [keysOpen, setKeysOpen] = useState(false);
+  // Links already saved, so the reader's bookmark pill starts in the right
+  // state — the deck knows about saves the moment a card is swiped.
+  const [savedLinks, setSavedLinks] = useState<Set<string>>(new Set());
+  const [openInReader, setOpenInReader] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
   const cardHandles = useRef<Map<number, SwipeableCardHandle>>(new Map());
   const actedCards = useRef<Set<number>>(new Set());
@@ -146,7 +156,46 @@ export function ShortsReader() {
     const response = await fetch("/api/reading-list");
     const items = await response.json();
     setReadingCount(Array.isArray(items) ? items.length : 0);
+    setSavedLinks(
+      new Set(
+        Array.isArray(items)
+          ? (items as Array<{ link: string }>).map((item) => item.link)
+          : []
+      )
+    );
   }, []);
+
+  useEffect(() => {
+    fetch("/api/settings")
+      .then((response) => response.json())
+      .then((settings: { open_in_reader?: string }) => {
+        setOpenInReader(settings.open_in_reader !== "off");
+      })
+      .catch(() => {});
+  }, []);
+
+  // The deck already holds every article it can offer, so opening one is a
+  // lookup rather than a request; a pasted ?article= link falls back to the
+  // API the same way the other pages do.
+  const resolveArticle = useCallback(
+    async (id: number): Promise<ArticleDto | null> => {
+      const known = articles.find((article) => article.id === id);
+      if (known) return known;
+      const response = await fetch(`/api/articles/${id}`);
+      return response.ok ? ((await response.json()) as ArticleDto) : null;
+    },
+    [articles]
+  );
+  const reader = useReader(resolveArticle);
+
+  async function toggleSave(article: ArticleDto) {
+    const saved = savedLinks.has(article.link);
+    const result = saved
+      ? await removeFromReadingList(article.link)
+      : await saveToReadingList(article);
+    showToast(result.message, !result.ok);
+    if (result.ok) loadReadingCount();
+  }
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- async data fetch, state updates happen after await
@@ -360,6 +409,7 @@ export function ShortsReader() {
               index={index}
               onToast={showToast}
               onSaved={loadReadingCount}
+              onRead={openInReader ? reader.open : undefined}
               onActed={() => actedCards.current.add(index)}
               ref={(handle) => {
                 if (handle) cardHandles.current.set(index, handle);
@@ -425,6 +475,20 @@ export function ShortsReader() {
             </ul>
           </div>
         </div>
+      )}
+      {reader.article && (
+        <Reader
+          article={reader.article}
+          originLabel="Shorts"
+          upNext={after(
+            articles,
+            articles.findIndex((article) => article.id === reader.article?.id)
+          )}
+          saved={savedLinks.has(reader.article.link)}
+          onToggleSave={() => toggleSave(reader.article!)}
+          onOpenArticle={reader.open}
+          onClose={reader.close}
+        />
       )}
       <Toast toast={toast} />
     </div>
