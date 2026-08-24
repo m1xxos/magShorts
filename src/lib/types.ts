@@ -40,6 +40,10 @@ export interface FeedDto {
   // automatically once this gets high; a subscription is the reader's own, so
   // it is only reported.
   failures: number;
+  // Articles published in the last four weeks, which is what a publication
+  // brings you now — article_count is a lifetime total and stops meaning
+  // anything once a subscription is a few months old.
+  recent_articles: number;
   // The last time the feed actually answered. Written only on success — a
   // failed refresh deliberately leaves it alone (see rss.ts) — so it is what
   // "not answering since" can honestly be measured from. A SQLite
