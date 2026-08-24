@@ -412,10 +412,22 @@ export default function DiscoverPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ subscribed: false }),
       });
-      showToast(
-        response.ok ? `${title} is back in Discover` : "Could not undo",
-        !response.ok,
+      if (response.ok) {
+        showToast(`${title} is back in Discover`);
+        return;
+      }
+      // Put the optimistic change back, the same way follow() does: a row
+      // offering Subscribe for a feed that is still subscribed makes the next
+      // click a no-op the reader cannot tell from success.
+      setPublications((prev) =>
+        prev.map((p) => (p.id === feedId ? { ...p, is_subscribed: true } : p)),
       );
+      setArticles((prev) =>
+        prev.map((a) =>
+          a.feed_id === feedId ? { ...a, is_subscribed: true } : a,
+        ),
+      );
+      showToast("Could not undo", true);
     },
     [showToast],
   );

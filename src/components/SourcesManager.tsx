@@ -673,6 +673,14 @@ export function SourcesManager() {
             >
               Add a source
             </button>
+            {/* In the toolbar, not only in a folder's own menu: with no
+                folders yet there would be no menu to open. */}
+            <button
+              onClick={() => setFolderDialogOpen(true)}
+              className="shrink-0 rounded-full border border-line px-4 py-2.5 text-sm text-ink-soft transition hover:border-clay hover:text-clay pointer-coarse:min-h-12"
+            >
+              New folder
+            </button>
           </div>
 
           {loading ? (

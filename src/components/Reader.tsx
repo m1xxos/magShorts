@@ -216,12 +216,21 @@ export function Reader({
 
   useEffect(() => {
     const saved = window.localStorage.getItem(TYPE_KEY);
-    if (!saved) return;
+    if (!saved) {
+      // Nothing stored yet: pick the step, once. The default ramp position is
+      // tuned for a laptop at 60cm, and a tablet is held further away — but
+      // this is a starting point, not an override, so the Aa control keeps
+      // working the moment it is touched.
+      if (window.matchMedia("(pointer: coarse)").matches) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time media query after hydration
+        setType((current) => ({ ...current, step: TYPE_STEPS.length - 1 }));
+      }
+      return;
+    }
     try {
       // Read field by field: settings stored before the width control existed
       // should keep their size and typeface rather than being thrown away.
       const parsed = JSON.parse(saved) as Partial<TypeSetting>;
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time localStorage read after hydration
       setType((current) => ({
         step: clampStep(parsed.step, TYPE_STEPS.length, current.step),
         width: clampStep(parsed.width, WIDTH_STEPS.length, current.width),
@@ -737,17 +746,8 @@ export function Reader({
             <div
               ref={bodyRef}
               className={type.serif ? "font-serif" : "font-sans"}
-              // The default step is tuned for a laptop at 60cm. A tablet is
-              // held further away and read for longer, so the middle of the
-              // ramp moves up unless the reader has picked a size themselves.
               style={{
-                fontSize: `${
-                  touch && type.step === 1
-                    ? portrait
-                      ? 20
-                      : 19
-                    : TYPE_STEPS[type.step]
-                }px`,
+                fontSize: `${TYPE_STEPS[type.step]}px`,
                 lineHeight: touch ? 1.7 : undefined,
               }}
             >

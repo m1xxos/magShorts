@@ -431,7 +431,12 @@ export default function ReadingListPage() {
           saved={unsaved?.link !== reader.article.link}
           onToggleSave={() => toggleSave(reader.article!)}
           onOpenArticle={reader.open}
-          onClose={reader.close}
+          onClose={() => {
+            reader.close();
+            // The reader is an overlay on this page: closing it is exactly
+            // when the row behind it learns how far you got.
+            setProgress(readProgress());
+          }}
         />
       )}
       {surveyItem && (

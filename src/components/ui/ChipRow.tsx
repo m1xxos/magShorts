@@ -41,6 +41,7 @@ export function Chip({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       title={title}
       aria-pressed={active}

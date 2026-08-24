@@ -210,6 +210,10 @@ export function ShortsReader() {
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
+      // The reader mounts over the deck and owns the keyboard while it is
+      // open: without this, Escape closed the article and then left Shorts
+      // entirely, and ←/→ swiped the card hidden behind the overlay.
+      if (reader.article) return;
       if (event.key === "ArrowDown" || event.key === "j" || event.key === " ") {
         event.preventDefault();
         setCurrent((index) => {
@@ -240,7 +244,7 @@ export function ShortsReader() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [articles.length, current, scrollToIndex, router]);
+  }, [articles.length, current, scrollToIndex, router, reader.article]);
 
   // Track which card is in view while the user scrolls freely.
   useEffect(() => {

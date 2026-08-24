@@ -22,6 +22,7 @@ export function Switch({
 }) {
   const button = (
     <button
+      type="button"
       role="switch"
       aria-checked={checked}
       aria-label={label ? undefined : title}

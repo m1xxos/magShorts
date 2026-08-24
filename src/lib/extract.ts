@@ -883,10 +883,11 @@ async function measureImages(html: string): Promise<string> {
           const sharp = (await import("sharp")).default;
           const { width, height } = await sharp(image.buffer).metadata();
           if (!width || !height) return;
-          sized.set(
-            tag,
-            tag.replace(/<img\b/, `<img width="${width}" height="${height}"`)
-          );
+          const missing = [
+            /\bwidth="/.test(tag) ? "" : ` width="${width}"`,
+            /\bheight="/.test(tag) ? "" : ` height="${height}"`,
+          ].join("");
+          if (missing) sized.set(tag, tag.replace(/<img\b/, `<img${missing}`));
         } catch {
           // An image that will not decode is one the reader will not draw
           // either; leaving it unsized is no worse than it was.

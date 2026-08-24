@@ -69,6 +69,7 @@ export function Menu({
   return (
     <div ref={wrapper} className="relative shrink-0">
       <button
+        type="button"
         onClick={() => setOpen((was) => !was)}
         title={title}
         aria-label={title}
@@ -110,6 +111,7 @@ export function Menu({
             }
             return (
               <button
+                type="button"
                 key={`${item.label}-${index}`}
                 role="menuitem"
                 disabled={item.disabled}
