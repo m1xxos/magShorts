@@ -13,6 +13,9 @@ import { BookmarkIcon, ExternalIcon } from "./SwipeableCard";
 import { ReaderGallery, type Slide } from "./ReaderGallery";
 import { ReaderOutline } from "./ReaderOutline";
 import { ReaderUpNext } from "./ReaderUpNext";
+import { Menu } from "./ui/Menu";
+import { Sheet } from "./ui/Sheet";
+import { useMediaQuery } from "@/lib/useMediaQuery";
 
 // The in-app reader: an article opened over the grid instead of in a new tab.
 //
@@ -195,6 +198,11 @@ export function Reader({
     serif: true,
   });
   const [typeOpen, setTypeOpen] = useState(false);
+  const [outlineOpen, setOutlineOpen] = useState(false);
+  // A popover on a mouse, a sheet on a finger: in a 176px panel each of the
+  // five text sizes gets about 30px of tap area.
+  const touch = useMediaQuery("(pointer: coarse)");
+  const portrait = useMediaQuery("(orientation: portrait)");
   const [lightbox, setLightbox] = useState<Lightbox | null>(null);
   // Articles about the same thing as this one. Empty is a normal answer.
   const [related, setRelated] = useState<ArticleDto[]>([]);
@@ -468,13 +476,82 @@ export function Reader({
 
   const minutes = content?.reading_minutes ?? null;
   const left = minutes ? Math.max(0, Math.ceil(minutes * (1 - progress))) : null;
-  const note =
-    content?.status === "partial"
-      ? "only part of the article — the page gave up no more"
-      : content?.source
-        ? SOURCE_LABEL[content.source]
-        : "";
+  // Where the text came from. Diagnostic, not reading material, so it sits in
+  // the ⋯ menu beside Original — the one place it changes a decision. The
+  // 'partial' case is different and stays on the page: "only part of the
+  // article" tells you what to do next.
+  const sourceNote = content?.source ? SOURCE_LABEL[content.source] : "";
   const hasOutline = (content?.headings.length ?? 0) > 0;
+
+  // The same three controls in the same order, drawn either in the popover or
+  // in the sheet — one definition, so a change to the ramp cannot land in one
+  // and not the other.
+  const typeControls = (
+    <>
+      <p className="mb-2 text-[11px] tracking-[0.12em] text-ink-faint uppercase">
+        Text size
+      </p>
+      <div className="flex rounded-full border border-line p-0.5">
+        {TYPE_STEPS.map((size, index) => (
+          <button
+            key={size}
+            onClick={() => changeType({ ...type, step: index })}
+            aria-pressed={type.step === index}
+            className={`flex-1 rounded-full py-1 pointer-coarse:min-h-13 transition ${
+              type.step === index
+                ? "bg-ink text-paper"
+                : "text-ink-faint hover:text-ink"
+            }`}
+            style={{ fontSize: `${11 + index * 2}px` }}
+          >
+            A
+          </button>
+        ))}
+      </div>
+      <p className="mt-3 mb-2 text-[11px] tracking-[0.12em] text-ink-faint uppercase">
+        Typeface
+      </p>
+      <div className="flex rounded-full border border-line p-0.5 text-[12px]">
+        <button
+          onClick={() => changeType({ ...type, serif: true })}
+          aria-pressed={type.serif}
+          className={`flex-1 rounded-full py-1 pointer-coarse:min-h-13 font-serif transition ${
+            type.serif ? "bg-ink text-paper" : "text-ink-faint"
+          }`}
+        >
+          Serif
+        </button>
+        <button
+          onClick={() => changeType({ ...type, serif: false })}
+          aria-pressed={!type.serif}
+          className={`flex-1 rounded-full py-1 pointer-coarse:min-h-13 transition ${
+            type.serif ? "text-ink-faint" : "bg-ink text-paper"
+          }`}
+        >
+          Sans
+        </button>
+      </div>
+      <p className="mt-3 mb-2 text-[11px] tracking-[0.12em] text-ink-faint uppercase">
+        Column width
+      </p>
+      <div className="flex rounded-full border border-line p-0.5 text-[12px]">
+        {WIDTH_STEPS.map((option, index) => (
+          <button
+            key={option.px}
+            onClick={() => changeType({ ...type, width: index })}
+            aria-pressed={type.width === index}
+            className={`flex-1 rounded-full py-1 pointer-coarse:min-h-13 transition ${
+              type.width === index
+                ? "bg-ink text-paper"
+                : "text-ink-faint hover:text-ink"
+            }`}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </>
+  );
 
   return (
     <div
@@ -510,83 +587,26 @@ export function Reader({
               <Pill onClick={() => setTypeOpen((open) => !open)} pressed={typeOpen}>
                 Aa
               </Pill>
-              {typeOpen && (
+              {typeOpen && !touch && (
                 <div className="absolute right-0 z-20 mt-2 w-44 rounded-2xl border border-line bg-paper-raised p-3 shadow-[0_12px_32px_-16px_rgba(31,30,27,0.35)]">
-                  <p className="mb-2 text-[11px] tracking-[0.12em] text-ink-faint uppercase">
-                    Text size
-                  </p>
-                  <div className="flex rounded-full border border-line p-0.5">
-                    {TYPE_STEPS.map((size, index) => (
-                      <button
-                        key={size}
-                        onClick={() => changeType({ ...type, step: index })}
-                        aria-pressed={type.step === index}
-                        className={`flex-1 rounded-full py-1 transition ${
-                          type.step === index
-                            ? "bg-ink text-paper"
-                            : "text-ink-faint hover:text-ink"
-                        }`}
-                        style={{ fontSize: `${11 + index * 2}px` }}
-                      >
-                        A
-                      </button>
-                    ))}
-                  </div>
-                  <p className="mt-3 mb-2 text-[11px] tracking-[0.12em] text-ink-faint uppercase">
-                    Typeface
-                  </p>
-                  <div className="flex rounded-full border border-line p-0.5 text-[12px]">
-                    <button
-                      onClick={() => changeType({ ...type, serif: true })}
-                      aria-pressed={type.serif}
-                      className={`flex-1 rounded-full py-1 font-serif transition ${
-                        type.serif ? "bg-ink text-paper" : "text-ink-faint"
-                      }`}
-                    >
-                      Serif
-                    </button>
-                    <button
-                      onClick={() => changeType({ ...type, serif: false })}
-                      aria-pressed={!type.serif}
-                      className={`flex-1 rounded-full py-1 transition ${
-                        type.serif ? "text-ink-faint" : "bg-ink text-paper"
-                      }`}
-                    >
-                      Sans
-                    </button>
-                  </div>
-                  <p className="mt-3 mb-2 text-[11px] tracking-[0.12em] text-ink-faint uppercase">
-                    Column width
-                  </p>
-                  <div className="flex rounded-full border border-line p-0.5 text-[12px]">
-                    {WIDTH_STEPS.map((option, index) => (
-                      <button
-                        key={option.px}
-                        onClick={() => changeType({ ...type, width: index })}
-                        aria-pressed={type.width === index}
-                        className={`flex-1 rounded-full py-1 transition ${
-                          type.width === index
-                            ? "bg-ink text-paper"
-                            : "text-ink-faint hover:text-ink"
-                        }`}
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
+                  {typeControls}
                 </div>
               )}
             </div>
 
-            <a
-              href={unlockUrl(article.link)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-[7px] rounded-full border border-line bg-paper-raised px-3.5 py-[7px] text-[13px] text-ink-soft transition hover:border-clay hover:text-clay"
-            >
-              <ExternalIcon size={13} />
-              <span className="hidden sm:inline">Original</span>
-            </a>
+            <Menu
+              align="right"
+              items={[
+                {
+                  label: "Open the original",
+                  hint: sourceNote || undefined,
+                  onSelect: () => {
+                    recordEvent(article.link, "open");
+                    window.open(unlockUrl(article.link), "_blank", "noopener");
+                  },
+                },
+              ]}
+            />
             <button
               onClick={close}
               aria-label="Close the reader"
@@ -596,6 +616,27 @@ export function Reader({
             </button>
           </div>
         </div>
+        {/* Everything the left rail says, for the widths where there is no
+            left rail. Below 1180px the outline, the reading time and the
+            saved state all vanished, and nothing else in the component
+            printed them. */}
+        <div className="flex h-9 items-center gap-3 border-b border-line px-5 text-[12.5px] text-ink-faint md:px-8 min-[1180px]:hidden">
+          {hasOutline && (
+            <button
+              onClick={() => setOutlineOpen(true)}
+              className="flex shrink-0 items-center gap-1.5 transition hover:text-ink"
+            >
+              In this article
+              <span className="tabular-nums">· {content?.headings.length}</span>
+            </button>
+          )}
+          {minutes && (
+            <span className="truncate">
+              {minutes} min read{left !== null ? ` · ${left} min left` : ""}
+            </span>
+          )}
+        </div>
+
         {/* scaleX rather than width: a transform is composited, so the bar
             never asks the page for another layout while you are scrolling. */}
         <div className="h-[3px] bg-line">
@@ -617,7 +658,7 @@ export function Reader({
             top: `${RAIL_TOP}px`,
             maxHeight: `calc(100vh - ${RAIL_TOP + 24}px)`,
           }}
-          className="no-scrollbar hidden w-[212px] shrink-0 self-start overflow-y-auto pt-2.5 xl:sticky xl:block"
+          className="no-scrollbar hidden w-[212px] shrink-0 self-start overflow-y-auto pt-2.5 min-[1180px]:sticky min-[1180px]:block"
         >
           <ReaderOutline
             headings={content?.headings ?? []}
@@ -637,9 +678,9 @@ export function Reader({
             <span className="text-[12.5px] text-ink-faint">
               {saved ? "Saved to Read later" : "Not saved"}
             </span>
-            {note && (
+            {content?.status === "partial" && (
               <span className="text-[12.5px] leading-[1.5] text-ink-faint">
-                {note}
+                only part of the article — the page gave up no more
               </span>
             )}
           </div>
@@ -649,7 +690,14 @@ export function Reader({
           // Not shrink-0: at the widest setting a 1280px window has to be
           // allowed to take the difference out of the column rather than
           // pushing a rail off screen.
-          style={{ maxWidth: `${WIDTH_STEPS[type.width].px}px` }}
+          //
+          // In portrait on a touch screen the width steps do not apply: the
+          // sheet is the column, minus its gutters, which comes out around
+          // sixty-six characters at these sizes.
+          style={{
+            maxWidth:
+              touch && portrait ? undefined : `${WIDTH_STEPS[type.width].px}px`,
+          }}
           className="w-full rounded-2xl border border-line bg-paper px-6 py-9 md:px-16 md:py-13"
         >
           <div className="mb-4.5 flex items-center gap-2.5">
@@ -669,11 +717,11 @@ export function Reader({
               )}
             </span>
           </div>
-          <h1 className="font-serif text-[30px] leading-[1.18] font-medium text-pretty text-ink md:text-[38px]">
+          <h1 className="font-serif text-[30px] leading-[1.18] font-medium text-pretty text-ink md:text-[38px] pointer-coarse:portrait:text-[40px] pointer-coarse:landscape:text-[36px]">
             {article.title}
           </h1>
           {standfirst && (
-            <p className="mt-5 font-serif text-[19px] leading-[1.5] text-ink-soft italic">
+            <p className="mt-5 font-serif text-[19px] leading-[1.5] text-ink-soft italic pointer-coarse:portrait:text-[21px] pointer-coarse:landscape:text-[20px]">
               {standfirst}
             </p>
           )}
@@ -685,7 +733,19 @@ export function Reader({
             <div
               ref={bodyRef}
               className={type.serif ? "font-serif" : "font-sans"}
-              style={{ fontSize: `${TYPE_STEPS[type.step]}px` }}
+              // The default step is tuned for a laptop at 60cm. A tablet is
+              // held further away and read for longer, so the middle of the
+              // ramp moves up unless the reader has picked a size themselves.
+              style={{
+                fontSize: `${
+                  touch && type.step === 1
+                    ? portrait
+                      ? 20
+                      : 19
+                    : TYPE_STEPS[type.step]
+                }px`,
+                lineHeight: touch ? 1.7 : undefined,
+              }}
             >
               {segments.map((segment, at) =>
                 segment.kind === "gallery" ? (
@@ -723,6 +783,36 @@ export function Reader({
           ) : (
             <Failed onRetry={() => load(true)} link={article.link} />
           )}
+          {/* Below xl there is no Up next rail, and finishing an article
+              should not end the session — so it lands where the article ends,
+              along with the two actions that were only in the header. */}
+          {nextUp.length > 0 && (
+            <div className="mt-10 border-t border-line pt-6 xl:hidden">
+              <ReaderUpNext items={nextUp} onOpen={onOpenArticle} />
+            </div>
+          )}
+          <div className="mt-8 flex gap-2.5 xl:hidden">
+            <button
+              onClick={onToggleSave}
+              className={`flex h-[52px] flex-1 items-center justify-center gap-2 rounded-full border text-[15px] transition ${
+                saved
+                  ? "border-ink bg-ink text-paper"
+                  : "border-line bg-paper-raised text-ink-soft"
+              }`}
+            >
+              <BookmarkIcon size={15} filled={saved} />
+              {saved ? "Saved" : "Read later"}
+            </button>
+            <a
+              href={unlockUrl(article.link)}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => recordEvent(article.link, "open")}
+              className="flex h-[52px] flex-1 items-center justify-center gap-2 rounded-full border border-line bg-paper-raised text-[15px] text-ink-soft transition"
+            >
+              <ExternalIcon size={15} /> Original
+            </a>
+          </div>
         </article>
 
         <aside
@@ -735,6 +825,44 @@ export function Reader({
           <ReaderUpNext items={nextUp} onOpen={onOpenArticle} />
         </aside>
       </div>
+
+      <Sheet open={typeOpen && touch} onClose={() => setTypeOpen(false)} title="Text">
+        <div className="pb-4">{typeControls}</div>
+      </Sheet>
+
+      {/* The outline, where the rail cannot be. Closes before jumping: jump()
+          animates the overlay's own scroller, and racing it against the
+          sheet's transition makes both look broken. */}
+      <Sheet
+        open={outlineOpen}
+        onClose={() => setOutlineOpen(false)}
+        title="In this article"
+      >
+        {minutes && (
+          <p className="mb-3 text-[13px] text-ink-faint">
+            {minutes} min read{left !== null ? ` · ${left} min left` : ""}
+          </p>
+        )}
+        <div className="pb-4">
+          {(content?.headings ?? []).map((heading) => (
+            <button
+              key={heading.id}
+              onClick={() => {
+                setOutlineOpen(false);
+                requestAnimationFrame(() => jump(heading.id));
+              }}
+              style={{ paddingLeft: `${(heading.level - 2) * 10}px` }}
+              className={`flex min-h-14 w-full items-center border-l text-left text-[15.5px] transition ${
+                activeId === heading.id
+                  ? "border-clay font-medium text-ink"
+                  : "border-line text-ink-soft"
+              }`}
+            >
+              <span className="pl-3.5">{heading.text}</span>
+            </button>
+          ))}
+        </div>
+      </Sheet>
 
       {lightbox && (
         <Lightbox
