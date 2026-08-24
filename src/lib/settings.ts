@@ -10,6 +10,11 @@ export type SettingKey =
   // Which view the home page opens with: "" = All publications,
   // "forYou", or "folder:<id>".
   | "default_view"
+  // "on" | "off": whether a headline opens in the in-app reader or leaves for
+  // the publisher's own page. Stored as words, never as "" — an empty value
+  // deletes the row and reverts to the default, which is the opposite of what
+  // turning something off should mean.
+  | "open_in_reader"
   // Digest shape and schedule. Each falls back to its env var, so a deployment
   // can still be configured entirely from the environment.
   | "digest_also_count"
@@ -27,6 +32,7 @@ export const SETTING_KEYS: SettingKey[] = [
   "direct_domains",
   "archive_domains",
   "default_view",
+  "open_in_reader",
   "digest_also_count",
   "digest_quick_count",
   "digest_daily_at",
@@ -43,6 +49,7 @@ const ENV_FALLBACKS: Record<SettingKey, string | undefined> = {
   direct_domains: process.env.DIRECT_DOMAINS,
   archive_domains: process.env.ARCHIVE_DOMAINS,
   default_view: undefined,
+  open_in_reader: process.env.OPEN_IN_READER,
   digest_also_count: undefined,
   digest_quick_count: undefined,
   digest_daily_at: process.env.DIGEST_DAILY_AT,
@@ -58,6 +65,9 @@ const DEFAULTS: Partial<Record<SettingKey, string>> = {
   archive_url: "https://web.archive.org/web/",
   direct_domains: "habr.com",
   archive_domains: "nytimes.com",
+  // "off" sends a headline to the publisher's own page in a new tab, the
+  // way the app behaved before the reader existed.
+  open_in_reader: "on",
   digest_also_count: "6",
   digest_quick_count: "4",
   digest_daily_at: "08:00",

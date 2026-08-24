@@ -8,6 +8,7 @@ import {
   timeAgo,
 } from "@/lib/types";
 import { cachedImageUrl, recordEvent, unlockUrl } from "@/lib/actions";
+import { readProgress, writeProgress } from "@/lib/readProgress";
 import { BookmarkIcon, ExternalIcon } from "./SwipeableCard";
 import { ReaderGallery, type Slide } from "./ReaderGallery";
 import { ReaderOutline } from "./ReaderOutline";
@@ -44,7 +45,6 @@ export function after<T>(list: T[], index: number): T[] {
 // How many cards the right rail holds. Exported because each page builds
 // its own list-order fallback and both have to agree on the length.
 export const UP_NEXT = 3;
-const PROGRESS_KEY = "ms_read_progress";
 const TYPE_KEY = "ms_reader_type";
 // Clears the sticky top bar (64px) and the progress rule (3px), plus a little
 // air. Used by both rails and by the outline's own scroll box.
@@ -130,12 +130,6 @@ interface TypeSetting {
   serif: boolean;
 }
 
-function writeProgress(articleId: number, fraction: number): void {
-  const stored = readProgress();
-  stored[String(articleId)] = fraction;
-  window.localStorage.setItem(PROGRESS_KEY, JSON.stringify(stored));
-}
-
 // Is this summary just the top of the article again? Compared on the first
 // words with the markup and punctuation stripped, because the feed's copy and
 // the page's differ in quotes, dashes and ellipses.
@@ -158,14 +152,6 @@ function clampStep(
 ): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
   return Math.min(count - 1, Math.max(0, Math.round(value)));
-}
-
-function readProgress(): Record<string, number> {
-  try {
-    return JSON.parse(window.localStorage.getItem(PROGRESS_KEY) ?? "{}");
-  } catch {
-    return {};
-  }
 }
 
 // Where the text came from, said plainly. A reader should never have to guess

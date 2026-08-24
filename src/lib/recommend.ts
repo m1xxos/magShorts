@@ -1,5 +1,6 @@
 import { getDb, type Article } from "./db";
 import { EMBEDDING_DIM, bufferToVector } from "./embeddings";
+import { readingMinutesFromHtml } from "./readingTime";
 
 export type RecWindow = "day" | "week" | "month";
 
@@ -101,7 +102,13 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-type Candidate = Article & { embedding: Buffer };
+type Candidate = Article & {
+  embedding: Buffer;
+  // From article_content when the reader has already been here — preferred
+  // over counting the feed body, so a card and the reader quote the same
+  // number for the same article.
+  extracted_minutes?: number | null;
+};
 
 interface Scored {
   article: Candidate;
@@ -148,9 +155,11 @@ function fetchCandidates(
   }
   return getDb()
     .prepare(
-      `SELECT a.*, f.title AS feed_title FROM articles a
+      `SELECT a.*, f.title AS feed_title, ac.reading_minutes AS extracted_minutes
+       FROM articles a
        JOIN feeds f ON f.id = a.feed_id
        LEFT JOIN folders fo ON fo.id = f.folder_id
+       LEFT JOIN article_content ac ON ac.article_id = a.id
        WHERE f.enabled = 1 AND f.subscribed = 1
          AND a.embedding IS NOT NULL
          AND a.published_at >= datetime('now', ?)
@@ -212,10 +221,19 @@ function diversify(scored: Scored[]): Candidate[] {
   return ranked;
 }
 
+// What actually goes over the wire. The embedding was already dropped here;
+// `content` was not, so every recommendation and every Shorts deck shipped the
+// full feed body of forty articles to a client that renders a headline and a
+// summary. It is turned into the one number the cards want and then dropped
+// with it.
 function stripEmbedding(candidate: Candidate): Article {
   const article = { ...candidate } as Partial<Candidate>;
+  const minutes =
+    candidate.extracted_minutes ?? readingMinutesFromHtml(candidate.content);
   delete article.embedding;
-  return article as Article;
+  delete article.extracted_minutes;
+  delete article.content;
+  return { ...article, reading_minutes: minutes } as Article;
 }
 
 export function recommendArticles(

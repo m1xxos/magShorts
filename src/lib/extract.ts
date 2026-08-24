@@ -3,6 +3,7 @@ import { Readability } from "@mozilla/readability";
 import { getDb } from "./db";
 import { fetchPageHtml } from "./articleImages";
 import { bodyFromEmbeddedState } from "./embeddedState";
+import { readingMinutes } from "./readingTime";
 import {
   archiveBases,
   getSetting,
@@ -55,7 +56,6 @@ const PAYWALL_MARKERS = [
 // A hop only wins if it beats what we already have by a real margin — 5% more
 // of the same boilerplate is not a better article.
 const BETTER_BY = 1.15;
-const WORDS_PER_MINUTE = 200;
 // Bodies are stored, so they need a ceiling. 200 KB is roughly a 30 000-word
 // piece; nothing in the corpus came close.
 const HTML_MAX = 200_000;
@@ -631,11 +631,6 @@ function hops(link: string, pageHtml: string | null): Hop[] {
 }
 
 // ------------------------------------------------------------- extraction
-
-function readingMinutes(text: string): number {
-  const words = text.split(/\s+/).filter(Boolean).length;
-  return Math.max(1, Math.ceil(words / WORDS_PER_MINUTE));
-}
 
 interface Attempt {
   clean: Sanitised;

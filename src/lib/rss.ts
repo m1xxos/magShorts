@@ -401,9 +401,16 @@ export function trimAllCatalogFeeds(): number {
 // from sleep) share one full refresh instead of each fetching every feed.
 let fullRefreshInFlight: Promise<void> | null = null;
 
-export function refreshStaleFeeds(feedId?: number): Promise<void> {
+// `force` skips the staleness gate for one feed. Needed because a feed that is
+// failing keeps its old last_fetched_at and therefore always looks stale — but
+// one that failed two minutes after a successful fetch does not, and a Retry
+// button that silently does nothing is worse than no button.
+export function refreshStaleFeeds(
+  feedId?: number,
+  options: { force?: boolean } = {}
+): Promise<void> {
   if (feedId === undefined && fullRefreshInFlight) return fullRefreshInFlight;
-  const refresh = doRefreshStaleFeeds(feedId);
+  const refresh = doRefreshStaleFeeds(feedId, options.force ?? false);
   if (feedId === undefined) {
     fullRefreshInFlight = refresh.finally(() => {
       fullRefreshInFlight = null;
@@ -413,7 +420,10 @@ export function refreshStaleFeeds(feedId?: number): Promise<void> {
   return refresh;
 }
 
-async function doRefreshStaleFeeds(feedId?: number): Promise<void> {
+async function doRefreshStaleFeeds(
+  feedId?: number,
+  force = false
+): Promise<void> {
   const db = getDb();
   const select = `SELECT f.*, fo.name AS folder_name FROM feeds f
      LEFT JOIN folders fo ON fo.id = f.folder_id`;
@@ -424,7 +434,7 @@ async function doRefreshStaleFeeds(feedId?: number): Promise<void> {
   ) as FeedWithFolder[];
 
   const now = Date.now();
-  const stale = feeds.filter((feed) => {
+  const stale = force ? feeds : feeds.filter((feed) => {
     if (!feed.last_fetched_at) return true;
     // Catalog publications refresh far less often: nobody is reading them yet,
     // and there are more of them than there are subscriptions.
