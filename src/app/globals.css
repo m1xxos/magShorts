@@ -73,6 +73,15 @@ body {
 .reader-body h4 {
   font-size: 1em;
 }
+/* A picture whose size the page never stated and the extractor could not
+   measure — a dead URL, an SVG, an animation. The box is reserved at 3:2 until
+   the file arrives and its own ratio takes over ("auto" wins over the fallback
+   the moment there is an intrinsic one), so the article does not lurch when a
+   late image finally lands. */
+.reader-body img:not([width]) {
+  aspect-ratio: auto 3 / 2;
+}
+
 .reader-body a {
   color: var(--clay);
   text-decoration: underline;

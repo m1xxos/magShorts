@@ -2,6 +2,7 @@ import { parseHTML } from "linkedom";
 import { Readability } from "@mozilla/readability";
 import { getDb } from "./db";
 import { fetchPageHtml } from "./articleImages";
+import { getCachedImage, imageContentType } from "./imageCache";
 import { bodyFromEmbeddedState } from "./embeddedState";
 import { readingMinutes } from "./readingTime";
 import {
@@ -731,7 +732,10 @@ async function run(articleId: number): Promise<ArticleContentDto> {
         best = { clean: embedded.clean, source: "state" };
       }
     }
-    if (best && !truncated(best.clean)) return store(articleId, best);
+    if (best && !truncated(best.clean)) {
+      best.clean.html = await measureImages(best.clean.html);
+      return store(articleId, best);
+    }
   }
 
   // 3–5. The page's own full-text renderings, then the two unlock services.
@@ -773,6 +777,7 @@ async function run(articleId: number): Promise<ArticleContentDto> {
   // it is not worth caching as final: without this the row is 'ok', the Retry
   // button never renders, and a page that was merely slow that day is a
   // permanent 800-character article.
+  best.clean.html = await measureImages(best.clean.html);
   return store(articleId, best, truncated(best.clean));
 }
 
@@ -823,6 +828,81 @@ function escapeHtml(text: string): string {
 function better(candidate: Sanitised, current: Attempt | null): boolean {
   if (!current) return true;
   return candidate.text.length > current.clean.text.length * BETTER_BY;
+}
+
+// Give every picture a size before the reader ever draws it.
+//
+// An <img> with no width and height is a hole the browser can only measure
+// once the file arrives. Chrome's scroll anchoring then corrects the scroll
+// position as each one lands, and the article jumps under the reader by tens
+// of pixels at a time — measured on a real session: twenty backward jumps of
+// 11 to 70px in twenty-three seconds of scrolling, with the text either side
+// of the jump identical.
+//
+// Pages state a size far less often than you would hope: of 554 stored
+// pictures only 178 carried one. So the ones that don't are measured here, by
+// pulling them through the image cache — which is where the reader will ask
+// for them anyway, so the download is not extra work, it is the same work done
+// early. The number stored is the size of the bytes we will actually serve,
+// not the publisher's original, because the cache re-encodes above 1280px.
+const MEASURE_MAX = 12;
+const MEASURE_BATCH = 4;
+
+function proxiedOrigin(tag: string): string | null {
+  const src = /src="([^"]+)"/.exec(tag)?.[1];
+  if (!src?.startsWith("/api/images?")) return null;
+  const raw = new URLSearchParams(src.slice(src.indexOf("?") + 1)).get("u");
+  return raw && /^https?:\/\//.test(raw) ? raw : null;
+}
+
+async function measureImages(html: string): Promise<string> {
+  const tags = [...new Set([...html.matchAll(/<img\b[^>]*>/g)].map((m) => m[0]))]
+    .filter((tag) => !/\bwidth="/.test(tag) || !/\bheight="/.test(tag))
+    .slice(0, MEASURE_MAX);
+  if (tags.length === 0) return html;
+
+  const sized = new Map<string, string>();
+  for (let at = 0; at < tags.length; at += MEASURE_BATCH) {
+    await Promise.all(
+      tags.slice(at, at + MEASURE_BATCH).map(async (tag) => {
+        const origin = proxiedOrigin(tag);
+        if (!origin) return;
+        try {
+          const image = await getCachedImage(origin);
+          if (!image) {
+            // The cache refuses anything that is not an image, so ask what it
+            // was. WIRED files its inline video clips in the same shape as its
+            // photographs, and they reached the article as <img> tags pointing
+            // at an mp4: a broken picture the reader would reserve space for
+            // and never fill. A network failure, by contrast, is temporary and
+            // the tag stays.
+            const kind = await imageContentType(origin);
+            if (kind && !kind.startsWith("image/")) sized.set(tag, "");
+            return;
+          }
+          const sharp = (await import("sharp")).default;
+          const { width, height } = await sharp(image.buffer).metadata();
+          if (!width || !height) return;
+          sized.set(
+            tag,
+            tag.replace(/<img\b/, `<img width="${width}" height="${height}"`)
+          );
+        } catch {
+          // An image that will not decode is one the reader will not draw
+          // either; leaving it unsized is no worse than it was.
+        }
+      })
+    );
+  }
+
+  let out = html;
+  for (const [from, to] of sized) out = out.split(from).join(to);
+  const dropped = [...sized.values()].filter((value) => value === "").length;
+  console.log(
+    `[extract] measured ${sized.size - dropped}/${tags.length} unsized pictures` +
+      (dropped ? `, dropped ${dropped} that were not images` : "")
+  );
+  return out;
 }
 
 function store(
