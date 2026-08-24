@@ -15,13 +15,22 @@ export async function GET(request: NextRequest) {
   // by link so its rows outlive the articles they came from. Correlated
   // subqueries rather than a join, so a link that two feeds both carry cannot
   // turn one saved item into two.
+  //
+  // reading_minutes rides along for the same reason it is cheap: saving a link
+  // already triggers extraction, so the number is usually sitting in
+  // article_content. Asking the client to fetch it per row would ship the
+  // whole sanitised body of every saved article to derive one integer each.
   const items = getDb()
     .prepare(
       `SELECT r.*,
          (SELECT a.id FROM articles a WHERE a.link = r.link ORDER BY a.id LIMIT 1)
            AS article_id,
          (SELECT a.feed_id FROM articles a WHERE a.link = r.link ORDER BY a.id LIMIT 1)
-           AS feed_id
+           AS feed_id,
+         (SELECT ac.reading_minutes FROM article_content ac
+            JOIN articles a ON a.id = ac.article_id
+           WHERE a.link = r.link ORDER BY a.id LIMIT 1)
+           AS reading_minutes
        FROM reading_list r
        WHERE r.user_id = ?
        ORDER BY r.added_at DESC, r.id DESC`

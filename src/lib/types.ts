@@ -16,6 +16,7 @@ export interface SettingsForm {
   direct_domains: string;
   archive_domains: string;
   default_view: string;
+  open_in_reader: string;
   digest_also_count: string;
   digest_quick_count: string;
   digest_daily_at: string;
@@ -39,6 +40,15 @@ export interface FeedDto {
   // automatically once this gets high; a subscription is the reader's own, so
   // it is only reported.
   failures: number;
+  // Articles published in the last four weeks, which is what a publication
+  // brings you now — article_count is a lifetime total and stops meaning
+  // anything once a subscription is a few months old.
+  recent_articles: number;
+  // The last time the feed actually answered. Written only on success — a
+  // failed refresh deliberately leaves it alone (see rss.ts) — so it is what
+  // "not answering since" can honestly be measured from. A SQLite
+  // datetime('now') string: UTC, space-separated, no marker.
+  last_fetched_at: string | null;
 }
 
 export interface FolderDto {
@@ -60,6 +70,10 @@ export interface ArticleDto {
   published_at: string | null;
   topic: string | null;
   feed_title: string;
+  // Optional because only the recommendation surfaces compute it — a Shorts
+  // card says how long a piece is before you commit to it. The reader has its
+  // own, measured on the extracted text rather than the feed body.
+  reading_minutes?: number | null;
 }
 
 export type DigestKind = "daily" | "weekly";
@@ -118,6 +132,9 @@ export interface CatalogArticleDto {
   site_url: string | null;
   is_subscribed: boolean;
   score: number;
+  // From the feed body, so a thumbnail row can say how long the piece is
+  // before you leave for a publication you have never read.
+  reading_minutes: number | null;
 }
 
 export interface CatalogPublicationDto {
@@ -184,6 +201,10 @@ export interface ReadingItemDto {
   feed_title: string | null;
   published_at: string | null;
   added_at: string;
+  // From article_content, when the article has been extracted — saving
+  // triggers extraction, so most rows have one. NULL for items saved before
+  // the reader existed, for trimmed articles and for failed extractions.
+  reading_minutes: number | null;
 }
 
 const AVATAR_TONES = [

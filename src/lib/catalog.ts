@@ -2,6 +2,7 @@ import { getDb, type Article } from "./db";
 import { bufferToVector, EMBEDDING_DIM } from "./embeddings";
 import { buildProfile, isCommerceRoundup } from "./recommend";
 import type { CatalogArticleDto, CatalogPublicationDto } from "./types";
+import { readingMinutesFromHtml } from "./readingTime";
 
 // The Discover catalog: publications the user has not subscribed to
 // (feeds.subscribed = 0), ranked against the same taste profile the For you
@@ -131,6 +132,7 @@ function toArticleDto(
     site_url: article.site_url,
     is_subscribed: article.subscribed === 1,
     score,
+    reading_minutes: readingMinutesFromHtml(article.content),
   };
 }
 

@@ -2,17 +2,28 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { type ArticleDto, type ReadingItemDto, timeAgo } from "@/lib/types";
+import {
+  type ArticleDto,
+  type FeedDto,
+  type FolderDto,
+  type ReadingItemDto,
+  timeAgo,
+} from "@/lib/types";
 import {
   cachedImageUrl,
   recordEvent,
   removeFromReadingList,
   saveToReadingList,
+  sendToOmnivore,
   unlockUrl,
 } from "@/lib/actions";
 import { Toast, useToast } from "@/components/Toast";
+import { Menu, separator } from "@/components/ui/Menu";
+import { Segmented } from "@/components/ui/Segmented";
+import { partialProgress, readProgress } from "@/lib/readProgress";
 import { TopBar } from "@/components/TopBar";
-import { ExternalIcon } from "@/components/SwipeableCard";
+import { Sidebar } from "@/components/Sidebar";
+import { SettingsDialog } from "@/components/SettingsDialog";
 import { SurveyDialog, type SurveyChoice } from "@/components/SurveyDialog";
 import { Reader, after } from "@/components/Reader";
 import { readerLink, useReader } from "@/lib/useReader";
@@ -36,6 +47,50 @@ function asArticle(item: ReadingItemDto): ArticleDto | null {
   };
 }
 
+type Sort = "newest" | "oldest" | "shortest";
+
+const SORTS: Array<{ value: Sort; label: string }> = [
+  { value: "newest", label: "Newest" },
+  { value: "oldest", label: "Oldest" },
+  // The one that gets a list like this used: seven minutes free, find
+  // something that fits in them.
+  { value: "shortest", label: "Shortest" },
+];
+
+function savedAt(item: ReadingItemDto): number {
+  // SQLite writes UTC with a space and no marker; parsed as-is it lands in
+  // local time and everything saved today looks hours old.
+  return new Date(item.added_at.replace(" ", "T") + "Z").getTime();
+}
+
+// The heading a saved item files under. Weeks near the top, because that is
+// the resolution you remember saving things at; months once it is history.
+function groupOf(item: ReadingItemDto, now: number): string {
+  const age = now - savedAt(item);
+  const day = 24 * 3_600_000;
+  if (age < 7 * day) return "This week";
+  if (age < 30 * day) return "Earlier this month";
+  return new Date(savedAt(item)).toLocaleDateString(undefined, {
+    month: "long",
+    year: "numeric",
+  });
+}
+
+function readingClause(items: ReadingItemDto[]): string {
+  const known = items.filter((item) => item.reading_minutes);
+  // Below this the total would be a guess dressed as a number: an article
+  // whose text was never extracted has no length, and quietly leaving it out
+  // under-reports the queue.
+  if (known.length < items.length * 0.6) return "";
+  const minutes = known.reduce((sum, item) => sum + (item.reading_minutes ?? 0), 0);
+  const scaled = Math.round((minutes / known.length) * items.length);
+  if (scaled < 1) return "";
+  const hours = Math.floor(scaled / 60);
+  const rest = scaled % 60;
+  const spelled = hours ? `${hours} h${rest ? ` ${rest} m` : ""}` : `${rest} m`;
+  return `about ${spelled} of reading`;
+}
+
 export default function ReadingListPage() {
   const user = useUser();
   const [items, setItems] = useState<ReadingItemDto[]>([]);
@@ -46,6 +101,19 @@ export default function ReadingListPage() {
   // put back".
   const [unsaved, setUnsaved] = useState<ArticleDto | null>(null);
   const { toast, showToast } = useToast();
+  // The rail names every destination, so it needs the same feeds and folders
+  // the home grid draws. Two reads of already-cached routes.
+  const [feeds, setFeeds] = useState<FeedDto[]>([]);
+  const [folders, setFolders] = useState<FolderDto[]>([]);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [sort, setSort] = useState<Sort>("newest");
+  // Fixed for the life of the page: "this week" must not move under a
+  // re-render, and a Read later session does not outlive a week.
+  const [now] = useState(() => Date.now());
+  // Where the reader left off, per article. Read straight from the same map
+  // the reader writes; it is a scroll position in this browser, not a fact
+  // about the article, and it is honest about that.
+  const [progress, setProgress] = useState<Record<string, number>>({});
 
   const resolveArticle = useCallback(
     async (id: number): Promise<ArticleDto | null> => {
@@ -72,6 +140,16 @@ export default function ReadingListPage() {
       .then((response) => response.json())
       .then(setItems)
       .finally(() => setLoading(false));
+    fetch("/api/feeds")
+      .then((response) => response.json())
+      .then((data) => setFeeds(Array.isArray(data) ? data : []))
+      .catch(() => {});
+    fetch("/api/folders")
+      .then((response) => response.json())
+      .then((data) => setFolders(Array.isArray(data) ? data : []))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is not readable during render
+    setProgress(readProgress());
   }, [user]);
 
   // On this page a save is the reason the row exists, so un-saving removes it
@@ -94,6 +172,30 @@ export default function ReadingListPage() {
     setItems((previous) => previous.filter((it) => it.link !== article.link));
   }
 
+  // Sorted, then grouped — and grouped only when the order is chronological.
+  // "Shortest" answers a different question, and heading it with "This week"
+  // would suggest a chronology the list no longer has.
+  const ordered = [...items].sort((a, b) => {
+    if (sort === "shortest") {
+      // Unknown length sorts last rather than first: an article whose text was
+      // never extracted is not a two-minute read, it is an unknown one.
+      const left = a.reading_minutes ?? Number.MAX_SAFE_INTEGER;
+      const right = b.reading_minutes ?? Number.MAX_SAFE_INTEGER;
+      return left - right;
+    }
+    return sort === "oldest"
+      ? savedAt(a) - savedAt(b)
+      : savedAt(b) - savedAt(a);
+  });
+
+  const sorted: Array<{ label: string; items: ReadingItemDto[] }> = [];
+  for (const item of ordered) {
+    const label = sort === "shortest" ? "" : groupOf(item, now);
+    const last = sorted[sorted.length - 1];
+    if (last && last.label === label) last.items.push(item);
+    else sorted.push({ label, items: [item] });
+  }
+
   async function finishSurvey(item: ReadingItemDto, choice: SurveyChoice) {
     setSurveyItem(null);
     recordEvent(item.link, choice, item.title);
@@ -111,13 +213,52 @@ export default function ReadingListPage() {
   return (
     <div className="min-h-screen">
       <TopBar username={user?.username} />
-      <main className="mx-auto max-w-3xl px-5 py-8 md:px-8">
-        <div className="flex items-baseline justify-between">
-          <h1 className="font-serif text-3xl text-ink">Read later</h1>
-          <Link href="/" className="text-sm text-clay hover:underline">
+      <div className="flex">
+        <Sidebar
+          feeds={feeds}
+          folders={folders}
+          selection={null}
+          readingCount={items.length}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
+        <main className="mx-auto min-w-0 max-w-[760px] flex-1 px-5 py-8 md:px-8">
+        <div className="flex items-baseline justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="font-serif text-3xl text-ink">Read later</h1>
+            {/* The size of the queue in the unit you decide by. A count alone
+                does not tell you whether this is an evening or a month. */}
+            {items.length > 0 && (
+              <p className="mt-1 text-[13px] text-ink-faint pointer-coarse:text-[14.5px]">
+                {items.length} saved
+                {readingClause(items) && (
+                  <>
+                    <span className="mx-1.5">·</span>
+                    {readingClause(items)}
+                  </>
+                )}
+              </p>
+            )}
+          </div>
+          {/* The rail is the way back, but it stops at lg and an iPad in
+              portrait is 834px. Kept below that, dropped above it. */}
+          <Link
+            href="/"
+            className="shrink-0 text-sm text-clay hover:underline lg:hidden"
+          >
             ← Back to feed
           </Link>
         </div>
+
+        {items.length > 1 && (
+          <div className="mt-5 flex justify-end">
+            <Segmented
+              options={SORTS}
+              value={sort}
+              onChange={setSort}
+              ariaLabel="Sort saved articles"
+            />
+          </div>
+        )}
 
         {loading ? (
           <p className="py-20 text-center text-ink-faint">Loading…</p>
@@ -130,77 +271,158 @@ export default function ReadingListPage() {
             </p>
           </div>
         ) : (
-          <ul className="mt-6 space-y-3">
-            {items.map((item) => (
-              <li
-                key={item.id}
-                className="group flex gap-4 rounded-2xl border border-line bg-paper-raised p-4 transition hover:shadow-[0_8px_24px_-12px_rgba(31,30,27,0.2)]"
-              >
-                {item.image_url && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={cachedImageUrl(item.image_url)}
-                    alt=""
-                    loading="lazy"
-                    className="hidden h-20 w-32 shrink-0 rounded-xl object-cover sm:block"
-                  />
+          <div className="mt-6">
+            {sorted.map((group) => (
+              <section key={group.label} className="mb-7 last:mb-0">
+                {/* A date heading instead of the twentieth identical row. In
+                    Shortest order there is only one group: length and date are
+                    different questions and interleaving them answers neither. */}
+                {group.label && (
+                  <h2 className="mb-2.5 text-[11px] font-medium tracking-[0.14em] text-ink-faint uppercase">
+                    {group.label}
+                  </h2>
                 )}
-                <div className="min-w-0 flex-1">
-                  {/* The reader when the article is still on file; the
-                      unlock route when it isn't, so an old save never becomes
-                      a dead headline. */}
-                  {asArticle(item) ? (
-                    <a
-                      {...readerLink(asArticle(item)!, reader.open)}
-                      className="line-clamp-2 font-serif text-[16px] leading-snug font-medium text-ink hover:text-clay"
-                    >
-                      {item.title}
-                    </a>
-                  ) : (
-                    <a
-                      href={unlockUrl(item.link)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title="Opens paywall-free via Marreta"
-                      className="line-clamp-2 font-serif text-[16px] leading-snug font-medium text-ink hover:text-clay"
-                    >
-                      {item.title}
-                    </a>
-                  )}
-                  <p className="mt-1 text-[13px] text-ink-faint">
-                    {item.feed_title}
-                    {item.feed_title && <span className="mx-1.5">·</span>}
-                    saved {timeAgo(item.added_at.replace(" ", "T") + "Z") || "just now"}
-                  </p>
-                  {item.summary && (
-                    <p className="mt-1.5 line-clamp-2 text-[13px] text-ink-soft">
-                      {item.summary}
-                    </p>
-                  )}
-                </div>
-                <div className="flex shrink-0 flex-col items-end justify-between gap-2">
-                  <button
-                    title="Remove"
-                    onClick={() => setSurveyItem(item)}
-                    className="flex h-7 w-7 items-center justify-center rounded-full text-ink-faint opacity-0 transition group-hover:opacity-100 pointer-coarse:opacity-100 hover:bg-paper-sunken hover:text-ink"
-                  >
-                    ×
-                  </button>
-                  <a
-                    href={item.link}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title="Open the original"
-                    className="flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-[12px] text-ink-soft transition hover:border-clay hover:text-clay"
-                  >
-                    <ExternalIcon size={12} /> Original
-                  </a>
-                </div>
-              </li>
+                <ul className="space-y-3">
+                  {group.items.map((item) => {
+                    const article = asArticle(item);
+                    const read = partialProgress(progress, item.article_id);
+                    return (
+                      <li
+                        key={item.id}
+                        className="flex flex-col gap-3 rounded-2xl border border-line bg-paper-raised p-4 transition hover:shadow-[0_8px_24px_-12px_rgba(31,30,27,0.2)] sm:flex-row sm:items-center sm:gap-4"
+                      >
+                        <div className="flex min-w-0 flex-1 gap-4">
+                          {item.image_url && (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={cachedImageUrl(item.image_url)}
+                              alt=""
+                              loading="lazy"
+                              width={128}
+                              height={80}
+                              className="hidden h-20 w-32 shrink-0 rounded-xl object-cover sm:block"
+                            />
+                          )}
+                          <div className="min-w-0 flex-1">
+                            {/* The reader when the article is still on file;
+                                the unlock route when it isn't, so an old save
+                                never becomes a dead headline. */}
+                            {article ? (
+                              <a
+                                {...readerLink(article, reader.open)}
+                                className="line-clamp-2 font-serif text-[16px] leading-snug font-medium text-ink hover:text-clay pointer-coarse:text-[19px]"
+                              >
+                                {item.title}
+                              </a>
+                            ) : (
+                              <a
+                                href={unlockUrl(item.link)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title="Opens paywall-free via Marreta"
+                                className="line-clamp-2 font-serif text-[16px] leading-snug font-medium text-ink hover:text-clay pointer-coarse:text-[19px]"
+                              >
+                                {item.title}
+                              </a>
+                            )}
+                            <p className="mt-1 text-[13px] text-ink-faint pointer-coarse:text-[14px]">
+                              {item.feed_title}
+                              {item.feed_title && <span className="mx-1.5">·</span>}
+                              saved{" "}
+                              {timeAgo(item.added_at.replace(" ", "T") + "Z") ||
+                                "just now"}
+                              {item.reading_minutes && (
+                                <>
+                                  <span className="mx-1.5">·</span>
+                                  {item.reading_minutes} min
+                                </>
+                              )}
+                              {read !== null && (
+                                <>
+                                  <span className="mx-1.5">·</span>
+                                  <span className="text-clay">
+                                    {Math.round(read * 100)}% read
+                                  </span>
+                                </>
+                              )}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* One row of controls, all of them labelled. The
+                            remove button used to be a × that appeared on
+                            hover, over the row it would delete. */}
+                        <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
+                          {article ? (
+                            <a
+                              {...readerLink(article, reader.open)}
+                              className="rounded-full bg-clay px-4 py-1.5 text-[13px] text-white transition hover:opacity-90 pointer-coarse:min-h-11 pointer-coarse:px-5 pointer-coarse:text-[15px]"
+                            >
+                              {read !== null ? "Continue" : "Read"}
+                            </a>
+                          ) : (
+                            <a
+                              href={unlockUrl(item.link)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="rounded-full bg-clay px-4 py-1.5 text-[13px] text-white transition hover:opacity-90 pointer-coarse:min-h-11 pointer-coarse:px-5 pointer-coarse:text-[15px]"
+                            >
+                              Read
+                            </a>
+                          )}
+                          <Menu
+                            items={[
+                              {
+                                label: "Open the original",
+                                onSelect: () => {
+                                  recordEvent(item.link, "open", item.title);
+                                  window.open(item.link, "_blank", "noopener");
+                                },
+                              },
+                              {
+                                label: "Send to Omnivore",
+                                onSelect: async () => {
+                                  const result = await sendToOmnivore(
+                                    article ?? {
+                                      id: 0,
+                                      feed_id: item.feed_id ?? 0,
+                                      title: item.title,
+                                      link: item.link,
+                                      summary: item.summary,
+                                      image_url: item.image_url,
+                                      published_at: item.published_at,
+                                      topic: null,
+                                      feed_title: item.feed_title ?? "",
+                                    }
+                                  );
+                                  showToast(result.message, !result.ok);
+                                },
+                              },
+                              separator("remove"),
+                              {
+                                label: "Remove from Read later",
+                                destructive: true,
+                                onSelect: () => setSurveyItem(item),
+                              },
+                            ]}
+                          />
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
             ))}
-          </ul>
+          </div>
         )}
-      </main>
+        </main>
+      </div>
+      {settingsOpen && (
+        <SettingsDialog
+          onClose={() => setSettingsOpen(false)}
+          onSaved={(message) => showToast(message)}
+        />
+      )}
       {reader.article && (
         <Reader
           article={reader.article}
@@ -209,7 +431,12 @@ export default function ReadingListPage() {
           saved={unsaved?.link !== reader.article.link}
           onToggleSave={() => toggleSave(reader.article!)}
           onOpenArticle={reader.open}
-          onClose={reader.close}
+          onClose={() => {
+            reader.close();
+            // The reader is an overlay on this page: closing it is exactly
+            // when the row behind it learns how far you got.
+            setProgress(readProgress());
+          }}
         />
       )}
       {surveyItem && (

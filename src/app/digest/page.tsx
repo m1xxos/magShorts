@@ -144,6 +144,12 @@ export default function DigestPage() {
           [kind]: data?.digest ?? null,
         }));
         if (data?.schedule) setSchedule(data.schedule);
+        // Opening the daily digest is what clears the sidebar's "today"
+        // marker. Nothing server-side records a read — this is the whole of
+        // that state, and it is honest about being per-browser.
+        if (kind === "daily" && data?.digest) {
+          window.localStorage.setItem("ms_digest_seen", data.digest.period_key);
+        }
       });
     return () => {
       cancelled = true;

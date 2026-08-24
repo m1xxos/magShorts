@@ -31,9 +31,13 @@ function toneGradient(feedId: number): string {
   return `linear-gradient(135deg, ${tone}18, ${tone}42)`;
 }
 
-// One article tile. The catalog keeps ten articles per publication and the
-// block leads with three, so this is also what "read more" unfolds.
-function ArticleTile({
+// One article, as a row rather than a card.
+//
+// Three 16:9 covers per block meant two publications filled a viewport, and
+// this page exists to compare publications, not to read the articles. A
+// thumbnail row puts four or five of them in the same space, which is what
+// makes a block evidence about a publication rather than a sample of one.
+function ArticleRow({
   article,
   feedId,
   onSave,
@@ -45,7 +49,7 @@ function ArticleTile({
   saved: boolean;
 }) {
   return (
-    <div className="flex h-full flex-col">
+    <li className="flex items-center gap-3">
       <a
         // Straight to the publisher, not through Marreta: in Discover you are
         // judging an unfamiliar publication, and its own site — design, ads,
@@ -54,7 +58,7 @@ function ArticleTile({
         target="_blank"
         rel="noopener noreferrer"
         onClick={() => recordEvent(article.link, "open", article.title)}
-        className="group flex flex-col"
+        className="group flex min-w-0 flex-1 items-center gap-3.5"
       >
         {article.image_url ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -62,51 +66,56 @@ function ArticleTile({
             src={cachedImageUrl(article.image_url)}
             alt=""
             loading="lazy"
-            className="aspect-video w-full rounded-xl object-cover"
+            width={84}
+            height={56}
+            className="h-[56px] w-[84px] shrink-0 rounded-lg object-cover pointer-coarse:h-[62px] pointer-coarse:w-[94px]"
           />
         ) : (
           <div
-            className="aspect-video w-full rounded-xl"
+            className="h-[56px] w-[84px] shrink-0 rounded-lg pointer-coarse:h-[62px] pointer-coarse:w-[94px]"
             style={{ background: toneGradient(feedId) }}
           />
         )}
-        <h3 className="mt-2.5 font-serif text-[17px] leading-[1.32] font-medium text-ink group-hover:text-clay">
-          {article.title}
-        </h3>
+        <div className="min-w-0 flex-1">
+          <h3 className="line-clamp-2 font-serif text-[15.5px] leading-[1.32] font-medium text-ink group-hover:text-clay pointer-coarse:text-[16.5px]">
+            {article.title}
+          </h3>
+          <p className="mt-1 text-[12px] text-ink-faint pointer-coarse:text-[13.5px]">
+            {timeAgo(article.published_at)}
+            {article.reading_minutes ? (
+              <>
+                <span className="mx-1.5">·</span>
+                {article.reading_minutes} min
+              </>
+            ) : null}
+            {article.topic ? (
+              <>
+                <span className="mx-1.5">·</span>
+                {article.topic}
+              </>
+            ) : null}
+          </p>
+        </div>
       </a>
 
       {/* Outside the anchor: a button nested in a link is neither valid nor
-          clickable. Kept to one quiet control — the tile is still evidence
-          about the publication first, but a piece worth reading should not
-          have to be found again later. */}
-      <div className="mt-auto flex flex-wrap items-center gap-2 pt-2.5">
-        {article.topic && (
-          <span className="rounded-full bg-paper-sunken px-[9px] py-[3px] text-[11px] text-ink-soft">
-            {article.topic}
-          </span>
-        )}
-        <span className="text-[12px] text-ink-faint">
-          {timeAgo(article.published_at)}
-        </span>
-        <button
-          onClick={() => onSave(article)}
-          title={saved ? "Remove from Read later" : "Save to Read later"}
-          aria-label={
-            saved
-              ? `Remove ${article.title} from Read later`
-              : `Save ${article.title} to Read later`
-          }
-          aria-pressed={saved}
-          className={`ml-auto inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition ${
-            saved
-              ? "text-ink"
-              : "text-ink-faint hover:bg-paper-sunken hover:text-clay"
-          }`}
-        >
-          <BookmarkIcon size={13} filled={saved} />
-        </button>
-      </div>
-    </div>
+          clickable. */}
+      <button
+        onClick={() => onSave(article)}
+        title={saved ? "Remove from Read later" : "Save to Read later"}
+        aria-label={
+          saved
+            ? `Remove ${article.title} from Read later`
+            : `Save ${article.title} to Read later`
+        }
+        aria-pressed={saved}
+        className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition pointer-coarse:h-11 pointer-coarse:w-11 ${
+          saved ? "text-ink" : "text-ink-faint hover:bg-paper-sunken hover:text-clay"
+        }`}
+      >
+        <BookmarkIcon size={14} filled={saved} />
+      </button>
+    </li>
   );
 }
 
@@ -114,12 +123,14 @@ export function PublicationBlock({
   publication,
   onSubscribe,
   onDismiss,
+  onUndo,
   onSave,
   savedLinks,
 }: {
   publication: CatalogPublicationDto;
   onSubscribe: (publication: CatalogPublicationDto) => void;
   onDismiss: (publication: CatalogPublicationDto) => void;
+  onUndo?: (publication: CatalogPublicationDto) => void;
   onSave: (article: CatalogArticleDto) => void;
   // Links already in Read later. Kept by link rather than by article id, since
   // that is what Read later itself stores and what survives the catalog
@@ -164,20 +175,44 @@ export function PublicationBlock({
           {publication.title.trim().charAt(0).toUpperCase()}
         </span>
         <div className="min-w-0 flex-1">
-          <p className="font-serif text-[18px] text-ink">{publication.title}</p>
-          <p className="mt-0.5 text-[12.5px] leading-[1.45] text-ink-soft">
-            {publication.description}
-            {publication.description && rate ? " " : ""}
-            {rate}
-            {!publication.description && !rate && publication.site_url
-              ? new URL(publication.site_url).hostname.replace(/^www\./, "")
-              : ""}
+          <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+            <p className="font-serif text-[18px] text-ink">{publication.title}</p>
+            {/* What it files under and how often it posts, up beside the name:
+                both are already on the DTO, and both are what you weigh before
+                reading a word of it. */}
+            {publication.topics[0] && (
+              <span className="rounded-full bg-paper-sunken px-[9px] py-[3px] text-[11px] text-ink-soft">
+                {publication.topics[0]}
+              </span>
+            )}
+            {rate && (
+              <span className="text-[12px] text-ink-faint">{rate}</span>
+            )}
+          </div>
+          <p className="mt-0.5 text-[12.5px] leading-[1.45] text-ink-soft pointer-coarse:text-[13.5px]">
+            {publication.description ||
+              (publication.site_url
+                ? new URL(publication.site_url).hostname.replace(/^www\./, "")
+                : "")}
           </p>
         </div>
         {publication.is_subscribed ? (
-          <span className="shrink-0 rounded-full border border-line bg-paper px-[15px] py-[7px] text-[12.5px] text-ink-soft">
-            Following
-          </span>
+          // The row does not leave until the next load, so it says what
+          // happened and offers the way back rather than sitting there as a
+          // dead label.
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="rounded-full border border-line bg-paper px-[15px] py-[7px] text-[12.5px] text-ink-soft pointer-coarse:min-h-11">
+              ✓ Following
+            </span>
+            {onUndo && (
+              <button
+                onClick={() => onUndo(publication)}
+                className="text-[12.5px] text-clay transition hover:brightness-90 pointer-coarse:min-h-11 pointer-coarse:px-2"
+              >
+                Undo
+              </button>
+            )}
+          </div>
         ) : (
           <div className="flex shrink-0 items-center gap-1.5">
             <button
@@ -190,29 +225,21 @@ export function PublicationBlock({
                 not to compete with Subscribe, present enough to use. */}
             <button
               onClick={() => onDismiss(publication)}
-              title="Not for me — remove from Discover"
-              aria-label={`Remove ${publication.title} from Discover`}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-full text-ink-faint transition hover:bg-paper-sunken hover:text-ink"
+              title="Never show this publication again"
+              className="rounded-full border border-line px-[13px] py-[7px] text-[12.5px] text-ink-faint transition hover:border-clay hover:text-clay pointer-coarse:min-h-11"
             >
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.2"
-                strokeLinecap="round"
-              >
-                <path d="M6 6l12 12M18 6L6 18" />
-              </svg>
+              Not for me
             </button>
           </div>
         )}
       </div>
 
-      <div className="grid gap-5 px-5 py-[18px] sm:grid-cols-2 lg:grid-cols-3">
+      {/* Three across where there is room, one column on a narrow window:
+          the rows are small enough that stacking them wastes the width the
+          thumbnail layout just freed up. */}
+      <ul className="grid gap-x-5 gap-y-3.5 px-5 py-[18px] sm:grid-cols-2 xl:grid-cols-3">
         {[...publication.articles, ...more].map((article) => (
-          <ArticleTile
+          <ArticleRow
             key={article.id}
             article={article}
             feedId={publication.id}
@@ -220,7 +247,7 @@ export function PublicationBlock({
             saved={savedLinks.has(article.link)}
           />
         ))}
-      </div>
+      </ul>
 
       {publication.article_count > publication.articles.length && (
         <div className="border-t border-paper-sunken px-5 py-3">

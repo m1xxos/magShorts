@@ -394,6 +394,44 @@ export default function DiscoverPage() {
     [showToast],
   );
 
+  // Undo, while the row is still on the page. Subscribing does not remove it
+  // until the next load, so the way back should be one click and not a trip to
+  // Manage sources.
+  const unfollow = useCallback(
+    async (feedId: number, title: string) => {
+      setPublications((prev) =>
+        prev.map((p) => (p.id === feedId ? { ...p, is_subscribed: false } : p)),
+      );
+      setArticles((prev) =>
+        prev.map((a) =>
+          a.feed_id === feedId ? { ...a, is_subscribed: false } : a,
+        ),
+      );
+      const response = await fetch(`/api/feeds/${feedId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subscribed: false }),
+      });
+      if (response.ok) {
+        showToast(`${title} is back in Discover`);
+        return;
+      }
+      // Put the optimistic change back, the same way follow() does: a row
+      // offering Subscribe for a feed that is still subscribed makes the next
+      // click a no-op the reader cannot tell from success.
+      setPublications((prev) =>
+        prev.map((p) => (p.id === feedId ? { ...p, is_subscribed: true } : p)),
+      );
+      setArticles((prev) =>
+        prev.map((a) =>
+          a.feed_id === feedId ? { ...a, is_subscribed: true } : a,
+        ),
+      );
+      showToast("Could not undo", true);
+    },
+    [showToast],
+  );
+
   // The other half of Subscribe. A catalog that refills itself every day has
   // to be answerable, or a publication you don't want is back tomorrow: the
   // host is remembered server-side and the suggestion runs treat it as known.
@@ -548,10 +586,13 @@ export default function DiscoverPage() {
           </div>
 
           {topics.length > 0 && (
-            <div className="mt-3.5 flex flex-wrap gap-2">
+            // One line on a mouse, with the tail folded behind +N; a scrolling
+            // row on a finger, where a wrapped row of topics pushes the
+            // catalog itself off the screen.
+            <div className="no-scrollbar mt-3.5 flex gap-2 overflow-x-auto lg:flex-wrap lg:overflow-visible">
               <button
                 onClick={() => setTopic("")}
-                className={`rounded-full px-3.5 py-1.5 text-[13px] transition ${
+                className={`shrink-0 rounded-full px-3.5 py-1.5 text-[13px] whitespace-nowrap transition pointer-coarse:min-h-11 ${
                   topic === ""
                     ? "bg-ink text-paper"
                     : "border border-line bg-paper-raised text-ink-soft hover:text-ink"
@@ -563,7 +604,7 @@ export default function DiscoverPage() {
                 <button
                   key={entry.topic}
                   onClick={() => setTopic(entry.topic)}
-                  className={`rounded-full px-3.5 py-1.5 text-[13px] transition ${
+                  className={`shrink-0 rounded-full px-3.5 py-1.5 text-[13px] whitespace-nowrap transition pointer-coarse:min-h-11 ${
                     topic === entry.topic
                       ? "bg-ink text-paper"
                       : "border border-line bg-paper-raised text-ink-soft hover:text-ink"
@@ -601,6 +642,7 @@ export default function DiscoverPage() {
                   publication={publication}
                   onSubscribe={() => follow(publication.id, publication.title)}
                   onDismiss={() => dismiss(publication.id, publication.title)}
+                  onUndo={() => unfollow(publication.id, publication.title)}
                   onSave={save}
                   savedLinks={savedLinks}
                 />

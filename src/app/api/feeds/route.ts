@@ -12,7 +12,13 @@ export async function GET(request: NextRequest) {
   const db = getDb();
   const feeds = db
     .prepare(
-      `SELECT f.*, COUNT(a.id) AS article_count
+      // recent_articles is what a publication actually brings you, which the
+       // lifetime count stops saying once a feed has been subscribed a while:
+       // Manage sources turns it into a per-week rate.
+       `SELECT f.*, COUNT(a.id) AS article_count,
+          SUM(
+            CASE WHEN a.published_at >= datetime('now', '-28 days') THEN 1 ELSE 0 END
+          ) AS recent_articles
        FROM feeds f LEFT JOIN articles a ON a.feed_id = f.id
        WHERE f.subscribed = 1
        GROUP BY f.id ORDER BY f.created_at ASC`

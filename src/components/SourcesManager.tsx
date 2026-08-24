@@ -6,9 +6,16 @@ import {
   type FeedDto,
   type FolderDto,
   type SettingsForm,
+  timeAgo,
 } from "@/lib/types";
 import { FeedAvatar } from "./FeedAvatar";
-import { FolderIcon } from "./Sidebar";
+import { FolderIcon, Sidebar } from "./Sidebar";
+import { AddFeedDialog } from "./AddFeedDialog";
+import { CreateFolderDialog } from "./CreateFolderDialog";
+import { Menu, separator, type MenuNode } from "./ui/Menu";
+import { Segmented } from "./ui/Segmented";
+import { Switch } from "./ui/Switch";
+import { SettingsDialog } from "./SettingsDialog";
 import { Toast, useToast } from "./Toast";
 import { TopBar } from "./TopBar";
 import { useUser } from "@/lib/useUser";
@@ -51,23 +58,43 @@ export function SourcesManager() {
   const [folders, setFolders] = useState<FolderDto[]>([]);
   const [settings, setSettings] = useState<SettingsForm | null>(null);
   const [loading, setLoading] = useState(true);
+  // Only so the rail's Read later row can carry its count, the same number it
+  // shows on every other page.
+  const [readingCount, setReadingCount] = useState(0);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const [addUrl, setAddUrl] = useState("");
   const [addFolder, setAddFolder] = useState<string>("");
   const [addBusy, setAddBusy] = useState(false);
-  const [newFolderName, setNewFolderName] = useState("");
   const [renamingFeed, setRenamingFeed] = useState<number | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [filter, setFilter] = useState("");
+  const [retrying, setRetrying] = useState<number | null>(null);
+  const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
+  const [addOpen, setAddOpen] = useState(false);
+  const [folderDialogOpen, setFolderDialogOpen] = useState(false);
+
+  function toggleCollapsed(folderId: number) {
+    setCollapsed((previous) => {
+      const next = new Set(previous);
+      if (next.has(folderId)) next.delete(folderId);
+      else next.add(folderId);
+      return next;
+    });
+  }
 
   const reload = useCallback(async () => {
-    const [feedsRes, foldersRes, settingsRes] = await Promise.all([
+    const [feedsRes, foldersRes, settingsRes, savedRes] = await Promise.all([
       fetch("/api/feeds"),
       fetch("/api/folders"),
       fetch("/api/settings"),
+      fetch("/api/reading-list"),
     ]);
     setFeeds(await feedsRes.json());
     setFolders(await foldersRes.json());
     setSettings(await settingsRes.json());
+    const saved = await savedRes.json();
+    setReadingCount(Array.isArray(saved) ? saved.length : 0);
   }, []);
 
   useEffect(() => {
@@ -101,24 +128,6 @@ export function SourcesManager() {
     }
   }
 
-  async function createFolder(event: React.FormEvent) {
-    event.preventDefault();
-    const name = newFolderName.trim();
-    if (!name) return;
-    const response = await fetch("/api/folders", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, include_in_main: false }),
-    });
-    if (!response.ok) {
-      const body = await response.json().catch(() => null);
-      showToast(body?.error ?? "Could not create the folder", true);
-      return;
-    }
-    setNewFolderName("");
-    showToast(`Folder “${name}” created`);
-    reload();
-  }
 
   async function patchFolder(folder: FolderDto, patch: Record<string, unknown>) {
     await fetch(`/api/folders/${folder.id}`, {
@@ -239,18 +248,59 @@ export function SourcesManager() {
     await patchFeed(feed, { title });
   }
 
+  // Fetch this feed now, past the fifteen-minute staleness gate the background
+  // refresh uses. A feed that is failing keeps its old last_fetched_at, so
+  // without the force flag a retry pressed a minute after a failure would
+  // quietly do nothing at all.
+  async function retryFeed(feed: FeedDto) {
+    setRetrying(feed.id);
+    try {
+      const response = await fetch(`/api/feeds/${feed.id}/refresh`, {
+        method: "POST",
+      });
+      if (!response.ok) {
+        showToast(`${feed.title} still isn’t answering`, true);
+        return;
+      }
+      const fresh: FeedDto = await response.json();
+      setFeeds((previous) =>
+        previous.map((entry) => (entry.id === feed.id ? { ...entry, ...fresh } : entry))
+      );
+      showToast(
+        fresh.failures === 0
+          ? `${feed.title} is answering again`
+          : `${feed.title} still isn’t answering`,
+        fresh.failures !== 0
+      );
+    } finally {
+      setRetrying(null);
+    }
+  }
+
   function feedRow(feed: FeedDto) {
     const domain = feedDomain(feed);
+    const failing = feed.failures >= FAILING_AFTER;
+    const perWeek = feed.recent_articles / 4;
+    const rate =
+      perWeek >= 1
+        ? `${Math.round(perWeek)} / week`
+        : feed.recent_articles > 0
+          ? `${feed.recent_articles} this month`
+          : "quiet this month";
+
     return (
       <li
         key={feed.id}
-        className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border border-line bg-paper-raised px-4 py-3"
+        className={`flex items-center gap-3 rounded-2xl border bg-paper-raised px-4 py-3 ${
+          failing ? "border-clay/50" : "border-line"
+        }`}
       >
         <FeedAvatar
           feedId={feed.id}
           title={feed.title}
           siteUrl={feed.site_url ?? feed.url}
         />
+
         <div className="min-w-0 flex-1">
           {renamingFeed === feed.id ? (
             <input
@@ -262,280 +312,413 @@ export function SourcesManager() {
                 if (event.key === "Enter") finishRename(feed);
                 if (event.key === "Escape") setRenamingFeed(null);
               }}
-              className="w-full max-w-xs rounded-lg border border-line bg-paper px-2 py-1 text-sm text-ink outline-none focus:border-clay"
+              className="w-full rounded-lg border border-clay bg-paper px-2 py-1 text-sm text-ink outline-none"
             />
           ) : (
-            <button
-              onClick={() => startRename(feed)}
-              title="Rename"
-              className={`block max-w-full truncate text-left text-sm text-ink hover:text-clay ${
+            <p
+              className={`truncate text-sm font-medium text-ink pointer-coarse:text-[15.5px] ${
                 feed.enabled ? "" : "opacity-50"
               }`}
             >
               {feed.title}
-            </button>
+            </p>
           )}
-          <p className="truncate text-[12px] text-ink-faint">
-            {domain ?? feed.url} · {feed.article_count} article
-            {feed.article_count === 1 ? "" : "s"}
-            {/* A subscription that has stopped answering is never disabled on
-                your behalf — it would look like the app losing your feed — so
-                it says so here instead. An hour of failures, long enough that
-                a blip doesn't raise it. */}
-            {feed.failures >= FAILING_AFTER && (
-              <span className="text-clay"> · not answering</span>
+          <p className="mt-0.5 truncate text-[12px] text-ink-faint pointer-coarse:text-[13.5px]">
+            {domain ?? feed.url}
+            {failing ? (
+              // The count is not the news about this feed; the silence is.
+              <span className="text-clay">
+                <span className="mx-1.5">·</span>
+                Not answering since{" "}
+                {feed.last_fetched_at
+                  ? new Date(
+                      feed.last_fetched_at.replace(" ", "T") + "Z"
+                    ).toLocaleString(undefined, {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      day: "numeric",
+                      month: "short",
+                    })
+                  : "the beginning"}
+              </span>
+            ) : (
+              <>
+                <span className="mx-1.5">·</span>
+                {feed.article_count} article{feed.article_count === 1 ? "" : "s"}
+                <span className="mx-1.5">·</span>
+                {rate}
+              </>
             )}
           </p>
         </div>
 
-        {domain && (
-          <div className="flex shrink-0 rounded-full border border-line p-0.5">
-            {ROUTES.map((route) => (
-              <button
-                key={route.value}
-                type="button"
-                title={`Open ${feed.title} articles via ${route.label}`}
-                onClick={() => setRoute(domain, route.value)}
-                className={`rounded-full px-2.5 py-1 text-[12px] transition ${
-                  routeFor(domain) === route.value
-                    ? "bg-clay text-white"
-                    : "text-ink-faint hover:text-ink"
-                }`}
-              >
-                {route.label}
-              </button>
-            ))}
-          </div>
+        {failing && (
+          <button
+            onClick={() => retryFeed(feed)}
+            disabled={retrying === feed.id}
+            className="shrink-0 rounded-full border border-clay px-3 py-1.5 text-[12px] text-clay transition hover:bg-clay-soft disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-4"
+          >
+            {retrying === feed.id ? "Trying…" : "Retry now"}
+          </button>
         )}
 
-        <select
-          value={feed.folder_id ?? ""}
-          onChange={(event) =>
-            patchFeed(feed, {
-              folder_id: event.target.value ? Number(event.target.value) : null,
-            })
-          }
-          title="Move to a folder"
-          className="shrink-0 rounded-lg border border-line bg-paper px-2 py-1.5 text-[12px] text-ink-soft outline-none focus:border-clay"
-        >
-          <option value="">No folder</option>
-          {folders.map((folder) => (
-            <option key={folder.id} value={folder.id}>
-              {folder.name}
-            </option>
-          ))}
-        </select>
+        {/* A label, not a control: the control is in the menu, where there is
+            room to say which domain it applies to. */}
+        {domain && !failing && (
+          <span className="shrink-0 rounded-full bg-paper-sunken px-2.5 py-1 text-[11.5px] text-ink-soft">
+            {ROUTES.find((route) => route.value === routeFor(domain))?.label}
+          </span>
+        )}
 
-        <button
-          role="switch"
-          aria-checked={Boolean(feed.enabled)}
+        <Switch
+          checked={Boolean(feed.enabled)}
+          label={feed.enabled ? "On" : "Off"}
           title={feed.enabled ? "Turn off this feed" : "Turn on this feed"}
           onClick={() => patchFeed(feed, { enabled: !feed.enabled })}
-          className={`relative h-[18px] w-8 shrink-0 rounded-full transition-colors ${
-            feed.enabled ? "bg-clay" : "bg-line"
-          }`}
-        >
-          <span
-            className={`absolute top-[2px] h-[14px] w-[14px] rounded-full bg-white shadow-sm transition-all ${
-              feed.enabled ? "left-[16px]" : "left-[2px]"
-            }`}
-          />
-        </button>
+        />
 
-        <button
-          title={`Move ${feed.title} to the Discover catalog`}
-          onClick={() => moveToDiscover(feed)}
-          className="shrink-0 rounded-full border border-line px-2.5 py-1 text-[11px] text-ink-faint transition hover:border-clay hover:text-clay"
-        >
-          To Discover
-        </button>
-
-        <button
-          title={`Unsubscribe from ${feed.title}`}
-          onClick={() => removeFeed(feed)}
-          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-ink-faint transition hover:bg-line hover:text-ink"
-        >
-          ×
-        </button>
+        <Menu
+          items={[
+            { label: "Rename…", onSelect: () => startRename(feed) },
+            {
+              kind: "custom",
+              key: "folder",
+              label: "Folder",
+              render: (
+                <select
+                  value={feed.folder_id ?? ""}
+                  onChange={(event) =>
+                    patchFeed(feed, {
+                      folder_id: event.target.value
+                        ? Number(event.target.value)
+                        : null,
+                    })
+                  }
+                  className="w-full rounded-lg border border-line bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-clay"
+                >
+                  <option value="">No folder</option>
+                  {folders.map((folder) => (
+                    <option key={folder.id} value={folder.id}>
+                      {folder.name}
+                    </option>
+                  ))}
+                </select>
+              ),
+            },
+            ...(domain
+              ? ([
+                  separator("route"),
+                  {
+                    kind: "custom" as const,
+                    key: "route",
+                    // Named after the domain, because that is what it changes.
+                    // Two feeds on one host share a route, and a control that
+                    // says "its articles" hides that.
+                    label: `How ${domain} opens`,
+                    render: (
+                      <>
+                        <Segmented
+                          options={ROUTES.map((route) => ({
+                            value: route.value,
+                            label: route.label,
+                          }))}
+                          value={routeFor(domain)}
+                          onChange={(route) => setRoute(domain, route)}
+                          tone="clay"
+                          className="w-full"
+                        />
+                        {sharingDomain(feed, domain) > 0 && (
+                          <p className="mt-1.5 text-[11.5px] text-ink-faint">
+                            Also affects {sharingDomain(feed, domain)} other
+                            source{sharingDomain(feed, domain) === 1 ? "" : "s"}{" "}
+                            on this domain.
+                          </p>
+                        )}
+                      </>
+                    ),
+                  },
+                ] as MenuNode[])
+              : []),
+            separator("leave"),
+            {
+              label: "Retire to Discover",
+              hint: "Keeps its articles, stops the subscription",
+              onSelect: () => moveToDiscover(feed),
+            },
+            {
+              label: "Unsubscribe and delete archive",
+              destructive: true,
+              onSelect: () => removeFeed(feed),
+            },
+          ]}
+        />
       </li>
     );
   }
 
+  // How many other subscriptions this route change would also move.
+  function sharingDomain(feed: FeedDto, domain: string): number {
+    return feeds.filter(
+      (other) => other.id !== feed.id && feedDomain(other) === domain
+    ).length;
+  }
+
+  function folderGroup(
+    folder: FolderDto | null,
+    inFolder: FeedDto[]
+  ): React.ReactNode {
+    const key = folder ? `folder-${folder.id}` : "loose";
+    const open = folder ? !collapsed.has(folder.id) : true;
+    return (
+      <section key={key} className="mt-6">
+        <div className="flex items-center gap-3 px-1 pb-2">
+          {folder ? (
+            <button
+              onClick={() => toggleCollapsed(folder.id)}
+              title={open ? "Collapse" : "Expand"}
+              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-faint transition hover:text-ink pointer-coarse:h-11 pointer-coarse:w-11"
+            >
+              <span className={`text-[10px] transition-transform ${open ? "rotate-90" : ""}`}>
+                ▶
+              </span>
+            </button>
+          ) : (
+            <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center text-ink-faint">
+              <FolderIcon size={13} />
+            </span>
+          )}
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[13px] font-medium tracking-[0.06em] text-ink-soft uppercase">
+              {folder ? folder.name : "Not in a folder"}
+            </p>
+            <p className="text-[12px] text-ink-faint">
+              {inFolder.length} source{inFolder.length === 1 ? "" : "s"}
+              {!folder && " — always counted everywhere"}
+            </p>
+          </div>
+
+          {folder && (
+            <>
+              {/* Switches, not chips. These two toggles are the only place in
+                  the app that says what a folder is for, and the sidebar has
+                  stopped carrying them. */}
+              <Switch
+                checked={Boolean(folder.include_in_main)}
+                label="For you"
+                title={
+                  folder.include_in_main
+                    ? "Feeds your For you picks — click to exclude"
+                    : "Excluded from For you — click to include"
+                }
+                onClick={() =>
+                  patchFolder(folder, { include_in_main: !folder.include_in_main })
+                }
+              />
+              <Switch
+                checked={Boolean(folder.include_in_digest)}
+                label="Digest"
+                title={
+                  folder.include_in_digest
+                    ? "In the digest — click to exclude"
+                    : "Excluded from the digest — click to include"
+                }
+                onClick={() =>
+                  patchFolder(folder, {
+                    include_in_digest: !folder.include_in_digest,
+                  })
+                }
+              />
+              <Menu
+                items={[
+                  {
+                    label: "Rename…",
+                    onSelect: () => {
+                      const name = window.prompt("Folder name", folder.name);
+                      if (name?.trim()) patchFolder(folder, { name: name.trim() });
+                    },
+                  },
+                  { label: "New folder…", onSelect: () => setFolderDialogOpen(true) },
+                  separator("folder-danger"),
+                  {
+                    label: "Move all to Discover",
+                    onSelect: () => moveFolderToDiscover(folder),
+                  },
+                  {
+                    label: "Delete folder",
+                    hint: "Its feeds stay subscribed and move out",
+                    destructive: true,
+                    onSelect: () => removeFolder(folder),
+                  },
+                ]}
+              />
+            </>
+          )}
+        </div>
+
+        {open &&
+          (inFolder.length === 0 ? (
+            <p className="px-4 py-3 text-[13px] text-ink-faint">
+              Nothing here yet.
+            </p>
+          ) : (
+            <ul className="space-y-2">{inFolder.map(feedRow)}</ul>
+          ))}
+      </section>
+    );
+  }
+
   const rootFeeds = feeds.filter((feed) => feed.folder_id === null);
+  const matching = (feed: FeedDto) =>
+    filter.trim() === "" ||
+    `${feed.title} ${feed.url}`.toLowerCase().includes(filter.trim().toLowerCase());
+  const failingFeeds = feeds.filter((feed) => feed.failures >= FAILING_AFTER);
+  const refreshedAt = feeds
+    .map((feed) => feed.last_fetched_at)
+    .filter((value): value is string => Boolean(value))
+    .sort()
+    .pop();
 
   return (
     <div className="min-h-screen">
       <TopBar username={user?.username} />
-      <main className="mx-auto max-w-4xl px-5 py-8 md:px-8">
-        <div className="flex items-baseline justify-between">
-          <h1 className="font-serif text-3xl text-ink">Sources</h1>
-          <Link href="/" className="text-sm text-clay hover:underline">
-            ← Back to feed
-          </Link>
-        </div>
+      <div className="flex">
+        <Sidebar
+          feeds={feeds}
+          folders={folders}
+          selection={null}
+          readingCount={readingCount}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
+        <main className="mx-auto min-w-0 max-w-[900px] flex-1 px-5 py-8 md:px-8">
+          <div className="flex items-baseline justify-between gap-4">
+            <div className="min-w-0">
+              <h1 className="font-serif text-3xl text-ink">Sources</h1>
+              <p className="mt-1 text-[13px] text-ink-faint pointer-coarse:text-[14.5px]">
+                {feeds.length} publication{feeds.length === 1 ? "" : "s"}
+                <span className="mx-1.5">·</span>
+                {folders.length} folder{folders.length === 1 ? "" : "s"}
+                {refreshedAt && (
+                  <>
+                    <span className="mx-1.5">·</span>
+                    refreshed{" "}
+                    {timeAgo(refreshedAt.replace(" ", "T") + "Z") || "just now"}
+                  </>
+                )}
+              </p>
+            </div>
+            {/* Kept below lg, where the rail is not rendered. */}
+            <Link href="/" className="shrink-0 text-sm text-clay hover:underline lg:hidden">
+              ← Back to feed
+            </Link>
+          </div>
 
-        {/* Add a source */}
-        <form
-          onSubmit={addFeed}
-          className="mt-6 rounded-2xl border border-line bg-paper-raised p-5"
-        >
-          <h2 className="font-serif text-lg text-ink">Add a source</h2>
-          <p className="mt-1 text-[13px] text-ink-faint">
-            Paste an RSS/Atom feed URL — or just the site or blog address, the
-            feed will be discovered automatically.
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
+          {/* One banner naming the feeds that have gone quiet, because grey
+              text mid-list is not something anyone scrolls to. */}
+          {failingFeeds.length > 0 && (
+            <div className="mt-5 rounded-2xl border border-clay/50 bg-clay-soft/40 px-4 py-3 text-[13px] text-ink-soft">
+              <strong className="font-medium text-ink">
+                {failingFeeds.length === 1
+                  ? `${failingFeeds[0].title} is not answering.`
+                  : `${failingFeeds.length} sources are not answering.`}
+              </strong>{" "}
+              {failingFeeds.length > 1 && (
+                <>{failingFeeds.map((feed) => feed.title).join(", ")}. </>
+              )}
+              Retry from the row, or leave it — a subscription is never turned
+              off behind your back.
+            </div>
+          )}
+
+          <div className="mt-5 flex flex-wrap items-center gap-2.5">
             <input
-              type="url"
-              required
-              value={addUrl}
-              onChange={(event) => setAddUrl(event.target.value)}
-              placeholder="https://example.com or https://example.com/feed.xml"
-              className="min-w-0 flex-1 rounded-xl border border-line bg-paper px-4 py-2.5 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-clay"
+              value={filter}
+              onChange={(event) => setFilter(event.target.value)}
+              placeholder="Filter your sources"
+              className="min-w-[220px] flex-1 rounded-xl border border-line bg-paper-raised px-3.5 py-2.5 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-clay pointer-coarse:py-3 pointer-coarse:text-[15.5px]"
             />
-            <select
-              value={addFolder}
-              onChange={(event) => setAddFolder(event.target.value)}
-              className="rounded-xl border border-line bg-paper px-3 py-2.5 text-sm text-ink-soft outline-none focus:border-clay"
-            >
-              <option value="">No folder</option>
-              {folders.map((folder) => (
-                <option key={folder.id} value={folder.id}>
-                  {folder.name}
-                </option>
-              ))}
-            </select>
+            {/* The add field is inline on a mouse and a sheet on a finger,
+                where the keyboard would otherwise cover the list it is
+                adding to. */}
+            <form onSubmit={addFeed} className="hidden items-center gap-2.5 lg:flex">
+              <input
+                type="url"
+                value={addUrl}
+                onChange={(event) => setAddUrl(event.target.value)}
+                placeholder="https://example.com or its feed URL"
+                className="w-[300px] rounded-xl border border-line bg-paper-raised px-3.5 py-2.5 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-clay"
+              />
+              <select
+                value={addFolder}
+                onChange={(event) => setAddFolder(event.target.value)}
+                className="rounded-xl border border-line bg-paper-raised px-3 py-2.5 text-sm text-ink outline-none focus:border-clay"
+              >
+                <option value="">No folder</option>
+                {folders.map((folder) => (
+                  <option key={folder.id} value={folder.id}>
+                    {folder.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="submit"
+                disabled={addBusy}
+                className="shrink-0 rounded-full bg-clay px-4 py-2.5 text-sm font-medium text-white transition hover:brightness-95 disabled:opacity-60"
+              >
+                {addBusy ? "Finding…" : "Add a source"}
+              </button>
+            </form>
             <button
-              type="submit"
-              disabled={addBusy}
-              className="rounded-xl bg-clay px-4 py-2 text-sm font-medium text-white transition hover:brightness-95 disabled:opacity-60"
+              onClick={() => setAddOpen(true)}
+              className="shrink-0 rounded-full bg-clay px-4 py-2.5 text-sm font-medium text-white transition hover:brightness-95 lg:hidden pointer-coarse:min-h-12"
             >
-              {addBusy ? "Finding feed…" : "Subscribe"}
+              Add a source
+            </button>
+            {/* In the toolbar, not only in a folder's own menu: with no
+                folders yet there would be no menu to open. */}
+            <button
+              onClick={() => setFolderDialogOpen(true)}
+              className="shrink-0 rounded-full border border-line px-4 py-2.5 text-sm text-ink-soft transition hover:border-clay hover:text-clay pointer-coarse:min-h-12"
+            >
+              New folder
             </button>
           </div>
-        </form>
 
-        {/* Folders */}
-        <section className="mt-8">
-          <h2 className="font-serif text-lg text-ink">Folders</h2>
-          <p className="mt-1 text-[13px] text-ink-faint">
-            The switch controls whether a folder’s articles feed your For you
-            picks. All publications always shows everything; every folder has
-            its own view in the sidebar and its own Shorts deck.
-          </p>
-          <ul className="mt-3 space-y-2">
-            {folders.map((folder) => (
-              <li
-                key={folder.id}
-                className="flex flex-wrap items-center gap-3 rounded-2xl border border-line bg-paper-raised px-4 py-3"
-              >
-                <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-paper-sunken text-ink-soft">
-                  <FolderIcon size={13} />
-                </span>
-                <span className="min-w-0 flex-1 truncate text-sm text-ink">
-                  {folder.name}
-                  <span className="ml-2 text-[12px] tabular-nums text-ink-faint">
-                    {folder.feed_count} feed{folder.feed_count === 1 ? "" : "s"}
-                  </span>
-                </span>
-                <button
-                  onClick={() => {
-                    const name = prompt("Rename folder", folder.name)?.trim();
-                    if (name && name !== folder.name)
-                      patchFolder(folder, { name });
-                  }}
-                  className="shrink-0 rounded-full border border-line px-3 py-1.5 text-[12px] text-ink-soft transition hover:border-clay hover:text-clay"
-                >
-                  Rename
-                </button>
-                <label className="flex shrink-0 items-center gap-2 text-[12px] text-ink-faint">
-                  In For you
-                  <button
-                    role="switch"
-                    aria-checked={Boolean(folder.include_in_main)}
-                    onClick={() =>
-                      patchFolder(folder, {
-                        include_in_main: !folder.include_in_main,
-                      })
-                    }
-                    className={`relative h-[18px] w-8 rounded-full transition-colors ${
-                      folder.include_in_main ? "bg-clay" : "bg-line"
-                    }`}
-                  >
-                    <span
-                      className={`absolute top-[2px] h-[14px] w-[14px] rounded-full bg-white shadow-sm transition-all ${
-                        folder.include_in_main ? "left-[16px]" : "left-[2px]"
-                      }`}
-                    />
-                  </button>
-                </label>
-                <button
-                  title={`Move every publication in ${folder.name} to the Discover catalog`}
-                  onClick={() => moveFolderToDiscover(folder)}
-                  className="shrink-0 rounded-full border border-line px-2.5 py-1 text-[11px] text-ink-faint transition hover:border-clay hover:text-clay"
-                >
-                  All to Discover
-                </button>
-                <button
-                  title={`Delete folder ${folder.name}`}
-                  onClick={() => removeFolder(folder)}
-                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-ink-faint transition hover:bg-line hover:text-ink"
-                >
-                  ×
-                </button>
-              </li>
-            ))}
-          </ul>
-          <form onSubmit={createFolder} className="mt-3 flex gap-2">
-            <input
-              value={newFolderName}
-              onChange={(event) => setNewFolderName(event.target.value)}
-              placeholder="New folder name"
-              className="min-w-0 flex-1 rounded-xl border border-dashed border-line bg-paper px-4 py-2 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-clay"
-            />
-            <button
-              type="submit"
-              className="rounded-xl border border-line px-4 py-2 text-sm text-ink-soft transition hover:border-clay hover:text-clay"
-            >
-              Create folder
-            </button>
-          </form>
-        </section>
-
-        {/* Feeds */}
-        {loading ? (
-          <p className="py-16 text-center text-ink-faint">Loading…</p>
-        ) : (
-          <>
-            <section className="mt-8">
-              <h2 className="font-serif text-lg text-ink">Feeds</h2>
-              <p className="mt-1 text-[13px] text-ink-faint">
-                Click a title to rename it. Marreta / Direct / Archive controls
-                how its articles open.
-              </p>
-              {rootFeeds.length > 0 && (
-                <ul className="mt-3 space-y-2">{rootFeeds.map(feedRow)}</ul>
+          {loading ? (
+            <p className="py-20 text-center text-ink-faint">Loading…</p>
+          ) : (
+            <>
+              {folders.map((folder) =>
+                folderGroup(
+                  folder,
+                  feeds.filter(
+                    (feed) => feed.folder_id === folder.id && matching(feed)
+                  )
+                )
               )}
-            </section>
-            {folders.map((folder) => {
-              const folderFeeds = feeds.filter(
-                (feed) => feed.folder_id === folder.id
-              );
-              if (folderFeeds.length === 0) return null;
-              return (
-                <section key={folder.id} className="mt-6">
-                  <h3 className="flex items-center gap-2 text-[13px] font-medium tracking-[0.1em] text-ink-faint uppercase">
-                    <FolderIcon size={12} /> {folder.name}
-                  </h3>
-                  <ul className="mt-3 space-y-2">
-                    {folderFeeds.map(feedRow)}
-                  </ul>
-                </section>
-              );
-            })}
-          </>
-        )}
-      </main>
+              {folderGroup(null, rootFeeds.filter(matching))}
+            </>
+          )}
+        </main>
+      </div>
+
+      {addOpen && (
+        <AddFeedDialog
+          onClose={() => setAddOpen(false)}
+          onAdded={() => reload()}
+        />
+      )}
+      {folderDialogOpen && (
+        <CreateFolderDialog
+          onClose={() => setFolderDialogOpen(false)}
+          onCreated={() => reload()}
+        />
+      )}
+      {settingsOpen && (
+        <SettingsDialog
+          onClose={() => setSettingsOpen(false)}
+          onSaved={(message) => showToast(message)}
+        />
+      )}
       <Toast toast={toast} />
     </div>
   );

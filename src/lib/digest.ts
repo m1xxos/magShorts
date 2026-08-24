@@ -6,6 +6,7 @@ import {
   type DigestCandidate,
 } from "./recommend";
 import { extractArticle, readContentText } from "./extract";
+import { readingMinutes } from "./readingTime";
 import { complete, llmConfigured, rankProviders } from "./llm";
 import { getCountSetting, getSetting } from "./settings";
 import {
@@ -47,7 +48,6 @@ const TEXT_MIN_LENGTH = 400;
 // call it the body — long enough to summarise badly, short enough that the page
 // is worth fetching. Only a body above this skips the fetch.
 const TEXT_TRUSTED_LENGTH = 1500;
-const WORDS_PER_MINUTE = 200;
 
 // ---------------------------------------------------------------- scheduling
 
@@ -185,11 +185,6 @@ function teaserSource(article: TextSource): string {
   const stored = article.content?.trim() ?? "";
   if (stored.length >= TEXT_MIN_LENGTH) return stored;
   return article.summary?.trim() || stored || article.title;
-}
-
-function readingMinutes(text: string): number {
-  const words = text.split(/\s+/).filter(Boolean).length;
-  return Math.max(1, Math.ceil(words / WORDS_PER_MINUTE));
 }
 
 function firstSentences(text: string, count: number): string {

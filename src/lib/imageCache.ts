@@ -92,6 +92,26 @@ async function transformImage(
   }
 }
 
+// What the origin says this URL actually is. Only asked when the cache has
+// already refused the URL, to tell "the network was having a bad minute" apart
+// from "this was never a picture" — the second is worth removing from an
+// article, the first certainly is not.
+export async function imageContentType(url: string): Promise<string | null> {
+  if (!isCacheableImageUrl(url)) return null;
+  try {
+    const response = await fetch(url, {
+      method: "HEAD",
+      headers: { "User-Agent": "magShorts/1.0 (image cache)" },
+      redirect: "follow",
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (!response.ok) return null;
+    return response.headers.get("content-type") ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function getCachedImage(url: string): Promise<CachedImage | null> {
   if (!isCacheableImageUrl(url)) return null;
 
