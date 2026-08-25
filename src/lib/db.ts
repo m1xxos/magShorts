@@ -309,6 +309,26 @@ export function getDb(): Database.Database {
     console.log(`[db] resolved ${fixed} relative article link(s)`);
   }
 
+  // Pictures stored before the reader asked for a synchronous decode. On an
+  // iPad they blink out for a frame and back while you scroll past them —
+  // WebKit hands the page an empty box and fills it when the off-thread decode
+  // lands. The extractor sets the attribute now; these are the bodies written
+  // before it did, and re-extracting every one of them to add nine characters
+  // would mean fetching every publisher again.
+  const undecoded = db
+    .prepare(
+      "SELECT COUNT(*) AS n FROM article_content WHERE html LIKE '%<img %' AND html NOT LIKE '%decoding=%'"
+    )
+    .get() as { n: number };
+  if (undecoded.n > 0) {
+    db.prepare(
+      `UPDATE article_content
+          SET html = replace(html, '<img ', '<img decoding="sync" ')
+        WHERE html LIKE '%<img %' AND html NOT LIKE '%decoding=%'`
+    ).run();
+    console.log(`[db] marked pictures in ${undecoded.n} stored article(s) for synchronous decoding`);
+  }
+
   const articleColumns = db
     .prepare("PRAGMA table_info(articles)")
     .all() as Array<{ name: string }>;

@@ -340,6 +340,12 @@ export function sanitizeArticleHtml(
       // reader should not hand the publisher a request per illustration.
       node.setAttribute("src", `/api/images?u=${encodeURIComponent(resolved)}`);
       node.setAttribute("loading", "lazy");
+      // Decode before painting rather than after. Safari's default is to hand
+      // the page an empty box and fill it when the decode finishes, which is
+      // what makes an illustration blink in and out while an iPad scrolls
+      // past it. The images are already through our own cache and capped at
+      // 1280px, so the decode is cheap enough to want on the paint path.
+      node.setAttribute("decoding", "sync");
     }
 
     if (/^h[2-6]$/.test(tag)) {

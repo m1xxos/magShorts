@@ -94,6 +94,17 @@ body {
   border-radius: 10px;
   /* Every picture opens over the article; the cursor should say so. */
   cursor: zoom-in;
+  /* Its own layer, and decoded before it is drawn.
+
+     Measured from a screen recording on an iPad: a picture that was already on
+     screen vanished for a single frame and came back, over and over while
+     scrolling — at 4.8s it blanked on three frames out of nine. That is
+     WebKit dropping the rasterised tile of a large image inside a scrolling
+     overlay and painting nothing until it has re-rastered. Promoting each
+     picture keeps its tile, and `decoding: sync` stops the browser handing us
+     an empty box while it decodes off-thread. */
+  transform: translateZ(0);
+  -webkit-backface-visibility: hidden;
 }
 .reader-body figcaption {
   margin-top: 0.5em;
