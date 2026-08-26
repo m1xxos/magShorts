@@ -74,6 +74,10 @@ const TYPE_KEY = "ms_reader_type";
 // air. Used by both rails and by the outline's own scroll box.
 const RAIL_TOP = 83;
 
+// The id the not-yet-saved passage wears while the bar is open. Negative, so it
+// can never collide with a row id.
+const PENDING = -1;
+
 // The article body, cut into the runs of ordinary HTML and the galleries
 // between them. Galleries become a real component; everything else stays a
 // string, because an article is markup and React has no business rebuilding
@@ -476,11 +480,10 @@ export function Reader({
 
   // Draw them.
   //
-  // Keyed on the body and the list, and nothing else. React cannot touch the
-  // inside of a dangerouslySetInnerHTML div whose html string has not changed,
-  // so the progress and outline state that churns on every scroll frame cannot
-  // disturb the marks — only a reload of the article can, and that is exactly
-  // when this runs again.
+  // Keyed on the body and the list, and nothing else. ArticleHtml writes the
+  // prose into the DOM itself and React never touches it again, so the state
+  // that churns on every scroll frame cannot disturb the marks — only a reload
+  // of the article can, and that is exactly when this runs again.
   useEffect(() => {
     const body = bodyRef.current;
     if (!body || !content?.html) return;
@@ -627,6 +630,15 @@ export function Reader({
       if (!described) return;
       const box = range.getBoundingClientRect();
       liveRange.current = range;
+      // Draw the passage as a highlight straight away, in the pending shade.
+      // The browser drops its own selection the moment focus moves — to the
+      // bar, to a tap, to iOS dismissing its callout — and a bar hovering over
+      // text that no longer looks selected is a bar about nothing.
+      const span = resolveAnchor(frame, described, true);
+      if (span) {
+        applySpan(frame, span, PENDING, false);
+        frameRef.current = buildFrame(article_);
+      }
       setPending({
         at: { top: box.top, bottom: box.bottom, left: box.left + box.width / 2 },
         anchor: described,
@@ -658,9 +670,18 @@ export function Reader({
     };
   }, [content, touch]);
 
+  function clearPending() {
+    if (bodyRef.current) {
+      unwrapHighlight(bodyRef.current, PENDING);
+      frameRef.current = buildFrame(bodyRef.current);
+    }
+    liveRange.current = null;
+    setPending(null);
+  }
+
   async function keep(note: string | null) {
     if (!pending_?.anchor) return;
-    setPending(null);
+    clearPending();
     // Wrapping a live selection collapses it on WebKit anyway; clearing it
     // deliberately means the same thing happens everywhere.
     window.getSelection()?.removeAllRanges();
@@ -674,7 +695,7 @@ export function Reader({
   }
 
   async function annotate(highlight: HighlightDto, note: string) {
-    setPending(null);
+    clearPending();
     setHighlights((previous) =>
       previous.map((entry) => (entry.id === highlight.id ? { ...entry, note } : entry))
     );
@@ -682,7 +703,7 @@ export function Reader({
   }
 
   async function forget(highlight: HighlightDto) {
-    setPending(null);
+    clearPending();
     if (bodyRef.current) unwrapHighlight(bodyRef.current, highlight.id);
     setHighlights((previous) => previous.filter((entry) => entry.id !== highlight.id));
     await deleteHighlight(highlight.id);
@@ -1086,15 +1107,7 @@ export function Reader({
                     }
                   />
                 ) : (
-                  <div
-                    key={at}
-                    className="reader-body"
-                    // Sanitised server-side against a tag and attribute
-                    // allowlist before it was ever stored
-                    // (sanitizeArticleHtml in src/lib/extract.ts); nothing
-                    // that can execute survives it.
-                    dangerouslySetInnerHTML={{ __html: segment.html }}
-                  />
+                  <ArticleHtml key={at} html={segment.html} />
                 )
               )}
               {content.status === "partial" && (
@@ -1168,7 +1181,7 @@ export function Reader({
           onDelete={
             pending_.highlight ? () => forget(pending_.highlight!) : undefined
           }
-          onClose={() => setPending(null)}
+          onClose={clearPending}
         />
       )}
 
@@ -1324,6 +1337,26 @@ function LightboxArrow({
       </svg>
     </button>
   );
+}
+
+// A run of the article's prose, written into the DOM once.
+//
+// Not dangerouslySetInnerHTML: highlights are <mark> elements applied to these
+// text nodes after mount, and React re-renders this subtree on state it knows
+// nothing about — measured, not assumed: a selection produced a re-render that
+// replaced all 99 children of a body div and took the marks with it. Writing
+// the html in an effect keyed on the html itself means React owns the empty
+// container and nothing else, so a mark survives until the article changes.
+//
+// The html was sanitised against a tag and attribute allowlist before it was
+// ever stored (sanitizeArticleHtml in src/lib/extract.ts); nothing that can
+// execute survives it.
+function ArticleHtml({ html }: { html: string }) {
+  const host = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (host.current) host.current.innerHTML = html;
+  }, [html]);
+  return <div ref={host} className="reader-body" />;
 }
 
 function Pill({

@@ -126,41 +126,116 @@ export function buildFrame(root: HTMLElement): Frame {
   };
 }
 
-// Where in the frame does this DOM position fall? Returns the index of the
-// first emitted character at or after it, which is what a range start wants;
-// `after` asks for the last character at or before, for a range end.
-function offsetOf(
+// Where in the frame does a DOM position fall?
+//
+// Both kinds of boundary have to work. A drag inside a paragraph gives a text
+// node and an offset into it; a triple-click gives the paragraph element and a
+// child index; and an upward drag routinely ends at offset 0 of a node, which
+// means "just before this node" and has no character of its own to point at.
+function boundaryOffset(
   frame: Frame,
   container: Node,
   offset: number,
-  after: boolean
+  isEnd: boolean
 ): number | null {
-  const node = container.nodeType === Node.TEXT_NODE ? (container as Text) : null;
-  if (node) {
-    const index = frame.nodes.indexOf(node);
-    if (index < 0) return null;
-    let best: number | null = null;
+  if (container.nodeType === Node.TEXT_NODE) {
+    const index = frame.nodes.indexOf(container as Text);
+    if (index < 0) return firstEmittedFrom(frame, container);
     for (let at = 0; at < frame.nodeIndex.length; at++) {
       if (frame.nodeIndex[at] !== index) continue;
-      if (!after && frame.charIndex[at] >= offset) return at;
-      if (after && frame.charIndex[at] < offset) best = at + 1;
+      // The first emitted character at or after the offset. For an end
+      // boundary that character is excluded, which is exactly right: a
+      // boundary at offset 0 — where an upward drag routinely lands — ends
+      // before the node rather than inside it.
+      if (frame.charIndex[at] >= offset) return at;
     }
-    return after ? best : null;
+    const last = lastIndexOf(frame, index);
+    if (last >= 0) return last + 1;
+    return isEnd ? lastEmittedBefore(frame, container) : firstEmittedFrom(frame, container);
   }
-  // An element boundary: fall back to the first or last character of the
-  // element's own text, which is what a triple-click selection produces.
-  const element = container.childNodes[offset] ?? container;
-  const text = element instanceof Element ? element.textContent : null;
-  if (!text) return null;
-  const index = frame.text.indexOf(normalizeText(text));
-  if (index < 0) return null;
-  return after ? index + normalizeText(text).length : index;
+
+  // An element boundary: childNodes[offset] is the node it sits before, and
+  // undefined means the end of the element's own content.
+  const child = container.childNodes[offset];
+  if (isEnd) {
+    return child
+      ? lastEmittedBefore(frame, child)
+      : lastEmittedInside(frame, container);
+  }
+  return child
+    ? firstEmittedFrom(frame, child)
+    : lastEmittedInside(frame, container);
+}
+
+// Document-order helpers over the frame. The frame's nodes are in document
+// order, so these are scans, not tree walks.
+function firstIndexOf(frame: Frame, node: number): number {
+  for (let at = 0; at < frame.nodeIndex.length; at++) {
+    if (frame.nodeIndex[at] === node) return at;
+  }
+  return -1;
+}
+
+function lastIndexOf(frame: Frame, node: number): number {
+  for (let at = frame.nodeIndex.length - 1; at >= 0; at--) {
+    if (frame.nodeIndex[at] === node) return at;
+  }
+  return -1;
+}
+
+// The first character at or after this node — the start of a boundary that
+// sits before it.
+function firstEmittedFrom(frame: Frame, node: Node): number | null {
+  for (let index = 0; index < frame.nodes.length; index++) {
+    const candidate = frame.nodes[index];
+    const isAtOrAfter =
+      candidate === node ||
+      node.contains(candidate) ||
+      (node.compareDocumentPosition(candidate) &
+        Node.DOCUMENT_POSITION_FOLLOWING) !==
+        0;
+    if (!isAtOrAfter) continue;
+    const at = firstIndexOf(frame, index);
+    if (at >= 0) return at;
+  }
+  return null;
+}
+
+// The end of the last character before this node — the end of a boundary that
+// sits before it.
+function lastEmittedBefore(frame: Frame, node: Node): number | null {
+  let best: number | null = null;
+  for (let index = 0; index < frame.nodes.length; index++) {
+    const candidate = frame.nodes[index];
+    const isBefore =
+      candidate !== node &&
+      !node.contains(candidate) &&
+      (node.compareDocumentPosition(candidate) &
+        Node.DOCUMENT_POSITION_PRECEDING) !==
+        0;
+    if (!isBefore) continue;
+    const at = lastIndexOf(frame, index);
+    if (at >= 0) best = at + 1;
+  }
+  return best;
+}
+
+// The end of the last character inside this element — where "select the whole
+// paragraph" ends, which is what a triple-click produces.
+function lastEmittedInside(frame: Frame, element: Node): number | null {
+  let best: number | null = null;
+  for (let index = 0; index < frame.nodes.length; index++) {
+    if (!element.contains(frame.nodes[index])) continue;
+    const at = lastIndexOf(frame, index);
+    if (at >= 0) best = at + 1;
+  }
+  return best;
 }
 
 // A selection, described so it can be found again.
 export function describeRange(frame: Frame, range: Range): Anchor | null {
-  const start = offsetOf(frame, range.startContainer, range.startOffset, false);
-  const end = offsetOf(frame, range.endContainer, range.endOffset, true);
+  const start = boundaryOffset(frame, range.startContainer, range.startOffset, false);
+  const end = boundaryOffset(frame, range.endContainer, range.endOffset, true);
   if (start === null || end === null || end <= start) return null;
   const quote = frame.text.slice(start, end).trim();
   if (!quote) return null;

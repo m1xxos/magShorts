@@ -87,6 +87,12 @@ body {
    two are rounded, so a multi-paragraph highlight still reads as one thing.
    A highlight carrying a note is underlined, so the two are distinguishable
    without opening either. */
+/* The passage under the bar, before it has been kept. Slightly lighter than a
+   saved highlight, so the two are never confused, and it disappears with the
+   bar if you decide against it. */
+.reader-body mark[data-hl="-1"] {
+  background: color-mix(in srgb, var(--clay-soft) 60%, transparent);
+}
 .reader-body mark[data-hl] {
   background: var(--clay-soft);
   color: inherit;
