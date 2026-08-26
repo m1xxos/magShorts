@@ -82,6 +82,31 @@ body {
   aspect-ratio: auto 3 / 2;
 }
 
+/* A kept passage. One mark per text node, because a range that crosses a
+   paragraph cannot be one element — they share a data-hl and only the outer
+   two are rounded, so a multi-paragraph highlight still reads as one thing.
+   A highlight carrying a note is underlined, so the two are distinguishable
+   without opening either. */
+.reader-body mark[data-hl] {
+  background: var(--clay-soft);
+  color: inherit;
+  padding: 0.06em 0;
+  cursor: pointer;
+}
+.reader-body mark[data-hl-start] {
+  border-start-start-radius: 3px;
+  border-end-start-radius: 3px;
+  padding-inline-start: 0.12em;
+}
+.reader-body mark[data-hl-end] {
+  border-start-end-radius: 3px;
+  border-end-end-radius: 3px;
+  padding-inline-end: 0.12em;
+}
+.reader-body mark[data-note] {
+  box-shadow: inset 0 -2px 0 var(--clay);
+}
+
 .reader-body a {
   color: var(--clay);
   text-decoration: underline;

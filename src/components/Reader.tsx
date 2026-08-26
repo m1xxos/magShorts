@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type ArticleContentDto,
+  type HighlightDto,
   type ArticleDto,
   feedTone,
   timeAgo,
@@ -14,6 +15,27 @@ import { ReaderGallery, type Slide } from "./ReaderGallery";
 import { ReaderOutline } from "./ReaderOutline";
 import { ReaderUpNext } from "./ReaderUpNext";
 import { Sheet } from "./ui/Sheet";
+import {
+  ReaderHighlightPopover,
+  type PopoverAt,
+} from "./ReaderHighlightPopover";
+import {
+  applySpan,
+  buildFrame,
+  describeRange,
+  resolveAnchor,
+  unwrapHighlight,
+  type Anchor,
+  type Frame,
+} from "@/lib/anchor";
+import {
+  createHighlight,
+  deleteHighlight,
+  listHighlights,
+  reanchor,
+  updateHighlight,
+  type Reanchored,
+} from "@/lib/highlights";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 
 // The in-app reader: an article opened over the grid instead of in a new tab.
@@ -203,6 +225,18 @@ export function Reader({
   const touch = useMediaQuery("(pointer: coarse)");
   const portrait = useMediaQuery("(orientation: portrait)");
   const [lightbox, setLightbox] = useState<Lightbox | null>(null);
+  const [highlights, setHighlights] = useState<HighlightDto[]>([]);
+  // What the selection bar is pointing at: a fresh selection, or a highlight
+  // that was clicked.
+  const [pending_, setPending] = useState<{
+    at: PopoverAt;
+    anchor: Anchor | null;
+    highlight: HighlightDto | null;
+  } | null>(null);
+  const [highlightsOpen, setHighlightsOpen] = useState(false);
+  const frameRef = useRef<Frame | null>(null);
+  // The live range, so the bar can follow the selection while the page scrolls.
+  const liveRange = useRef<Range | null>(null);
   // Articles about the same thing as this one. Empty is a normal answer.
   const [related, setRelated] = useState<ArticleDto[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -375,6 +409,20 @@ export function Reader({
       const span = container.scrollHeight - container.clientHeight;
       const fraction = span > 0 ? Math.min(1, container.scrollTop / span) : 0;
       reached.current = Math.max(reached.current, fraction);
+      // The selection bar is positioned in viewport coordinates, so it has to
+      // follow its own selection rather than sit still. This rides the frame
+      // the scroll handler already coalesces to.
+      if (liveRange.current) {
+        const box = liveRange.current.getBoundingClientRect();
+        setPending((previous) =>
+          previous?.anchor
+            ? {
+                ...previous,
+                at: { top: box.top, bottom: box.bottom, left: box.left + box.width / 2 },
+              }
+            : previous
+        );
+      }
       setProgress((previous) =>
         Math.round(previous * 100) === Math.round(fraction * 100)
           ? previous
@@ -414,6 +462,86 @@ export function Reader({
     return () => observer.disconnect();
   }, [content]);
 
+  // Everything kept out of this article, whether or not it can still be found
+  // in it.
+  useEffect(() => {
+    let cancelled = false;
+    listHighlights(article.link).then((rows) => {
+      if (!cancelled) setHighlights(rows);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [article.link]);
+
+  // Draw them.
+  //
+  // Keyed on the body and the list, and nothing else. React cannot touch the
+  // inside of a dangerouslySetInnerHTML div whose html string has not changed,
+  // so the progress and outline state that churns on every scroll frame cannot
+  // disturb the marks — only a reload of the article can, and that is exactly
+  // when this runs again.
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body || !content?.html) return;
+
+    for (const mark of [...body.querySelectorAll("mark[data-hl]")]) {
+      const parent = mark.parentElement;
+      mark.replaceWith(...mark.childNodes);
+      parent?.normalize();
+    }
+
+    const frame = buildFrame(body);
+    frameRef.current = frame;
+    if (highlights.length === 0) return;
+
+    const moved: Reanchored[] = [];
+    const placed: Array<{ id: number; start: number; end: number; note: boolean }> = [];
+    for (const highlight of highlights) {
+      const span = resolveAnchor(
+        frame,
+        {
+          quote: highlight.quote,
+          prefix: highlight.prefix ?? "",
+          suffix: highlight.suffix ?? "",
+          start: highlight.start_offset ?? -1,
+          end: highlight.end_offset ?? -1,
+        },
+        Boolean(highlight.body_hash) && highlight.body_hash === content.body_hash
+      );
+      if (!span) {
+        if (!highlight.orphaned) moved.push({ id: highlight.id, orphaned: true });
+        continue;
+      }
+      placed.push({ ...span, id: highlight.id, note: Boolean(highlight.note) });
+      const drifted =
+        span.start !== highlight.start_offset ||
+        span.end !== highlight.end_offset ||
+        content.body_hash !== highlight.body_hash;
+      if (drifted || highlight.orphaned) {
+        moved.push({
+          id: highlight.id,
+          start_offset: span.start,
+          end_offset: span.end,
+          body_hash: content.body_hash,
+        });
+      }
+    }
+
+    // Back to front: splitting a text node invalidates every offset after the
+    // split, so each application must only disturb ground already covered.
+    placed.sort((a, b) => b.start - a.start);
+    for (const span of placed) {
+      applySpan(frame, span, span.id, span.note);
+    }
+    // The marks split text nodes, so the map has to be rebuilt before anything
+    // reads offsets again — the text itself is unchanged, only the nodes are.
+    frameRef.current = buildFrame(body);
+
+    // One request, and only when something actually moved.
+    reanchor(moved);
+  }, [content, highlights]);
+
   // Click any picture to see it properly. Delegated from the body, because the
   // article arrives as an HTML string and there is nothing to hang an onClick
   // on. An image wrapped in a link to somewhere that isn't an image file is
@@ -423,7 +551,30 @@ export function Reader({
     if (!body || !content?.html) return;
 
     function onClick(event: MouseEvent) {
-      const image = (event.target as HTMLElement | null)?.closest?.("img");
+      const target = event.target as HTMLElement | null;
+
+      // A click that ends a drag is the end of a selection, not a click on
+      // whatever happens to be under the cursor.
+      if (!window.getSelection()?.isCollapsed) return;
+
+      const mark = target?.closest?.("mark[data-hl]");
+      if (mark instanceof HTMLElement) {
+        // A highlighted link is still a link.
+        if (target?.closest("a[href]")) return;
+        const id = Number(mark.dataset.hl);
+        const highlight = highlights.find((entry) => entry.id === id);
+        if (!highlight) return;
+        event.preventDefault();
+        const box = mark.getBoundingClientRect();
+        setPending({
+          at: { top: box.top, bottom: box.bottom, left: box.left + box.width / 2 },
+          anchor: null,
+          highlight,
+        });
+        return;
+      }
+
+      const image = target?.closest?.("img");
       if (!(image instanceof HTMLImageElement)) return;
       // A gallery is a React component with its own click handling; this
       // listener is only for the loose pictures in the prose.
@@ -441,21 +592,119 @@ export function Reader({
 
     body.addEventListener("click", onClick);
     return () => body.removeEventListener("click", onClick);
-  }, [content]);
+  }, [content, highlights]);
+
+  // A selection inside the article, offered as a highlight.
+  //
+  // Mouse: the gesture ends on mouseup, or on keyup for a shift-arrow
+  // selection. Touch: iOS finishes a long-press selection without any event of
+  // ours firing, so selectionchange is the only signal — debounced, because it
+  // fires continuously while the handles are being dragged.
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body || !content?.html) return;
+    const article_ = body;
+
+    let timer: number | null = null;
+
+    function offer() {
+      // A cached frame is only good while its nodes are the ones on screen.
+      // Rebuilding when they are not costs one walk and removes a whole class
+      // of "the highlight went to the wrong place" bug.
+      if (frameRef.current && !frameRef.current.nodes[0]?.isConnected) {
+        frameRef.current = buildFrame(article_);
+      }
+      const frame = frameRef.current;
+      const selection = window.getSelection();
+      if (!frame || !selection || selection.rangeCount !== 1 || selection.isCollapsed) {
+        return;
+      }
+      const range = selection.getRangeAt(0);
+      // Only the article: the headline, the standfirst and the rails are not
+      // things you can keep.
+      if (!article_.contains(range.commonAncestorContainer)) return;
+      const described = describeRange(frame, range);
+      if (!described) return;
+      const box = range.getBoundingClientRect();
+      liveRange.current = range;
+      setPending({
+        at: { top: box.top, bottom: box.bottom, left: box.left + box.width / 2 },
+        anchor: described,
+        highlight: null,
+      });
+    }
+
+    function onMouseUp() {
+      // After the browser has settled the selection, not during it.
+      window.setTimeout(offer, 0);
+    }
+    function onKeyUp(event: KeyboardEvent) {
+      if (event.shiftKey) offer();
+    }
+    function onSelectionChange() {
+      if (!touch) return;
+      if (timer !== null) window.clearTimeout(timer);
+      timer = window.setTimeout(offer, 350);
+    }
+
+    body.addEventListener("mouseup", onMouseUp);
+    body.addEventListener("keyup", onKeyUp);
+    document.addEventListener("selectionchange", onSelectionChange);
+    return () => {
+      body.removeEventListener("mouseup", onMouseUp);
+      body.removeEventListener("keyup", onKeyUp);
+      document.removeEventListener("selectionchange", onSelectionChange);
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [content, touch]);
+
+  async function keep(note: string | null) {
+    if (!pending_?.anchor) return;
+    setPending(null);
+    // Wrapping a live selection collapses it on WebKit anyway; clearing it
+    // deliberately means the same thing happens everywhere.
+    window.getSelection()?.removeAllRanges();
+    const created = await createHighlight(
+      article,
+      pending_.anchor,
+      content?.body_hash ?? null,
+      note
+    );
+    if (created) setHighlights((previous) => [...previous, created]);
+  }
+
+  async function annotate(highlight: HighlightDto, note: string) {
+    setPending(null);
+    setHighlights((previous) =>
+      previous.map((entry) => (entry.id === highlight.id ? { ...entry, note } : entry))
+    );
+    await updateHighlight(highlight.id, note);
+  }
+
+  async function forget(highlight: HighlightDto) {
+    setPending(null);
+    if (bodyRef.current) unwrapHighlight(bodyRef.current, highlight.id);
+    setHighlights((previous) => previous.filter((entry) => entry.id !== highlight.id));
+    await deleteHighlight(highlight.id);
+  }
 
   // Animated rather than scrollIntoView: the overlay is the scroll container,
   // and scrollIntoView also scrolls whatever ancestor it feels like.
   function jump(id: string) {
-    const container = scrollRef.current;
     const target = bodyRef.current?.querySelector(`#${CSS.escape(id)}`);
-    if (!container || !target) return;
+    if (target) jumpTo(target);
+    setActiveId(id);
+  }
+
+  function jumpTo(target: Element) {
+    const container = scrollRef.current;
+    if (!container) return;
     const to =
       container.scrollTop +
       target.getBoundingClientRect().top -
       container.getBoundingClientRect().top -
       24;
     container.scrollTo({ top: to, behavior: "smooth" });
-    setActiveId(id);
   }
 
   // Split once per article, not once per keystroke of the Aa control.
@@ -561,6 +810,57 @@ export function Reader({
     </>
   );
 
+  // The highlights, in reading order, with their notes. Orphans are grouped at
+  // the end: they are still yours, they just cannot be pointed at any more.
+  const highlightList = (dense: boolean) => (
+    <div className="flex flex-col gap-2.5">
+      {highlights.map((highlight) => (
+        <button
+          key={highlight.id}
+          onClick={() => {
+            const mark = bodyRef.current?.querySelector(
+              `mark[data-hl="${highlight.id}"]`
+            );
+            if (mark) {
+              setHighlightsOpen(false);
+              requestAnimationFrame(() => jumpTo(mark));
+            }
+          }}
+          disabled={highlight.orphaned}
+          className={`rounded-xl border-l-2 pl-3 text-left transition ${
+            highlight.orphaned
+              ? "border-line opacity-70"
+              : "border-clay hover:bg-paper-sunken"
+          }`}
+        >
+          <span
+            className={
+              dense
+                ? "block text-[15.5px] leading-[1.45] text-ink-soft"
+                : "line-clamp-3 text-[13px] leading-[1.45] text-ink-soft"
+            }
+          >
+            {highlight.quote}
+          </span>
+          {highlight.note && (
+            <span
+              className={`mt-1 block italic text-ink-faint ${
+                dense ? "text-[14px]" : "text-[12.5px]"
+              }`}
+            >
+              {highlight.note}
+            </span>
+          )}
+          {highlight.orphaned && (
+            <span className="mt-1 block text-[11.5px] text-ink-faint">
+              not in this version of the article
+            </span>
+          )}
+        </button>
+      ))}
+    </div>
+  );
+
   return (
     <div
       ref={scrollRef}
@@ -643,6 +943,15 @@ export function Reader({
               <span className="tabular-nums">· {content?.headings.length}</span>
             </button>
           )}
+          {highlights.length > 0 && (
+            <button
+              onClick={() => setHighlightsOpen(true)}
+              className="flex shrink-0 items-center gap-1.5 transition hover:text-ink"
+            >
+              Highlights
+              <span className="tabular-nums">· {highlights.length}</span>
+            </button>
+          )}
           {minutes && (
             <span className="truncate">
               {minutes} min read{left !== null ? ` · ${left} min left` : ""}
@@ -697,6 +1006,14 @@ export function Reader({
               </span>
             )}
           </div>
+          {highlights.length > 0 && (
+            <div className="mt-7 border-t border-line pt-4">
+              <p className="mb-3 text-[11px] font-medium tracking-[0.14em] text-ink-faint uppercase">
+                Highlights
+              </p>
+              {highlightList(false)}
+            </div>
+          )}
         </aside>
 
         <article
@@ -836,6 +1153,31 @@ export function Reader({
 
       <Sheet open={typeOpen && touch} onClose={() => setTypeOpen(false)} title="Text">
         <div className="pb-4">{typeControls}</div>
+      </Sheet>
+
+      {pending_ && (
+        <ReaderHighlightPopover
+          at={pending_.at}
+          note={pending_.highlight ? (pending_.highlight.note ?? "") : null}
+          hasNote={Boolean(pending_.highlight?.note)}
+          below={touch}
+          onHighlight={() => keep(null)}
+          onNote={(note) =>
+            pending_.highlight ? annotate(pending_.highlight, note) : keep(note || null)
+          }
+          onDelete={
+            pending_.highlight ? () => forget(pending_.highlight!) : undefined
+          }
+          onClose={() => setPending(null)}
+        />
+      )}
+
+      <Sheet
+        open={highlightsOpen}
+        onClose={() => setHighlightsOpen(false)}
+        title="Highlights"
+      >
+        <div className="pb-4">{highlightList(true)}</div>
       </Sheet>
 
       {/* The outline, where the rail cannot be. Closes before jumping: jump()
