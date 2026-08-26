@@ -226,6 +226,72 @@ export function getDb(): Database.Database {
       attempts INTEGER NOT NULL DEFAULT 0,
       extracted_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    -- A passage someone kept, and what they wrote about it.
+    --
+    -- Keyed on the link rather than the article id, like reading_list and for
+    -- the same reason: the Discover trim deletes article rows, and a year of
+    -- reading notes must not go with them. article_id is resolved at read time
+    -- with a correlated subquery, so a trimmed-and-re-ingested article picks
+    -- its highlights back up.
+    --
+    -- The title and publication are snapshots. An Obsidian note has to be
+    -- writable even after the article itself is long gone.
+    CREATE TABLE IF NOT EXISTS highlights (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      link TEXT NOT NULL,
+      article_title TEXT NOT NULL,
+      feed_title TEXT,
+      published_at TEXT,
+      -- The passage itself, normalised. This is the source of truth: offsets
+      -- are a cache, the quote is the anchor.
+      quote TEXT NOT NULL,
+      -- Enough of either side to tell two identical sentences apart.
+      prefix TEXT,
+      suffix TEXT,
+      -- Indices into the reader's normalised body frame, valid only while
+      -- body_hash matches the body being read. Advisory, never authoritative.
+      start_offset INTEGER,
+      end_offset INTEGER,
+      body_hash TEXT,
+      -- Set when the passage could not be found in the article any more. The
+      -- row is kept: an extraction that broke today is exactly when a note
+      -- must not be lost, and it clears itself the next time it anchors.
+      orphaned_at TEXT,
+      note TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      -- A tombstone rather than a DELETE, so a plugin that already wrote the
+      -- note in Obsidian learns the highlight went away. Purged after 90 days.
+      deleted_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_highlights_user_link
+      ON highlights(user_id, link, start_offset);
+    -- The sync cursor: (updated_at, id) in that order, which is exactly what
+    -- the keyset pagination in /api/sync/highlights scans.
+    CREATE INDEX IF NOT EXISTS idx_highlights_user_updated
+      ON highlights(user_id, updated_at, id);
+
+    -- Bearer tokens, for clients that are not a browser — the Obsidian plugin
+    -- to begin with. Deliberately not a setting: GET /api/settings hands every
+    -- key back unredacted.
+    CREATE TABLE IF NOT EXISTS api_tokens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      -- sha256 of the token. Not scrypt: this is 256 bits of generated
+      -- entropy rather than a password, so there is nothing to slow down for,
+      -- and the lookup stays one indexed read.
+      token_hash TEXT NOT NULL UNIQUE,
+      -- The first characters, so the list can name a token without holding it.
+      prefix TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_used_at TEXT,
+      revoked_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_api_tokens_user
+      ON api_tokens(user_id, created_at DESC);
   `);
   db.pragma("foreign_keys = ON");
 
@@ -307,6 +373,17 @@ export function getDb(): Database.Database {
       }
     }
     console.log(`[db] resolved ${fixed} relative article link(s)`);
+  }
+
+  // Tombstones exist so a plugin can learn a highlight was deleted; once every
+  // plausible client has synced, they are just rows.
+  const stale = db
+    .prepare(
+      "DELETE FROM highlights WHERE deleted_at IS NOT NULL AND deleted_at < datetime('now', '-90 days')"
+    )
+    .run();
+  if (stale.changes > 0) {
+    console.log(`[db] purged ${stale.changes} deleted highlight(s)`);
   }
 
   // The Omnivore integration is gone. Its credentials should not outlive it in

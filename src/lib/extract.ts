@@ -4,6 +4,7 @@ import { getDb } from "./db";
 import { fetchPageHtml } from "./articleImages";
 import { getCachedImage, imageContentType } from "./imageCache";
 import { bodyFromEmbeddedState } from "./embeddedState";
+import { bodyFingerprint } from "./anchor";
 import { readingMinutes } from "./readingTime";
 import {
   archiveBases,
@@ -96,6 +97,7 @@ function toDto(row: StoredRow): ArticleContentDto {
     reading_minutes: row.reading_minutes,
     source: (row.source as ExtractSource | null) ?? null,
     extracted_at: row.extracted_at,
+    body_hash: row.html ? bodyFingerprint(row.html) : null,
   };
 }
 
@@ -701,6 +703,7 @@ async function run(articleId: number): Promise<ArticleContentDto> {
       reading_minutes: null,
       source: null,
       extracted_at: null,
+      body_hash: null,
     };
   }
 
@@ -944,6 +947,7 @@ function store(
     reading_minutes: minutes,
     source,
     extracted_at: new Date().toISOString(),
+    body_hash: bodyFingerprint(clean.html),
   };
 }
 
@@ -967,6 +971,7 @@ function storeFailure(articleId: number): ArticleContentDto {
     reading_minutes: null,
     source: null,
     extracted_at: new Date().toISOString(),
+    body_hash: null,
   };
 }
 
