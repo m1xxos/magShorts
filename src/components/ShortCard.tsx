@@ -6,7 +6,6 @@ import {
   cachedImageUrl,
   recordEvent,
   saveToReadingList,
-  sendToOmnivore,
   unlockUrl,
 } from "@/lib/actions";
 import { flyBoomerang } from "@/lib/boomerang";
@@ -14,7 +13,6 @@ import { FeedAvatar } from "./FeedAvatar";
 import {
   BookmarkIcon,
   ExternalIcon,
-  OmnivoreIcon,
   SwipeableCard,
   type SwipeableCardHandle,
 } from "./SwipeableCard";
@@ -46,7 +44,7 @@ export function ShortCard({
   const articleRef = useRef<HTMLElement>(null);
 
   useImperativeHandle(ref, () => ({
-    swipe: (direction) => swipeRef.current?.swipe(direction),
+    swipe: () => swipeRef.current?.swipe(),
   }));
 
   async function handleSave() {
@@ -62,11 +60,6 @@ export function ShortCard({
     if (result.ok) onSaved?.();
   }
 
-  async function handleOmnivore() {
-    onActed?.();
-    const result = await sendToOmnivore(article);
-    onToast(result.message, !result.ok);
-  }
 
   return (
     <section
@@ -76,10 +69,8 @@ export function ShortCard({
       <SwipeableCard
         ref={swipeRef}
         onSwipeRight={handleSave}
-        onSwipeLeft={handleOmnivore}
-        rightLabel="Read later"
-        leftLabel="To Omnivore"
-        className="max-h-full w-full max-w-xl"
+          rightLabel="Read later"
+          className="max-h-full w-full max-w-xl"
       >
         <article
           ref={articleRef}
@@ -182,24 +173,13 @@ export function ShortCard({
               {/* Was an icon. Save is the action this deck exists for, and an
                   outline bookmark is not a word. */}
               <button
-                onClick={() => swipeRef.current?.swipe("right")}
+                onClick={() => swipeRef.current?.swipe()}
                 title="Save to Read later"
                 className="inline-flex shrink-0 items-center gap-2 rounded-full border border-line px-4 py-2.5 text-sm text-ink-soft transition hover:border-clay hover:text-clay md:px-5 pointer-coarse:min-h-12 pointer-coarse:px-5 pointer-coarse:text-[15px]"
               >
                 <BookmarkIcon size={15} /> Save
               </button>
               <span className="flex-1" />
-              {/* Both stay icon-only, and both step aside on a touch screen:
-                  a swipe left already sends to Omnivore, and the row has to
-                  hold two 56px buttons there. */}
-              <button
-                onClick={() => swipeRef.current?.swipe("left")}
-                title="Send to Omnivore"
-                aria-label="Send to Omnivore"
-                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line md:h-10 md:w-10 text-ink-soft transition hover:border-clay hover:text-clay pointer-coarse:hidden"
-              >
-                <OmnivoreIcon size={16} />
-              </button>
               <a
                 href={article.link}
                 target="_blank"

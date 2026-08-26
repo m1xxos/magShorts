@@ -309,6 +309,17 @@ export function getDb(): Database.Database {
     console.log(`[db] resolved ${fixed} relative article link(s)`);
   }
 
+  // The Omnivore integration is gone. Its credentials should not outlive it in
+  // a database that hands every setting back unredacted.
+  const omnivore = db
+    .prepare(
+      "DELETE FROM settings WHERE key IN ('omnivore_url', 'omnivore_api_key')"
+    )
+    .run();
+  if (omnivore.changes > 0) {
+    console.log(`[db] removed ${omnivore.changes} stored Omnivore credential(s)`);
+  }
+
   // Pictures stored before the reader asked for a synchronous decode. On an
   // iPad they blink out for a frame and back while you scroll past them —
   // WebKit hands the page an empty box and fills it when the off-thread decode

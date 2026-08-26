@@ -9,8 +9,6 @@ export type RecWindow = "day" | "week" | "month";
 // Shape of /api/settings. The dialog edits only some of these; the per-domain
 // lists are written from Manage sources.
 export interface SettingsForm {
-  omnivore_url: string;
-  omnivore_api_key: string;
   marreta_url: string;
   archive_url: string;
   direct_domains: string;

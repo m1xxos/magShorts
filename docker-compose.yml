@@ -7,8 +7,6 @@ services:
       - ./data:/data
     environment:
       # Optional defaults; can also be set in the app's Settings dialog.
-      - OMNIVORE_URL=${OMNIVORE_URL:-}
-      - OMNIVORE_API_KEY=${OMNIVORE_API_KEY:-}
       - MARRETA_URL=${MARRETA_URL:-}
       # Digest schedule; unset TZ means UTC, so set DIGEST_TZ.
       - DIGEST_DAILY_AT=${DIGEST_DAILY_AT:-}

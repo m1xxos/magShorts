@@ -14,7 +14,6 @@ import {
   recordEvent,
   removeFromReadingList,
   saveToReadingList,
-  sendToOmnivore,
   unlockUrl,
 } from "@/lib/actions";
 import { Toast, useToast } from "@/components/Toast";
@@ -377,25 +376,6 @@ export default function ReadingListPage() {
                                 onSelect: () => {
                                   recordEvent(item.link, "open", item.title);
                                   window.open(item.link, "_blank", "noopener");
-                                },
-                              },
-                              {
-                                label: "Send to Omnivore",
-                                onSelect: async () => {
-                                  const result = await sendToOmnivore(
-                                    article ?? {
-                                      id: 0,
-                                      feed_id: item.feed_id ?? 0,
-                                      title: item.title,
-                                      link: item.link,
-                                      summary: item.summary,
-                                      image_url: item.image_url,
-                                      published_at: item.published_at,
-                                      topic: null,
-                                      feed_title: item.feed_title ?? "",
-                                    }
-                                  );
-                                  showToast(result.message, !result.ok);
                                 },
                               },
                               separator("remove"),
