@@ -947,7 +947,7 @@ export function Reader({
     const live = highlights.filter((highlight) => !highlight.orphaned);
     const lost = highlights.filter((highlight) => highlight.orphaned);
     return (
-    <div className="flex flex-col gap-2.5">
+    <div className="flex flex-col gap-3">
       {live.map((highlight) => (
         <button
           key={highlight.id}
@@ -960,21 +960,21 @@ export function Reader({
               requestAnimationFrame(() => jumpTo(mark));
             }
           }}
-          className="rounded-xl border-l-2 border-clay pl-3 text-left transition hover:bg-paper-sunken pointer-coarse:min-h-11"
+          className="group border-l-2 border-clay pl-3 text-left transition pointer-coarse:min-h-11"
         >
           <span
             className={
               dense
-                ? "block text-[15.5px] leading-[1.45] text-ink-soft"
-                : "line-clamp-3 text-[13px] leading-[1.45] text-ink-soft"
+                ? "block text-[17.5px] leading-[1.5] text-ink"
+                : "line-clamp-3 text-[13px] leading-[1.45] text-ink-soft transition group-hover:text-ink"
             }
           >
             {highlight.quote}
           </span>
           {highlight.note && (
             <span
-              className={`mt-1 block italic text-ink-faint ${
-                dense ? "text-[14px]" : "text-[12.5px]"
+              className={`mt-[5px] block leading-[1.45] italic text-ink-faint ${
+                dense ? "text-[15px]" : "text-[12.5px]"
               }`}
             >
               {highlight.note}
@@ -983,25 +983,29 @@ export function Reader({
         </button>
       ))}
 
-      {/* One heading rather than a footnote on every row. An orphan keeps its
-          own Remove: it has no mark in the prose to click, so this is the only
-          door left, and a highlight you cannot delete is worse than a row that
-          carries one more control than the mock. */}
+      {/* In the sheet, orphans get a heading of their own and a Remove — a
+          highlight with no mark in the prose has nothing else left to click,
+          and one that cannot be deleted is worse than a busy row. In the rail
+          they stay a quiet line in the same list, as the design draws them:
+          there, Remove appears on hover, which a rail above 1180px always has.
+          */}
       {lost.length > 0 && (
-        <div className="mt-2 border-t border-line pt-3">
-          <p className="mb-2.5 text-[12px] tracking-[0.1em] text-ink-faint uppercase">
-            Not in this version of the article
-          </p>
-          <div className="flex flex-col gap-2.5">
+        <div className={dense ? "mt-2 border-t border-line pt-3" : "contents"}>
+          {dense && (
+            <p className="mb-2.5 text-[12px] tracking-[0.1em] text-ink-faint uppercase">
+              Not in this version of the article
+            </p>
+          )}
+          <div className={dense ? "flex flex-col gap-3" : "contents"}>
             {lost.map((highlight) => (
               <div
                 key={highlight.id}
-                className="rounded-xl border-l-2 border-line pl-3 opacity-70"
+                className="group border-l-2 border-line pl-3 opacity-70"
               >
                 <span
                   className={
                     dense
-                      ? "block text-[15.5px] leading-[1.45] text-ink-soft"
+                      ? "block text-[17.5px] leading-[1.5] text-ink-soft"
                       : "line-clamp-3 text-[13px] leading-[1.45] text-ink-soft"
                   }
                 >
@@ -1009,20 +1013,26 @@ export function Reader({
                 </span>
                 {highlight.note && (
                   <span
-                    className={`mt-1 block italic text-ink-faint ${
-                      dense ? "text-[14px]" : "text-[12.5px]"
+                    className={`mt-[5px] block leading-[1.45] italic text-ink-faint ${
+                      dense ? "text-[15px]" : "text-[12.5px]"
                     }`}
                   >
                     {highlight.note}
                   </span>
                 )}
-                <div className="mt-1 flex items-center justify-between gap-2">
+                <div className="mt-[5px] flex items-center justify-between gap-2">
                   <span className="text-[11.5px] text-ink-faint">
-                    the publisher edited the page · the quote is kept
+                    {dense
+                      ? "the publisher edited the page · the quote is kept"
+                      : "not in this version"}
                   </span>
                   <button
                     onClick={() => forget(highlight)}
-                    className="shrink-0 rounded-full px-2 py-1 text-[11.5px] text-clay transition hover:bg-clay-soft pointer-coarse:min-h-11"
+                    className={`shrink-0 rounded-full px-2 py-1 text-[11.5px] text-clay transition hover:bg-clay-soft ${
+                      dense
+                        ? "pointer-coarse:min-h-11"
+                        : "opacity-0 group-hover:opacity-100"
+                    }`}
                   >
                     Remove
                   </button>
@@ -1182,7 +1192,8 @@ export function Reader({
               value={railTab}
               onChange={setRailChoice}
               ariaLabel="Rail contents"
-              className="mb-4 w-full"
+              className="mb-4 w-full gap-[3px] bg-paper p-[3px]"
+              size="rail"
             />
           )}
 
@@ -1209,9 +1220,9 @@ export function Reader({
             </div>
           )}
           <div
-            className={`flex flex-col gap-2 ${
+            className={`flex flex-col gap-1 ${
               hasOutline || highlights.length > 0
-                ? "mt-7 border-t border-line pt-4"
+                ? "mt-[22px] border-t border-line pt-[14px]"
                 : ""
             }`}
           >
