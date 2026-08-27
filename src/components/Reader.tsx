@@ -658,13 +658,27 @@ export function Reader({
       if (timer !== null) window.clearTimeout(timer);
       timer = window.setTimeout(offer, 350);
     }
+    // A finger lifting off is a far better signal than a timer, and a right
+    // click on a selection is a request to do something with it — both of
+    // which Omnivore listens for, and both of which this was missing.
+    function onTouchEnd() {
+      window.setTimeout(offer, 0);
+    }
 
-    body.addEventListener("mouseup", onMouseUp);
-    body.addEventListener("keyup", onKeyUp);
+    // On the document, not on the article: dragging upwards, the button comes
+    // up wherever the pointer happens to be, which is very often the column's
+    // left margin — outside the prose and outside any listener attached to it.
+    // The range is checked instead, which is the thing that actually matters.
+    document.addEventListener("mouseup", onMouseUp);
+    document.addEventListener("keyup", onKeyUp);
+    document.addEventListener("touchend", onTouchEnd);
+    document.addEventListener("contextmenu", onMouseUp);
     document.addEventListener("selectionchange", onSelectionChange);
     return () => {
-      body.removeEventListener("mouseup", onMouseUp);
-      body.removeEventListener("keyup", onKeyUp);
+      document.removeEventListener("mouseup", onMouseUp);
+      document.removeEventListener("keyup", onKeyUp);
+      document.removeEventListener("touchend", onTouchEnd);
+      document.removeEventListener("contextmenu", onMouseUp);
       document.removeEventListener("selectionchange", onSelectionChange);
       if (timer !== null) window.clearTimeout(timer);
     };
