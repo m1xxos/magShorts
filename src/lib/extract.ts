@@ -460,8 +460,59 @@ function collectGalleries(document: Document): void {
         block.remove();
       }
     }
+    adoptGalleryCaptions(gallery, [...track.children]);
     dropGalleryChrome(gallery, images.length);
   }
+}
+
+// The publisher's captions are not always on the images. The Verge renders a
+// carousel's caption line as siblings *after* the pictures — one <figcaption>
+// per slide, in slide order, with nothing left in alt — so a gallery built
+// from alt alone comes out captionless while the text it should have been
+// showing is left standing in the prose underneath, which is what a broken
+// caption looks like from the outside.
+//
+// Only a complete set is adopted. One caption after twelve slides is the
+// "currently showing" line, not a list, and pinning it to a slide would be a
+// guess; dropGalleryChrome deals with that case instead.
+function adoptGalleryCaptions(gallery: Element, slides: Element[]): void {
+  if (slides.some((slide) => slide.querySelector("figcaption"))) return;
+
+  const found: Element[] = [];
+  let node = gallery.nextElementSibling;
+  let budget = slides.length + 2;
+  while (node && budget-- > 0 && found.length < slides.length) {
+    // Anything holding a picture is the next block of the article, not this
+    // gallery's caption line.
+    if (node.querySelectorAll("img").length > 0) break;
+    // The paragraphs the slides were lifted out of are still standing here,
+    // empty, until the prune at the end of the sanitiser clears them. Walking
+    // past them is the difference between finding the captions and not.
+    if (node.childElementCount === 0 && !(node.textContent ?? "").trim()) {
+      node = node.nextElementSibling;
+      budget++;
+      continue;
+    }
+    const captions =
+      node.tagName === "FIGCAPTION"
+        ? [node]
+        : [...node.querySelectorAll("figcaption")];
+    if (captions.length === 0) break;
+    found.push(...captions);
+    node = node.nextElementSibling;
+  }
+  if (found.length !== slides.length) return;
+
+  const texts = found.map((caption) => plainText(caption.innerHTML));
+  if (texts.some((text) => !text)) return;
+  for (const [index, text] of texts.entries()) {
+    const figcaption = gallery.ownerDocument.createElement("figcaption");
+    figcaption.textContent = text;
+    slides[index].appendChild(figcaption);
+  }
+  // The originals are left where they are: dropGalleryChrome runs next and
+  // now recognises them, along with whatever counter shares their paragraph.
+  for (const caption of found) caption.remove();
 }
 
 // A slideshow renders its own furniture — The Verge writes out "1/4" and the
@@ -491,8 +542,19 @@ function dropGalleryChrome(gallery: Element, slideCount: number): void {
     }
     // The counter and the caption often share one paragraph, so the pieces
     // are taken out individually before the block is judged.
+    // A <figcaption> outside a <figure> this close to a gallery is that
+    // gallery's own caption line. It goes even when the text does not match a
+    // slide's: we are already showing the caption we lifted from alt, and a
+    // second copy left loose in the prose renders as a stray italic line.
+    if (node.tagName === "FIGCAPTION") {
+      node.remove();
+      node = next;
+      continue;
+    }
     for (const part of [...node.querySelectorAll("figcaption, strong, b, span, em")]) {
-      if (isChrome(normalise(part.textContent ?? ""))) part.remove();
+      if (part.tagName === "FIGCAPTION" || isChrome(normalise(part.textContent ?? ""))) {
+        part.remove();
+      }
     }
     if (!isChrome(normalise(node.textContent ?? ""))) break;
     node.remove();
