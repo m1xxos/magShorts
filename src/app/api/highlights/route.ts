@@ -34,6 +34,21 @@ export async function GET(request: NextRequest) {
   }
 
   const db = getDb();
+
+  // How many are kept per article, for the Read later list. One grouped read
+  // rather than a request per row, and counted in SQL rather than by shipping
+  // every quote to the client to be tallied there.
+  if (request.nextUrl.searchParams.get("counts") === "1") {
+    const counts = db
+      .prepare(
+        `SELECT link, COUNT(*) AS count FROM highlights
+          WHERE user_id = ? AND deleted_at IS NULL
+          GROUP BY link`
+      )
+      .all(user.id);
+    return NextResponse.json(counts);
+  }
+
   const link = request.nextUrl.searchParams.get("link");
 
   // One article, in reading order — what the reader asks for on open.

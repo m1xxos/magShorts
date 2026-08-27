@@ -15,10 +15,13 @@ import { ReaderGallery, type Slide } from "./ReaderGallery";
 import { ReaderOutline } from "./ReaderOutline";
 import { ReaderUpNext } from "./ReaderUpNext";
 import { Sheet } from "./ui/Sheet";
+import { Segmented } from "./ui/Segmented";
+import { Menu, separator } from "./ui/Menu";
 import {
   ReaderHighlightPopover,
   type PopoverAt,
 } from "./ReaderHighlightPopover";
+import { ReaderNoteEditor } from "./ReaderNoteEditor";
 import {
   applySpan,
   buildFrame,
@@ -31,6 +34,7 @@ import {
 import {
   createHighlight,
   deleteHighlight,
+  highlightsAsText,
   listHighlights,
   reanchor,
   updateHighlight,
@@ -199,6 +203,8 @@ export function Reader({
   upNext,
   saved,
   onToggleSave,
+  onToast,
+  showHighlights = false,
   onOpenArticle,
   onClose,
 }: {
@@ -210,6 +216,11 @@ export function Reader({
   // Saves, or un-saves when it is already saved — a filled bookmark you can't
   // click off is a state, not a control.
   onToggleSave: () => void;
+  // The host page owns the Toast; the reader borrows it to say what it did.
+  onToast?: (message: string, error?: boolean) => void;
+  // Opened from something that points at the highlights — the chip in Read
+  // later — so the list is what you land on.
+  showHighlights?: boolean;
   onOpenArticle: (article: ArticleDto) => void;
   onClose: () => void;
 }) {
@@ -228,6 +239,10 @@ export function Reader({
   // five text sizes gets about 30px of tap area.
   const touch = useMediaQuery("(pointer: coarse)");
   const portrait = useMediaQuery("(orientation: portrait)");
+  // The width at which the rail appears. Below it the highlights live in a
+  // sheet; above it they live in the rail, and the sheet must not exist at all
+  // or arriving from Read later would cover the article with it.
+  const wide = useMediaQuery("(min-width: 1180px)");
   const [lightbox, setLightbox] = useState<Lightbox | null>(null);
   const [highlights, setHighlights] = useState<HighlightDto[]>([]);
   // What the selection bar is pointing at: a fresh selection, or a highlight
@@ -237,7 +252,24 @@ export function Reader({
     anchor: Anchor | null;
     highlight: HighlightDto | null;
   } | null>(null);
-  const [highlightsOpen, setHighlightsOpen] = useState(false);
+  const [highlightsOpen, setHighlightsOpen] = useState(showHighlights);
+  // The note being written, held here rather than inside the editor: on touch
+  // the editor is a Sheet, Sheet unmounts its children when it closes, and it
+  // closes on a downward drag — a draft kept inside would die to a gesture.
+  const [draft, setDraft] = useState<string | null>(null);
+  // Which of the rail's two lists is showing above 1180px. Null until the
+  // reader picks one, so keeping a first passage can open the list without
+  // ever overriding a choice made afterwards.
+  const [railChoice, setRailChoice] = useState<"article" | "highlights" | null>(
+    showHighlights ? "highlights" : null
+  );
+  const [keptThisSession, setKeptThisSession] = useState(false);
+  // Where each drawn highlight sits down the body, as a fraction. Feeds the
+  // gutter; written by the effect that draws the marks, which is keyed on
+  // content and the list, so this cannot make it run again.
+  const [ticks, setTicks] = useState<
+    Array<{ id: number; top: number; height: number }>
+  >([]);
   const frameRef = useRef<Frame | null>(null);
   // The live range, so the bar can follow the selection while the page scrolls.
   const liveRange = useRef<Range | null>(null);
@@ -543,7 +575,26 @@ export function Reader({
 
     // One request, and only when something actually moved.
     reanchor(moved);
+    setTicks(measureTicks(body, placed.map((span) => span.id)));
   }, [content, highlights]);
+
+  // The prose reflows for reasons the reader never hears about: a late image
+  // resolving its height, the Aa control, an iPad turning over. The ticks are
+  // positions in that prose, so they are measured again when it changes shape.
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body || ticks.length === 0) return;
+    const observer = new ResizeObserver(() => {
+      setTicks((previous) =>
+        measureTicks(
+          body,
+          previous.map((tick) => tick.id)
+        )
+      );
+    });
+    observer.observe(body);
+    return () => observer.disconnect();
+  }, [ticks.length]);
 
   // Click any picture to see it properly. Delegated from the body, because the
   // article arrives as an HTML string and there is nothing to hang an onClick
@@ -685,6 +736,7 @@ export function Reader({
   }, [content, touch]);
 
   function clearPending() {
+    setDraft(null);
     if (bodyRef.current) {
       unwrapHighlight(bodyRef.current, PENDING);
       frameRef.current = buildFrame(bodyRef.current);
@@ -705,7 +757,17 @@ export function Reader({
       content?.body_hash ?? null,
       note
     );
-    if (created) setHighlights((previous) => [...previous, created]);
+    if (created) {
+      // In reading order from the moment it exists: the rail's list is headed
+      // "In reading order", and appending would make that heading a lie until
+      // the next time the article is opened.
+      setHighlights((previous) =>
+        [...previous, created].sort(
+          (a, b) => (a.start_offset ?? 0) - (b.start_offset ?? 0) || a.id - b.id
+        )
+      );
+      setKeptThisSession(true);
+    }
   }
 
   async function annotate(highlight: HighlightDto, note: string) {
@@ -774,6 +836,12 @@ export function Reader({
   // article" tells you what to do next.
   const sourceNote = content?.source ? SOURCE_LABEL[content.source] : "";
   const hasOutline = (content?.headings.length ?? 0) > 0;
+  // Derived rather than stored: with no highlights there is only one list, and
+  // the automatic switch is a default the reader can overrule at any time.
+  const railTab =
+    highlights.length === 0
+      ? "article"
+      : (railChoice ?? (keptThisSession ? "highlights" : "article"));
 
   // The same three controls in the same order, drawn either in the popover or
   // in the sheet — one definition, so a change to the ramp cannot land in one
@@ -845,11 +913,42 @@ export function Reader({
     </>
   );
 
+  async function clearAll() {
+    const doomed = highlights;
+    setHighlightsOpen(false);
+    if (bodyRef.current) {
+      for (const highlight of doomed) unwrapHighlight(bodyRef.current, highlight.id);
+    }
+    setHighlights([]);
+    await Promise.all(doomed.map((highlight) => deleteHighlight(highlight.id)));
+    onToast?.(
+      `${doomed.length} highlight${doomed.length === 1 ? "" : "s"} removed`
+    );
+  }
+
+  async function copyAll(markdown: boolean) {
+    const text = highlightsAsText(highlights, markdown, {
+      title: article.title,
+      link: article.link,
+    });
+    try {
+      await navigator.clipboard.writeText(text);
+      onToast?.(
+        `${highlights.length} highlight${highlights.length === 1 ? "" : "s"} copied`
+      );
+    } catch {
+      onToast?.("Could not reach the clipboard", true);
+    }
+  }
+
   // The highlights, in reading order, with their notes. Orphans are grouped at
   // the end: they are still yours, they just cannot be pointed at any more.
-  const highlightList = (dense: boolean) => (
+  const highlightList = (dense: boolean) => {
+    const live = highlights.filter((highlight) => !highlight.orphaned);
+    const lost = highlights.filter((highlight) => highlight.orphaned);
+    return (
     <div className="flex flex-col gap-2.5">
-      {highlights.map((highlight) => (
+      {live.map((highlight) => (
         <button
           key={highlight.id}
           onClick={() => {
@@ -861,12 +960,7 @@ export function Reader({
               requestAnimationFrame(() => jumpTo(mark));
             }
           }}
-          disabled={highlight.orphaned}
-          className={`rounded-xl border-l-2 pl-3 text-left transition ${
-            highlight.orphaned
-              ? "border-line opacity-70"
-              : "border-clay hover:bg-paper-sunken"
-          }`}
+          className="rounded-xl border-l-2 border-clay pl-3 text-left transition hover:bg-paper-sunken pointer-coarse:min-h-11"
         >
           <span
             className={
@@ -886,15 +980,61 @@ export function Reader({
               {highlight.note}
             </span>
           )}
-          {highlight.orphaned && (
-            <span className="mt-1 block text-[11.5px] text-ink-faint">
-              not in this version of the article
-            </span>
-          )}
         </button>
       ))}
+
+      {/* One heading rather than a footnote on every row. An orphan keeps its
+          own Remove: it has no mark in the prose to click, so this is the only
+          door left, and a highlight you cannot delete is worse than a row that
+          carries one more control than the mock. */}
+      {lost.length > 0 && (
+        <div className="mt-2 border-t border-line pt-3">
+          <p className="mb-2.5 text-[12px] tracking-[0.1em] text-ink-faint uppercase">
+            Not in this version of the article
+          </p>
+          <div className="flex flex-col gap-2.5">
+            {lost.map((highlight) => (
+              <div
+                key={highlight.id}
+                className="rounded-xl border-l-2 border-line pl-3 opacity-70"
+              >
+                <span
+                  className={
+                    dense
+                      ? "block text-[15.5px] leading-[1.45] text-ink-soft"
+                      : "line-clamp-3 text-[13px] leading-[1.45] text-ink-soft"
+                  }
+                >
+                  {highlight.quote}
+                </span>
+                {highlight.note && (
+                  <span
+                    className={`mt-1 block italic text-ink-faint ${
+                      dense ? "text-[14px]" : "text-[12.5px]"
+                    }`}
+                  >
+                    {highlight.note}
+                  </span>
+                )}
+                <div className="mt-1 flex items-center justify-between gap-2">
+                  <span className="text-[11.5px] text-ink-faint">
+                    the publisher edited the page · the quote is kept
+                  </span>
+                  <button
+                    onClick={() => forget(highlight)}
+                    className="shrink-0 rounded-full px-2 py-1 text-[11.5px] text-clay transition hover:bg-clay-soft pointer-coarse:min-h-11"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
-  );
+    );
+  };
 
   return (
     <div
@@ -972,19 +1112,21 @@ export function Reader({
           {hasOutline && (
             <button
               onClick={() => setOutlineOpen(true)}
-              className="flex shrink-0 items-center gap-1.5 transition hover:text-ink"
+              className="flex min-h-9 shrink-0 items-center gap-1.5 rounded-full bg-paper-sunken px-3 text-ink-soft transition hover:text-ink"
             >
               In this article
-              <span className="tabular-nums">· {content?.headings.length}</span>
+              <span className="tabular-nums">{content?.headings.length}</span>
             </button>
           )}
+          {/* The same shape in the accent: structure reads as neutral, and
+              what you kept reads as yours. */}
           {highlights.length > 0 && (
             <button
               onClick={() => setHighlightsOpen(true)}
-              className="flex shrink-0 items-center gap-1.5 transition hover:text-ink"
+              className="flex min-h-9 shrink-0 items-center gap-1.5 rounded-full bg-clay-soft px-3 text-clay transition hover:brightness-95"
             >
               Highlights
-              <span className="tabular-nums">· {highlights.length}</span>
+              <span className="tabular-nums">{highlights.length}</span>
             </button>
           )}
           {minutes && (
@@ -1017,14 +1159,60 @@ export function Reader({
           }}
           className="no-scrollbar hidden w-[212px] shrink-0 self-start overflow-y-auto pt-2.5 min-[1180px]:sticky min-[1180px]:block"
         >
-          <ReaderOutline
-            headings={content?.headings ?? []}
-            activeId={activeId}
-            onJump={jump}
-          />
+          {/* One switch over two lists, not a stack. Stacked, an article with
+              fifteen headings pushed the list you made yourself below the fold
+              of the rail's own scroller — the first thing to disappear was the
+              only thing here that is yours. */}
+          {highlights.length > 0 && (
+            <Segmented
+              options={[
+                { value: "article" as const, label: "Article" },
+                {
+                  value: "highlights" as const,
+                  label: (
+                    <>
+                      Highlights{" "}
+                      <span className="tabular-nums opacity-65">
+                        {highlights.length}
+                      </span>
+                    </>
+                  ),
+                },
+              ]}
+              value={railTab}
+              onChange={setRailChoice}
+              ariaLabel="Rail contents"
+              className="mb-4 w-full"
+            />
+          )}
+
+          {railTab === "article" ? (
+            <ReaderOutline
+              headings={content?.headings ?? []}
+              activeId={activeId}
+              onJump={jump}
+            />
+          ) : (
+            <div>
+              <div className="mb-3 flex items-baseline justify-between gap-2">
+                <p className="text-[11px] font-medium tracking-[0.14em] text-ink-faint uppercase">
+                  In reading order
+                </p>
+                <button
+                  onClick={() => copyAll(false)}
+                  className="shrink-0 text-[11.5px] text-clay transition hover:brightness-90"
+                >
+                  Copy all
+                </button>
+              </div>
+              {highlightList(false)}
+            </div>
+          )}
           <div
             className={`flex flex-col gap-2 ${
-              hasOutline ? "mt-7 border-t border-line pt-4" : ""
+              hasOutline || highlights.length > 0
+                ? "mt-7 border-t border-line pt-4"
+                : ""
             }`}
           >
             {minutes && (
@@ -1041,14 +1229,6 @@ export function Reader({
               </span>
             )}
           </div>
-          {highlights.length > 0 && (
-            <div className="mt-7 border-t border-line pt-4">
-              <p className="mb-3 text-[11px] font-medium tracking-[0.14em] text-ink-faint uppercase">
-                Highlights
-              </p>
-              {highlightList(false)}
-            </div>
-          )}
         </aside>
 
         <article
@@ -1097,7 +1277,9 @@ export function Reader({
           ) : content && content.status !== "failed" && segments.length > 0 ? (
             <div
               ref={bodyRef}
-              className={type.serif ? "font-serif" : "font-sans"}
+              className={`${type.serif ? "font-serif" : "font-sans"} ${
+                ticks.length > 0 ? "relative" : ""
+              }`}
               style={{
                 fontSize: `${TYPE_STEPS[type.step]}px`,
                 lineHeight: touch ? 1.7 : undefined,
@@ -1123,6 +1305,41 @@ export function Reader({
                 ) : (
                   <ArticleHtml key={at} html={segment.html} />
                 )
+              )}
+              {/* Where the others are, without opening anything. Ticks are
+                  positions on the page rather than in the text, so they are
+                  measured from the marks themselves. */}
+              {ticks.length > 0 && (
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute top-0 -left-4 h-full w-[3px] md:-left-10"
+                >
+                  {ticks.map((tick) => {
+                    const here =
+                      progress >= tick.top - 0.01 &&
+                      progress <= tick.top + tick.height + 0.05;
+                    return (
+                      <button
+                        key={tick.id}
+                        onClick={() => {
+                          const mark = bodyRef.current?.querySelector(
+                            `mark[data-hl="${tick.id}"]`
+                          );
+                          if (mark) jumpTo(mark);
+                        }}
+                        tabIndex={-1}
+                        aria-hidden
+                        style={{
+                          top: `${tick.top * 100}%`,
+                          height: `max(12px, ${tick.height * 100}%)`,
+                        }}
+                        className={`absolute w-[3px] rounded-sm transition-colors pointer-events-auto pointer-coarse:pointer-events-none ${
+                          here ? "bg-clay" : "bg-line"
+                        }`}
+                      />
+                    );
+                  })}
+                </div>
               )}
               {content.status === "partial" && (
                 <Partial onRetry={() => load(true)} link={article.link} />
@@ -1182,29 +1399,79 @@ export function Reader({
         <div className="pb-4">{typeControls}</div>
       </Sheet>
 
-      {pending_ && (
+      {pending_ && draft === null && (
         <ReaderHighlightPopover
           at={pending_.at}
-          note={pending_.highlight ? (pending_.highlight.note ?? "") : null}
+          existing={pending_.highlight !== null}
           hasNote={Boolean(pending_.highlight?.note)}
           below={touch}
           onHighlight={() => keep(null)}
-          onNote={(note) =>
-            pending_.highlight ? annotate(pending_.highlight, note) : keep(note || null)
-          }
+          onNote={() => setDraft(pending_.highlight?.note ?? "")}
           onDelete={
             pending_.highlight ? () => forget(pending_.highlight!) : undefined
           }
           onClose={clearPending}
         />
       )}
+      {pending_ && draft !== null && (
+        <ReaderNoteEditor
+          at={pending_.at}
+          quote={pending_.highlight?.quote ?? pending_.anchor?.quote ?? ""}
+          draft={draft}
+          onDraft={setDraft}
+          touch={touch}
+          below={touch}
+          onSave={() => {
+            const note = draft.trim();
+            if (pending_.highlight) annotate(pending_.highlight, note);
+            else keep(note || null);
+          }}
+          onCancel={() => setDraft(null)}
+          onDelete={
+            pending_.highlight ? () => forget(pending_.highlight!) : undefined
+          }
+        />
+      )}
 
       <Sheet
-        open={highlightsOpen}
+        open={highlightsOpen && !wide}
         onClose={() => setHighlightsOpen(false)}
-        title="Highlights"
       >
-        <div className="pb-4">{highlightList(true)}</div>
+        <div className="-mx-5 flex items-center gap-2 border-b border-line px-5 pb-3">
+          <h2 className="min-w-0 flex-1 font-serif text-[22px] text-ink">
+            Highlights <span className="tabular-nums">· {highlights.length}</span>
+          </h2>
+          <button
+            onClick={() => copyAll(false)}
+            className="min-h-11 shrink-0 rounded-full border border-line bg-paper-raised px-4 text-[13.5px] text-ink-soft transition hover:border-clay hover:text-clay"
+          >
+            Copy all
+          </button>
+          <Menu
+            items={[
+              {
+                label: "Copy as Markdown",
+                onSelect: () => copyAll(true),
+              },
+              separator("clear"),
+              {
+                label: "Clear all",
+                hint: "Removes every highlight in this article",
+                destructive: true,
+                onSelect: () => {
+                  if (
+                    window.confirm(
+                      `Remove all ${highlights.length} highlights from this article?`
+                    )
+                  ) {
+                    void clearAll();
+                  }
+                },
+              },
+            ]}
+          />
+        </div>
+        <div className="pt-4 pb-4">{highlightList(true)}</div>
       </Sheet>
 
       {/* The outline, where the rail cannot be. Closes before jumping: jump()
@@ -1351,6 +1618,28 @@ function LightboxArrow({
       </svg>
     </button>
   );
+}
+
+// Where the marks sit, as fractions of the body's height. Read from the DOM
+// rather than from the anchor offsets: an offset is a position in the text, and
+// the gutter is about the position on the page.
+function measureTicks(
+  body: HTMLElement,
+  ids: number[]
+): Array<{ id: number; top: number; height: number }> {
+  const total = body.scrollHeight;
+  if (total <= 0) return [];
+  const ticks: Array<{ id: number; top: number; height: number }> = [];
+  for (const id of ids) {
+    const marks = [...body.querySelectorAll(`mark[data-hl="${id}"]`)];
+    if (marks.length === 0) continue;
+    const first = marks[0] as HTMLElement;
+    const last = marks[marks.length - 1] as HTMLElement;
+    const top = first.offsetTop;
+    const bottom = last.offsetTop + last.offsetHeight;
+    ticks.push({ id, top: top / total, height: (bottom - top) / total });
+  }
+  return ticks.sort((a, b) => a.top - b.top);
 }
 
 // A run of the article's prose, written into the DOM once.
