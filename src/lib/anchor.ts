@@ -271,13 +271,31 @@ function nearest(candidates: number[], to: number): number {
 // change their words: the AMP copy uses straight quotes where the article page
 // uses curly ones, an em dash becomes a hyphen. Folding both sides costs one
 // extra pass and is only paid when the strict search has already failed.
+//
+// Every rule here must preserve length, because an index found in the folded
+// string is used directly as an index into the strict one. That rules out the
+// obvious … → "..." — one character for three would slide every match after
+// it two places left, and the mark would land on the wrong words — and it is
+// why toLowerCase is applied per character and refused when it changes length
+// (İ lowercases to two code units).
+const SINGLE_QUOTES = /[‘’‚‛']/;
+const DOUBLE_QUOTES = /[“”„‟"]/;
+const DASHES = /[–—−]/;
+
 function fold(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[‘’‚‛']/g, "'")
-    .replace(/[“”„‟"]/g, '"')
-    .replace(/[–—−]/g, "-")
-    .replace(/…/g, "...");
+  let out = "";
+  for (const char of value) {
+    const mapped = SINGLE_QUOTES.test(char)
+      ? "'"
+      : DOUBLE_QUOTES.test(char)
+        ? '"'
+        : DASHES.test(char)
+          ? "-"
+          : char;
+    const lower = mapped.toLowerCase();
+    out += lower.length === mapped.length ? lower : mapped;
+  }
+  return out;
 }
 
 export interface Resolved {
