@@ -14,13 +14,13 @@ import {
   recordEvent,
   removeFromReadingList,
   saveToReadingList,
-  sendToOmnivore,
   unlockUrl,
 } from "@/lib/actions";
 import { Toast, useToast } from "@/components/Toast";
 import { Menu, separator } from "@/components/ui/Menu";
 import { Segmented } from "@/components/ui/Segmented";
 import { partialProgress, readProgress } from "@/lib/readProgress";
+import { highlightCounts } from "@/lib/highlights";
 import { TopBar } from "@/components/TopBar";
 import { Sidebar } from "@/components/Sidebar";
 import { SettingsDialog } from "@/components/SettingsDialog";
@@ -114,6 +114,12 @@ export default function ReadingListPage() {
   // the reader writes; it is a scroll position in this browser, not a fact
   // about the article, and it is honest about that.
   const [progress, setProgress] = useState<Record<string, number>>({});
+  // How many passages are kept in each saved article — the reason to come back
+  // to one. Counted server-side and fetched once, not per row.
+  const [highlights, setHighlights] = useState<Map<string, number>>(new Map());
+  // Set by the highlight chip, so the reader opens on the list rather than on
+  // the top of an article you have already read.
+  const [openHighlights, setOpenHighlights] = useState(false);
 
   const resolveArticle = useCallback(
     async (id: number): Promise<ArticleDto | null> => {
@@ -150,6 +156,7 @@ export default function ReadingListPage() {
       .catch(() => {});
     // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is not readable during render
     setProgress(readProgress());
+    highlightCounts().then(setHighlights);
   }, [user]);
 
   // On this page a save is the reason the row exists, so un-saving removes it
@@ -286,6 +293,7 @@ export default function ReadingListPage() {
                   {group.items.map((item) => {
                     const article = asArticle(item);
                     const read = partialProgress(progress, item.article_id);
+                    const kept = highlights.get(item.link) ?? 0;
                     return (
                       <li
                         key={item.id}
@@ -331,6 +339,25 @@ export default function ReadingListPage() {
                               saved{" "}
                               {timeAgo(item.added_at.replace(" ", "T") + "Z") ||
                                 "just now"}
+                              {kept > 0 && (
+                                <>
+                                  <span className="mx-1.5">·</span>
+                                  <a
+                                    {...(article
+                                      ? readerLink(article, reader.open)
+                                      : { href: item.link })}
+                                    onClick={(event) => {
+                                      setOpenHighlights(true);
+                                      if (article) {
+                                        readerLink(article, reader.open).onClick(event);
+                                      }
+                                    }}
+                                    className="rounded-full bg-clay-soft px-2 py-0.5 text-[12px] text-clay"
+                                  >
+                                    {kept} highlight{kept === 1 ? "" : "s"}
+                                  </a>
+                                </>
+                              )}
                               {item.reading_minutes && (
                                 <>
                                   <span className="mx-1.5">·</span>
@@ -379,25 +406,6 @@ export default function ReadingListPage() {
                                   window.open(item.link, "_blank", "noopener");
                                 },
                               },
-                              {
-                                label: "Send to Omnivore",
-                                onSelect: async () => {
-                                  const result = await sendToOmnivore(
-                                    article ?? {
-                                      id: 0,
-                                      feed_id: item.feed_id ?? 0,
-                                      title: item.title,
-                                      link: item.link,
-                                      summary: item.summary,
-                                      image_url: item.image_url,
-                                      published_at: item.published_at,
-                                      topic: null,
-                                      feed_title: item.feed_title ?? "",
-                                    }
-                                  );
-                                  showToast(result.message, !result.ok);
-                                },
-                              },
                               separator("remove"),
                               {
                                 label: "Remove from Read later",
@@ -430,9 +438,12 @@ export default function ReadingListPage() {
           upNext={upNext}
           saved={unsaved?.link !== reader.article.link}
           onToggleSave={() => toggleSave(reader.article!)}
+          onToast={showToast}
+          showHighlights={openHighlights}
           onOpenArticle={reader.open}
           onClose={() => {
             reader.close();
+            setOpenHighlights(false);
             // The reader is an overlay on this page: closing it is exactly
             // when the row behind it learns how far you got.
             setProgress(readProgress());

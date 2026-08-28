@@ -49,24 +49,6 @@ export async function removeFromReadingList(
   }
 }
 
-export async function sendToOmnivore(
-  article: ArticleDto
-): Promise<ActionResult> {
-  try {
-    const response = await fetch("/api/omnivore", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: article.link }),
-    });
-    if (!response.ok) {
-      const body = await response.json().catch(() => null);
-      return { ok: false, message: body?.error ?? "Could not send to Omnivore" };
-    }
-    return { ok: true, message: "Sent to Omnivore" };
-  } catch {
-    return { ok: false, message: "Could not send to Omnivore" };
-  }
-}
 
 export function unlockUrl(articleLink: string): string {
   return `/api/unlock?url=${encodeURIComponent(articleLink)}`;

@@ -543,6 +543,7 @@ export default function DigestPage() {
           upNext={upNext}
           saved={savedLinks.has(reader.article.link)}
           onToggleSave={() => toggleSave(reader.article!)}
+          onToast={showToast}
           onOpenArticle={reader.open}
           onClose={reader.close}
         />

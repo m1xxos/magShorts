@@ -1,8 +1,6 @@
 import { getDb } from "./db";
 
 export type SettingKey =
-  | "omnivore_url"
-  | "omnivore_api_key"
   | "marreta_url"
   | "archive_url"
   | "direct_domains"
@@ -25,8 +23,6 @@ export type SettingKey =
   | "digest_rerank";
 
 export const SETTING_KEYS: SettingKey[] = [
-  "omnivore_url",
-  "omnivore_api_key",
   "marreta_url",
   "archive_url",
   "direct_domains",
@@ -42,8 +38,6 @@ export const SETTING_KEYS: SettingKey[] = [
 ];
 
 const ENV_FALLBACKS: Record<SettingKey, string | undefined> = {
-  omnivore_url: process.env.OMNIVORE_URL,
-  omnivore_api_key: process.env.OMNIVORE_API_KEY,
   marreta_url: process.env.MARRETA_URL,
   archive_url: process.env.ARCHIVE_URL,
   direct_domains: process.env.DIRECT_DOMAINS,

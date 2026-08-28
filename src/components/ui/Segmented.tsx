@@ -29,14 +29,18 @@ export function Segmented<T extends string>({
   // `clay` where the choice is a property of the thing on the row (how a
   // publication opens); `ink` where it is a view the reader is picking.
   tone?: "ink" | "clay";
-  size?: "sm" | "md";
+  size?: "sm" | "md" | "rail";
   className?: string;
   ariaLabel?: string;
 }) {
   const active =
     tone === "clay" ? "bg-clay text-white" : "bg-ink text-paper";
   const pad =
-    size === "md"
+    size === "rail"
+      ? // The reader's rail: a 28px pill with an 11.5px label, sized to sit
+        // above a list rather than to be aimed at with a finger.
+        "h-7 px-2 text-[11.5px]"
+      : size === "md"
       ? "px-3.5 py-2 text-[13.5px] pointer-coarse:min-h-13 pointer-coarse:text-[15.5px]"
       : "px-2.5 py-1 text-[12px] pointer-coarse:min-h-11 pointer-coarse:px-3.5 pointer-coarse:text-[14px]";
 

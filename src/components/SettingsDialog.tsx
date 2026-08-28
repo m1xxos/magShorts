@@ -16,8 +16,6 @@ const EDITABLE: Array<keyof SettingsForm> = [
   "open_in_reader",
   "marreta_url",
   "archive_url",
-  "omnivore_url",
-  "omnivore_api_key",
   "digest_also_count",
   "digest_quick_count",
   "digest_daily_at",
@@ -28,12 +26,11 @@ const EDITABLE: Array<keyof SettingsForm> = [
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-type Tab = "reading" | "digest" | "integrations";
+type Tab = "reading" | "digest";
 
 const TABS: Array<{ value: Tab; label: string }> = [
   { value: "reading", label: "Reading" },
   { value: "digest", label: "Digest" },
-  { value: "integrations", label: "Integrations" },
 ];
 
 // "Sun 19:00" → ["Sun", "19:00"], tolerating whatever is in the setting.
@@ -448,25 +445,8 @@ export function SettingsDialog({
     </div>
   );
 
-  const integrations = (
-    <div className="space-y-4">
-      {field(
-        "Omnivore URL",
-        "omnivore_url",
-        "https://omnivore.example.com",
-        "Your self-hosted Omnivore instance (swipe left sends articles there)."
-      )}
-      {field(
-        "Omnivore API key",
-        "omnivore_api_key",
-        "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
-        undefined,
-        "password"
-      )}
-    </div>
-  );
 
-  const panel = { reading, digest, integrations }[tab];
+  const panel = { reading, digest }[tab];
 
   const header = (
     <div className="flex items-baseline justify-between gap-4">

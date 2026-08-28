@@ -101,12 +101,23 @@ export function ReaderGallery({
         ))}
       </div>
 
-      <p className="mt-2 flex gap-2.5 font-sans text-[13px] leading-[1.5] text-ink-faint">
-        <span className="shrink-0 tabular-nums">
+      {/* Half the carousels in the wild ship no captions at all — the
+          publisher wrote none, so there is no alt for the extractor to lift.
+          A caption row holding nothing but "1/2" reads as a caption that
+          failed to load, so when there is nothing to say the counter goes
+          quiet and sits under the bar on its own. */}
+      {slides.some((slide) => slide.caption) ? (
+        <p className="mt-2 flex gap-2.5 font-sans text-[13px] leading-[1.5] text-ink-faint">
+          <span className="shrink-0 tabular-nums">
+            {index + 1}/{slides.length}
+          </span>
+          <span>{current.caption}</span>
+        </p>
+      ) : (
+        <p className="mt-2 font-sans text-[12px] tabular-nums text-ink-faint">
           {index + 1}/{slides.length}
-        </span>
-        <span>{current.caption}</span>
-      </p>
+        </p>
+      )}
     </div>
   );
 }

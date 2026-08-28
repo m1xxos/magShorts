@@ -228,11 +228,9 @@ export function ShortsReader() {
           scrollToIndex(prev);
           return prev;
         });
-      } else if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+      } else if (event.key === "ArrowRight") {
         event.preventDefault();
-        cardHandles.current
-          .get(current)
-          ?.swipe(event.key === "ArrowRight" ? "right" : "left");
+        cardHandles.current.get(current)?.swipe();
         // Let the fly-out play, then move on to the next short.
         const next = Math.min(current + 1, articles.length - 1);
         if (next !== current) {
@@ -471,9 +469,6 @@ export function ShortsReader() {
                 <Key>→</Key> save to Read later
               </li>
               <li className="flex items-center gap-2">
-                <Key>←</Key> send to Omnivore
-              </li>
-              <li className="flex items-center gap-2">
                 <Key>Esc</Key> back to the feed
               </li>
             </ul>
@@ -490,6 +485,7 @@ export function ShortsReader() {
           )}
           saved={savedLinks.has(reader.article.link)}
           onToggleSave={() => toggleSave(reader.article!)}
+          onToast={showToast}
           onOpenArticle={reader.open}
           onClose={reader.close}
         />

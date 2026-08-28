@@ -82,6 +82,43 @@ body {
   aspect-ratio: auto 3 / 2;
 }
 
+/* A kept passage. One mark per text node, because a range that crosses a
+   paragraph cannot be one element — they share a data-hl and only the outer
+   two are rounded, so a multi-paragraph highlight still reads as one thing.
+   A highlight carrying a note is underlined, so the two are distinguishable
+   without opening either. */
+/* The passage under the bar, before it has been kept. Slightly lighter than a
+   saved highlight, so the two are never confused, and it disappears with the
+   bar if you decide against it. */
+.reader-body mark[data-hl="-1"] {
+  background: color-mix(in srgb, var(--clay-soft) 60%, transparent);
+}
+.reader-body mark[data-hl] {
+  background: var(--clay-soft);
+  color: inherit;
+  padding: 0.06em 0;
+  cursor: pointer;
+  /* The wash follows the text across a line break rather than being one box
+     around the whole run. */
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+/* Rounded ends, and not one pixel of horizontal padding: padding on an inline
+   element is layout, so the text would step sideways the moment a highlight
+   appeared. The wash is allowed to sit tight against the first and last
+   letters instead. */
+.reader-body mark[data-hl-start] {
+  border-start-start-radius: 3px;
+  border-end-start-radius: 3px;
+}
+.reader-body mark[data-hl-end] {
+  border-start-end-radius: 3px;
+  border-end-end-radius: 3px;
+}
+.reader-body mark[data-note] {
+  box-shadow: inset 0 -2px 0 var(--clay);
+}
+
 .reader-body a {
   color: var(--clay);
   text-decoration: underline;

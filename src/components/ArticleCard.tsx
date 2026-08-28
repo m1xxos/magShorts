@@ -6,7 +6,6 @@ import {
   cachedImageUrl,
   recordEvent,
   saveToReadingList,
-  sendToOmnivore,
   unlockUrl,
 } from "@/lib/actions";
 import { readerLink } from "@/lib/useReader";
@@ -14,7 +13,6 @@ import { FeedAvatar } from "./FeedAvatar";
 import {
   BookmarkIcon,
   ExternalIcon,
-  OmnivoreIcon,
   SwipeableCard,
   type SwipeableCardHandle,
 } from "./SwipeableCard";
@@ -96,18 +94,11 @@ export function ArticleCard({
     onToast(result.message, !result.ok);
   }
 
-  async function handleOmnivore() {
-    const result = await sendToOmnivore(article);
-    onToast(result.message, !result.ok);
-  }
 
   function swipeSave() {
-    swipeRef.current?.swipe("right");
+    swipeRef.current?.swipe();
   }
 
-  function swipeOmnivore() {
-    swipeRef.current?.swipe("left");
-  }
 
   // Cover art, or a typographic stand-in built from the feed's tone when the
   // article has no image at all. `titleClass` lets the list thumbnail carry a
@@ -146,9 +137,6 @@ export function ArticleCard({
         <ActionButton label="Read later" onClick={swipeSave}>
           <BookmarkIcon size={14} />
         </ActionButton>
-        <ActionButton label="Send to Omnivore" onClick={swipeOmnivore}>
-          <OmnivoreIcon size={14} />
-        </ActionButton>
         <ActionButton
           label="Open the original"
           onClick={() => window.open(article.link, "_blank")}
@@ -174,9 +162,7 @@ export function ArticleCard({
     <SwipeableCard
       ref={swipeRef}
       onSwipeRight={handleSave}
-      onSwipeLeft={handleOmnivore}
       rightLabel="Read later"
-      leftLabel="To Omnivore"
       radiusClass={density === "compact" ? "rounded-xl" : "rounded-2xl"}
       className="h-full"
     >

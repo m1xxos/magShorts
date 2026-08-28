@@ -9,8 +9,6 @@ export type RecWindow = "day" | "week" | "month";
 // Shape of /api/settings. The dialog edits only some of these; the per-domain
 // lists are written from Manage sources.
 export interface SettingsForm {
-  omnivore_url: string;
-  omnivore_api_key: string;
   marreta_url: string;
   archive_url: string;
   direct_domains: string;
@@ -172,6 +170,42 @@ export interface ReaderHeading {
   level: number;
 }
 
+// A passage kept out of an article, and the note about it.
+export interface HighlightDto {
+  id: number;
+  // Resolved from the link at read time, so a trimmed-and-re-ingested article
+  // finds its highlights again — and null once the article is gone for good.
+  article_id: number | null;
+  link: string;
+  article_title: string;
+  feed_title: string | null;
+  published_at: string | null;
+  quote: string;
+  prefix: string | null;
+  suffix: string | null;
+  // Where it sat in the body the reader last saw. Only trustworthy while
+  // body_hash matches; the quote is what actually finds it again.
+  start_offset: number | null;
+  end_offset: number | null;
+  body_hash: string | null;
+  // Set when the passage is no longer in the article. The highlight is still
+  // listed and still exported; it just cannot be pointed at.
+  orphaned: boolean;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApiTokenDto {
+  id: number;
+  name: string;
+  // The first characters only. The token itself is returned exactly once, by
+  // the request that created it.
+  prefix: string;
+  created_at: string;
+  last_used_at: string | null;
+}
+
 export interface ArticleContentDto {
   article_id: number;
   // "partial" is a body worth showing that is probably not the whole article —
@@ -185,6 +219,11 @@ export interface ArticleContentDto {
   reading_minutes: number | null;
   source: ExtractSource | null;
   extracted_at: string | null;
+  // A fingerprint of the stored body, so the reader can tell whether the
+  // offsets it recorded were taken against this exact text. Derived on read
+  // rather than stored: migrations rewrite the html in place, and a stale
+  // fingerprint is worse than none.
+  body_hash: string | null;
 }
 
 export interface ReadingItemDto {

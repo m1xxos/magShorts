@@ -9,23 +9,19 @@ const FLY_MS = 300;
 type Intent = "none" | "horizontal" | "vertical";
 
 export interface SwipeableCardHandle {
-  swipe: (direction: "left" | "right") => void;
+  swipe: () => void;
 }
 
 export function SwipeableCard({
   onSwipeRight,
-  onSwipeLeft,
   rightLabel,
-  leftLabel,
   className,
   radiusClass = "rounded-2xl",
   children,
   ref,
 }: {
   onSwipeRight: () => void;
-  onSwipeLeft: () => void;
   rightLabel: string;
-  leftLabel: string;
   className?: string;
   // Must match the child card's own radius or the reveal layer's corners
   // show through behind it.
@@ -41,14 +37,13 @@ export function SwipeableCard({
   const flyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useImperativeHandle(ref, () => ({
-    swipe(direction) {
+    swipe() {
       if (flyTimer.current) return;
-      setOffset(direction === "right" ? MAX_DRAG : -MAX_DRAG);
+      setOffset(MAX_DRAG);
       flyTimer.current = setTimeout(() => {
         flyTimer.current = null;
         setOffset(0);
-        if (direction === "right") onSwipeRight();
-        else onSwipeLeft();
+        onSwipeRight();
       }, FLY_MS);
     },
   }));
@@ -84,15 +79,17 @@ export function SwipeableCard({
     if (intent.current !== "horizontal") return;
 
     suppressClick.current = true;
-    const clamped = Math.max(-MAX_DRAG, Math.min(MAX_DRAG, dx));
+    // Only rightwards: saving is the one thing a swipe does now, and a card
+    // that slides towards an action that does not exist is a promise broken
+    // at the end of the gesture.
+    const clamped = Math.max(0, Math.min(MAX_DRAG, dx));
     setOffset(clamped);
     if (event.cancelable) event.preventDefault();
   }
 
   function finishDrag() {
-    if (intent.current === "horizontal") {
-      if (offset >= THRESHOLD) onSwipeRight();
-      else if (offset <= -THRESHOLD) onSwipeLeft();
+    if (intent.current === "horizontal" && offset >= THRESHOLD) {
+      onSwipeRight();
     }
     start.current = null;
     intent.current = "none";
@@ -101,7 +98,6 @@ export function SwipeableCard({
   }
 
   const revealRight = offset > 8;
-  const revealLeft = offset < -8;
   const strength = Math.min(Math.abs(offset) / THRESHOLD, 1);
 
   return (
@@ -118,15 +114,6 @@ export function SwipeableCard({
           >
             <span className="flex items-center gap-2 text-sm font-medium">
               <BookmarkIcon /> {rightLabel}
-            </span>
-          </div>
-        ) : revealLeft ? (
-          <div
-            className={`flex h-full w-full items-center justify-end ${radiusClass} bg-[#e3ebe9] pr-6 text-[#42706a] transition-opacity`}
-            style={{ opacity: 0.4 + strength * 0.6 }}
-          >
-            <span className="flex items-center gap-2 text-sm font-medium">
-              {leftLabel} <OmnivoreIcon />
             </span>
           </div>
         ) : null}
@@ -185,24 +172,6 @@ export function BookmarkIcon({
   );
 }
 
-// Stylized open "O" with a dot, nodding to the Omnivore logo.
-export function OmnivoreIcon({ size = 16 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.2"
-      strokeLinecap="round"
-      aria-hidden
-    >
-      <path d="M20.2 15.3A9 9 0 1 1 21 12" />
-      <circle cx="20" cy="11.2" r="1.6" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
 
 export function ExternalIcon({ size = 16 }: { size?: number }) {
   return (

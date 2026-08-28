@@ -347,15 +347,11 @@ the whole point of that page.
   sanitised against a tag/attribute allowlist before it is stored, and its
   images are rewritten through `/api/images`.
 
-## Swipes, reading list & integrations
+## Swipes & reading list
 
 - **Swipe right** on any card (home grid or Shorts) — or use the bookmark
   button — to save it to the built-in **Read later** list (`/reading-list`).
   Saved items are snapshots, so they survive unsubscribing from a feed.
-- **Swipe left** to send the article to your **self-hosted Omnivore**
-  instance. Configure its URL and API key in *Settings* (gear at the bottom
-  of the sidebar) or via `OMNIVORE_URL` / `OMNIVORE_API_KEY` env vars.
-  The cloud omnivore.app shut down in Nov 2024 — only self-hosted works.
 - **No paywall** opens the article through a [Marreta](https://github.com/manualdousuario/marreta)
   instance (`https://marreta.link` by default; change it in Settings or with
   `MARRETA_URL` if you host your own). Which route a given publication takes
