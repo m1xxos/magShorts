@@ -94,6 +94,85 @@ async function once(
   return { text: await response.text(), url: response.url };
 }
 
+// The same rule, for bytes.
+//
+// Images need it more than feeds do, not less: a cover that will not load is
+// the most visible kind of failure this app has, and the CDNs are exactly
+// where a filtered network bites. Measured from the server: every
+// cdn.theatlantic.com address its resolver hands back drops the connection,
+// while the same file arrives through the proxy in a little over a second.
+//
+// The size cap is checked twice — once against Content-Length, so an absurd
+// file is refused before it is pulled, and once against what actually
+// arrived, because the header is a claim rather than a promise.
+export interface FetchedBinary {
+  buffer: Buffer;
+  contentType: string;
+  url: string;
+}
+
+export interface ProxiedBinaryFetch extends ProxiedFetch {
+  maxBytes?: number;
+}
+
+async function onceBinary(
+  url: string,
+  init: RequestInit,
+  maxBytes: number,
+  proxy?: ProxyAgent
+): Promise<FetchedBinary | null> {
+  const response = await fetch(url, {
+    ...init,
+    ...(proxy ? { dispatcher: proxy } : {}),
+  } as RequestInit & { dispatcher?: ProxyAgent });
+  if (!response.ok) return null;
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > maxBytes) return null;
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (buffer.byteLength === 0 || buffer.byteLength > maxBytes) return null;
+  return {
+    buffer,
+    contentType: response.headers.get("content-type") ?? "",
+    url: response.url,
+  };
+}
+
+export async function fetchBinaryMaybeProxied(
+  url: string,
+  options: ProxiedBinaryFetch = {}
+): Promise<FetchedBinary | null> {
+  const {
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    maxBytes = Number.MAX_SAFE_INTEGER,
+    ...rest
+  } = options;
+  const proxy = dispatcher();
+  const host = hostOf(url);
+  const proxyFirst = proxy !== undefined && preferProxy.has(host);
+  const init = () => ({ ...rest, signal: AbortSignal.timeout(timeoutMs) });
+
+  try {
+    return await onceBinary(url, init(), maxBytes, proxyFirst ? proxy : undefined);
+  } catch {
+    if (!proxy) return null;
+    try {
+      const result = await onceBinary(
+        url,
+        init(),
+        maxBytes,
+        proxyFirst ? undefined : proxy
+      );
+      // Learned once, for every other picture from the same CDN. An article
+      // with twenty covers on a blocked host would otherwise pay the full
+      // direct timeout twenty times over.
+      if (result && !proxyFirst) preferProxy.add(host);
+      return result;
+    } catch {
+      return null;
+    }
+  }
+}
+
 // Fetch a text document, falling back to the proxy when the direct route
 // fails. Returns null for anything that isn't a 2xx with a readable body.
 export async function fetchTextMaybeProxied(
