@@ -3,9 +3,18 @@ import fs from "node:fs";
 import path from "node:path";
 import { isIP } from "node:net";
 import { getDb } from "./db";
+import { fetchBinaryMaybeProxied } from "./net";
 
-const MAX_BYTES = 8 * 1024 * 1024;
-const FETCH_TIMEOUT_MS = 10_000;
+// Publishers who serve the untouched original rather than a rendition put
+// real weight through here: The Atlantic's covers are 1-10MB PNGs and JPEGs
+// straight off the camera. Eight was rejecting them *after* paying for the
+// whole download, then serving a redirect that made the browser fetch the
+// same bytes again. They cost about 200KB once sharp has had them.
+const MAX_BYTES = 20 * 1024 * 1024;
+// Generous because it covers the body of a multi-megabyte original, not just
+// the handshake. A host that is actually unreachable fails on connect long
+// before this.
+const FETCH_TIMEOUT_MS = 25_000;
 const NEGATIVE_TTL_MS = 60 * 60 * 1000;
 const PRUNE_ABOVE_BYTES = 1024 * 1024 * 1024;
 const PRUNE_TO_BYTES = 800 * 1024 * 1024;
@@ -98,18 +107,18 @@ async function transformImage(
 // article, the first certainly is not.
 export async function imageContentType(url: string): Promise<string | null> {
   if (!isCacheableImageUrl(url)) return null;
-  try {
-    const response = await fetch(url, {
-      method: "HEAD",
-      headers: { "User-Agent": "magShorts/1.0 (image cache)" },
-      redirect: "follow",
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
-    if (!response.ok) return null;
-    return response.headers.get("content-type") ?? null;
-  } catch {
-    return null;
-  }
+  // A GET rather than a HEAD, capped at nothing we keep: it goes through the
+  // same direct-then-proxy door as the real fetch, so a host this network
+  // filters is not mistaken for a URL that was never a picture — which is the
+  // one judgement this function exists to make, and the one that gets an
+  // image deleted from an article.
+  const fetched = await fetchBinaryMaybeProxied(url, {
+    headers: { "User-Agent": "magShorts/1.0 (image cache)" },
+    redirect: "follow",
+    timeoutMs: FETCH_TIMEOUT_MS,
+    maxBytes: MAX_BYTES,
+  });
+  return fetched?.contentType || null;
 }
 
 export async function getCachedImage(url: string): Promise<CachedImage | null> {
@@ -134,21 +143,23 @@ export async function getCachedImage(url: string): Promise<CachedImage | null> {
   }
 
   try {
-    const response = await fetch(url, {
+    // Direct first, proxy on failure — the rule net.ts already applies to
+    // feeds and article pages. A CDN that a given network drops packets to is
+    // not a broken image, and until this went through the same door every
+    // cover from such a host spent ten seconds timing out and was then handed
+    // to the browser as a redirect to the very address that had just failed.
+    const fetched = await fetchBinaryMaybeProxied(url, {
       headers: { "User-Agent": "magShorts/1.0 (image cache)" },
       redirect: "follow",
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      timeoutMs: FETCH_TIMEOUT_MS,
+      maxBytes: MAX_BYTES,
     });
-    const contentType = response.headers.get("content-type") ?? "";
-    if (!response.ok || !contentType.startsWith("image/")) {
+    if (!fetched || !fetched.contentType.startsWith("image/")) {
       negativeCache.set(url, Date.now());
       return null;
     }
-    const raw = Buffer.from(await response.arrayBuffer());
-    if (raw.byteLength === 0 || raw.byteLength > MAX_BYTES) {
-      negativeCache.set(url, Date.now());
-      return null;
-    }
+    const raw = fetched.buffer;
+    const contentType = fetched.contentType;
 
     const stored = await transformImage(raw, contentType);
     fs.writeFileSync(bodyPath, stored.buffer);
