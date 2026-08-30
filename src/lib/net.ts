@@ -153,8 +153,11 @@ export async function fetchBinaryMaybeProxied(
 
   try {
     return await onceBinary(url, init(), maxBytes, proxyFirst ? proxy : undefined);
-  } catch {
-    if (!proxy) return null;
+  } catch (error) {
+    if (!proxy) {
+      console.warn(`[net] ${host}: ${reason(error)}, and no proxy is configured`);
+      return null;
+    }
     try {
       const result = await onceBinary(
         url,
@@ -165,12 +168,31 @@ export async function fetchBinaryMaybeProxied(
       // Learned once, for every other picture from the same CDN. An article
       // with twenty covers on a blocked host would otherwise pay the full
       // direct timeout twenty times over.
-      if (result && !proxyFirst) preferProxy.add(host);
+      if (result && !proxyFirst) {
+        preferProxy.add(host);
+        console.log(`[net] ${host} answered through the proxy (direct: ${reason(error)})`);
+      }
+      if (!result) {
+        console.warn(`[net] ${host}: direct ${reason(error)}, proxy returned nothing`);
+      }
       return result;
-    } catch {
+    } catch (viaProxy) {
+      console.warn(`[net] ${host}: direct ${reason(error)}, proxy ${reason(viaProxy)}`);
       return null;
     }
   }
+}
+
+// Why an attempt failed, in the few words a log line can carry. undici puts
+// the useful part in `cause`; the message on its own is always "fetch failed".
+function reason(error: unknown): string {
+  const cause = (error as { cause?: { code?: string; message?: string } }).cause;
+  return (
+    cause?.code ??
+    cause?.message ??
+    (error as { name?: string }).name ??
+    String(error)
+  );
 }
 
 // Fetch a text document, falling back to the proxy when the direct route
