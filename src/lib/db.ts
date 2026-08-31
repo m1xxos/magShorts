@@ -107,13 +107,11 @@ export function getDb(): Database.Database {
 
     -- The taste profile joins every event to the article it came from, by
     -- link, and picks the newest event per link with a correlated subquery.
-    -- Without these two it is a nested scan of both tables — 880ms on 840
-    -- events, paid again by every For you, digest and Discover request.
+    -- Without this and its twin on user_events (below, where that table is
+    -- declared) it is a nested scan of both tables — 880ms on 840 events,
+    -- paid again by every For you, digest and Discover request.
     CREATE INDEX IF NOT EXISTS idx_articles_link
       ON articles(link);
-
-    CREATE INDEX IF NOT EXISTS idx_user_events_user_link
-      ON user_events(user_id, link);
 
     CREATE TABLE IF NOT EXISTS reading_list (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -159,6 +157,10 @@ export function getDb(): Database.Database {
 
     CREATE INDEX IF NOT EXISTS idx_user_events_user
       ON user_events(user_id, created_at DESC);
+
+    -- The other half of the taste-profile join; see idx_articles_link above.
+    CREATE INDEX IF NOT EXISTS idx_user_events_user_link
+      ON user_events(user_id, link);
 
     CREATE TABLE IF NOT EXISTS folders (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
