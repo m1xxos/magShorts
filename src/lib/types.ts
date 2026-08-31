@@ -246,6 +246,64 @@ export interface ReadingItemDto {
   reading_minutes: number | null;
 }
 
+// How far back "Your reading" looks. Not RecWindow: that one is about which
+// articles are fresh enough to recommend, this one about how much history to
+// count, and they would drift apart the moment either changed.
+export type StatsRange = "week" | "month" | "year";
+
+export interface StatsBucketDto {
+  // YYYY-MM-DD for a day bucket, YYYY-MM for a month one.
+  key: string;
+  // What the axis and the hover title call this bucket.
+  label: string;
+  count: number;
+}
+
+export interface StatsFeedDto {
+  feed_id: number;
+  title: string;
+  count: number;
+}
+
+export interface StatsTopicDto {
+  term: string;
+  // "up" when the term is rising inside the window, "suppressed" when it turns
+  // up in what was skipped more than in what was read.
+  direction: "up" | "steady" | "suppressed";
+}
+
+// Everything on /stats. Derived on every request — there is no stats table,
+// and the numbers are cheap enough on a database this size that caching them
+// would only add a way for them to be wrong.
+export interface ReadingStatsDto {
+  range: StatsRange;
+  // Distinct articles opened in the range, and the same figure for the
+  // preceding window of equal length, so the card can name a trend.
+  articles_read: number;
+  articles_read_before: number;
+  // Estimated for events recorded before the reader started timing itself,
+  // measured after. `seconds_measured` is the part that is not a guess.
+  seconds_reading: number;
+  seconds_measured: number;
+  // Saved in the range; finished in the range; still waiting right now.
+  // Saves undercount history: un-saving deletes the row and the event with it.
+  saved: number;
+  finished: number;
+  waiting: number;
+  // Consecutive days with something read, ending today or yesterday, and the
+  // longest such run on file.
+  streak_days: number;
+  streak_best: number;
+  by_bucket: StatsBucketDto[];
+  by_feed: StatsFeedDto[];
+  topics: StatsTopicDto[];
+  // How many events the topics were built from. Shown, because a profile of
+  // five signals should not read like a profile of five hundred.
+  signal_count: number;
+  // One generated sentence about the chart. Never a stored string.
+  note: string;
+}
+
 const AVATAR_TONES = [
   "#c96442",
   "#7d9a6d",
