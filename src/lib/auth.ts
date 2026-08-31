@@ -1,6 +1,7 @@
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { type NextRequest } from "next/server";
 import { getDb } from "./db";
+import { tokenUser } from "./tokens";
 
 export const SESSION_COOKIE = "ms_session";
 const SESSION_DAYS = 90;
@@ -61,6 +62,21 @@ export function getSessionUser(request: NextRequest): SessionUser | null {
      WHERE token = ? AND expires_at < datetime('now', '+60 days')`
   ).run(`+${SESSION_DAYS} days`, token);
   return user;
+}
+
+// The session, or a bearer token. Only /api/sync/* uses this: every other
+// route stays cookie-only, which is what stops a token minting another token
+// or changing the settings of the account it was issued for.
+//
+// The cookie is tried first so that opening a sync URL in the browser while
+// logged in just works, which is how anyone debugs one of these.
+export function getApiUser(request: NextRequest): SessionUser | null {
+  const session = getSessionUser(request);
+  if (session) return session;
+
+  const header = request.headers.get("authorization") ?? "";
+  const match = /^Bearer\s+(\S+)$/i.exec(header);
+  return match ? tokenUser(match[1]) : null;
 }
 
 export function sessionCookieOptions(maxAge: number) {
