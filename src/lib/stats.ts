@@ -87,7 +87,7 @@ function emptyBuckets(today: string, spec: RangeSpec): StatsBucketDto[] {
   if (spec.bucket === "day") {
     for (let index = spec.buckets - 1; index >= 0; index--) {
       const key = shiftDate(today, -index);
-      buckets.push({ key, label: dayLabel(key), count: 0 });
+      buckets.push({ key, label: dayLabel(key), count: 0, seconds: 0 });
     }
     return buckets;
   }
@@ -95,7 +95,7 @@ function emptyBuckets(today: string, spec: RangeSpec): StatsBucketDto[] {
   for (let index = spec.buckets - 1; index >= 0; index--) {
     const date = new Date(Date.UTC(year, month - 1 - index, 1));
     const key = date.toISOString().slice(0, 7);
-    buckets.push({ key, label: monthLabel(key), count: 0 });
+    buckets.push({ key, label: monthLabel(key), count: 0, seconds: 0 });
   }
   return buckets;
 }
@@ -141,6 +141,9 @@ export function readingStats(
   // reading to the weekday its first article happened to land on.
   const perWeekday = new Array<number>(7).fill(0);
   const weekdayCounted = new Set<string>();
+  // An article read across two days belongs to the day it was opened on, so
+  // its minutes are not counted twice down the chart.
+  const firstBucket = new Map<string, string>();
 
   for (const row of rows) {
     if (!READ.has(row.action)) continue;
@@ -161,6 +164,7 @@ export function readingStats(
     }
 
     const key = bucketKey(zoned.date, spec.bucket);
+    if (!firstBucket.has(row.link)) firstBucket.set(row.link, key);
     const seen = perBucket.get(key) ?? new Set<string>();
     if (!seen.has(row.link)) {
       seen.add(row.link);
@@ -182,11 +186,23 @@ export function readingStats(
     }
   }
 
+  const { perLink, ...seconds } = readingSeconds(
+    db,
+    readLinks,
+    finishedLinks,
+    measured
+  );
+  for (const [link, value] of perLink) {
+    const bucket = byKey.get(firstBucket.get(link) ?? "");
+    if (bucket) bucket.seconds += value;
+  }
+  for (const bucket of buckets) bucket.seconds = Math.round(bucket.seconds);
+
   return {
     range,
     articles_read: readLinks.size,
     articles_read_before: readBefore.size,
-    ...readingSeconds(db, readLinks, finishedLinks, measured),
+    ...seconds,
     days_counted: daysCounted(db, userId, timeZone, today, spec.days),
     ...savedCounts(db, userId, start, finishedLinks),
     ...streaks(db, userId, timeZone, today),
@@ -227,8 +243,15 @@ function readingSeconds(
   readLinks: Set<string>,
   finishedLinks: Set<string>,
   measured: Map<string, number>
-): { seconds_reading: number; seconds_measured: number } {
+): {
+  seconds_reading: number;
+  seconds_measured: number;
+  // Per article, so the chart can put each one's minutes on the day it was
+  // opened rather than smearing the total across the range.
+  perLink: Map<string, number>;
+} {
   let secondsMeasured = 0;
+  const perLink = new Map(measured);
   for (const seconds of measured.values()) secondsMeasured += seconds;
 
   const guessing = [...readLinks].filter((link) => !measured.has(link));
@@ -236,6 +259,7 @@ function readingSeconds(
     return {
       seconds_reading: Math.round(secondsMeasured),
       seconds_measured: Math.round(secondsMeasured),
+      perLink,
     };
   }
 
@@ -256,12 +280,15 @@ function readingSeconds(
   let estimated = 0;
   for (const link of guessing) {
     const wordCount = minutes.get(link) ?? UNKNOWN_MINUTES;
-    estimated += wordCount * 60 * (finishedLinks.has(link) ? 1 : PARTIAL_SHARE);
+    const seconds = wordCount * 60 * (finishedLinks.has(link) ? 1 : PARTIAL_SHARE);
+    perLink.set(link, seconds);
+    estimated += seconds;
   }
 
   return {
     seconds_reading: Math.round(secondsMeasured + estimated),
     seconds_measured: Math.round(secondsMeasured),
+    perLink,
   };
 }
 
@@ -534,7 +561,7 @@ function chartNote(
   total: number,
   spec: RangeSpec
 ): string {
-  if (total === 0) return "Nothing read in this stretch yet.";
+  if (total === 0) return "Nothing read in this period yet.";
 
   const active = buckets.filter((bucket) => bucket.count > 0).length;
   const unit = spec.bucket === "day" ? "days" : "months";

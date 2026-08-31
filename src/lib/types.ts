@@ -254,9 +254,13 @@ export type StatsRange = "week" | "month" | "year";
 export interface StatsBucketDto {
   // YYYY-MM-DD for a day bucket, YYYY-MM for a month one.
   key: string;
-  // What the axis and the hover title call this bucket.
+  // What the axis and the tooltip call this bucket.
   label: string;
   count: number;
+  // Time spent on the articles first opened in this bucket — measured where
+  // the reader timed itself, estimated where it did not, on the same terms as
+  // the headline figure.
+  seconds: number;
 }
 
 export interface StatsFeedDto {

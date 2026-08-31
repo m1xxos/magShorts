@@ -17,7 +17,7 @@ export function SourceBars({ feeds }: { feeds: StatsFeedDto[] }) {
       <p className={`${SECTION_LABEL} mb-3.5`}>Where it comes from</p>
       {feeds.length === 0 ? (
         <p className="text-[13px] leading-normal text-ink-soft">
-          Nothing read in this stretch.
+          Nothing read in this period.
         </p>
       ) : (
         <div className="flex flex-col gap-[11px]">

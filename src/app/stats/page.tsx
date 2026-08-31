@@ -35,13 +35,27 @@ function duration(seconds: number): string {
   return `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, "0")}`;
 }
 
-function delta(now: number, before: number): { note: string; tone: "good" | "attention" | "neutral" } {
+// The window this range is compared against, named rather than described:
+// "than the month before" is a period a reader can picture, "than the stretch
+// before" is a phrase they have to decode.
+const PREVIOUS: Record<StatsRange, string> = {
+  week: "the week before",
+  month: "the month before",
+  year: "the year before",
+};
+
+function delta(
+  now: number,
+  before: number,
+  range: StatsRange
+): { note: string; tone: "good" | "attention" | "neutral" } {
+  const previous = PREVIOUS[range];
   const change = now - before;
-  if (before === 0) return { note: "nothing to compare yet", tone: "neutral" };
-  if (change === 0) return { note: "the same as the stretch before", tone: "neutral" };
+  if (before === 0) return { note: "nothing to compare with yet", tone: "neutral" };
+  if (change === 0) return { note: `the same as ${previous}`, tone: "neutral" };
   const word = change > 0 ? "more" : "fewer";
   return {
-    note: `${Math.abs(change)} ${word} than the stretch before`,
+    note: `${Math.abs(change)} ${word} than ${previous}`,
     tone: change > 0 ? "good" : "attention",
   };
 }
@@ -107,7 +121,9 @@ export default function StatsPage() {
   const loading = !user || loadedRange !== range;
   const caption = RANGES.find((option) => option.value === range)?.caption ?? "";
 
-  const read = stats ? delta(stats.articles_read, stats.articles_read_before) : null;
+  const read = stats
+    ? delta(stats.articles_read, stats.articles_read_before, range)
+    : null;
   // Per day, which is the unit the number is actually felt in — over the days
   // the reader was here for, not over the calendar.
   const perDay = stats
