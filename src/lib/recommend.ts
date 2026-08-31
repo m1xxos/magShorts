@@ -22,6 +22,11 @@ const ACTION_WEIGHTS: Record<string, number> = {
   dislike: -1.2,
 };
 
+// The actions ACTION_WEIGHTS has no entry for: a Shorts impression and the
+// reader's stopwatch. Written once as SQL, because two queries have to agree
+// about which events are bookkeeping and which are opinions.
+const WEIGHTLESS = "('view', 'read')";
+
 const DECAY_DAYS = 30;
 const COLD_START_MIN_POSITIVE = 5;
 const FEED_REPEAT_PENALTY = 0.03;
@@ -35,8 +40,15 @@ export interface ProfileResult {
 
 export function buildProfile(userId: number): ProfileResult {
   const db = getDb();
-  // Latest event per link wins; fall back to the article's embedding for
-  // events recorded before the article was embedded.
+  // Latest *weighted* event per link wins; fall back to the article's
+  // embedding for events recorded before the article was embedded.
+  //
+  // The weightless actions are excluded from the "latest" test rather than
+  // just from the sum. They are the ones that arrive last — Shorts records a
+  // view after you have already scrolled past, the reader records how long it
+  // was open on the way out — so leaving them in would let a bookkeeping entry
+  // mask the like or the dwell underneath it and quietly erase the article
+  // from the profile.
   const rows = db
     .prepare(
       `SELECT e.action, e.created_at,
@@ -44,9 +56,11 @@ export function buildProfile(userId: number): ProfileResult {
        FROM user_events e
        LEFT JOIN articles a ON a.link = e.link
        WHERE e.user_id = ?
+         AND e.action NOT IN ${WEIGHTLESS}
          AND e.id = (
            SELECT MAX(e2.id) FROM user_events e2
            WHERE e2.user_id = e.user_id AND e2.link = e.link
+             AND e2.action NOT IN ${WEIGHTLESS}
          )`
     )
     .all(userId) as Array<{
@@ -328,16 +342,18 @@ const FEED_WEIGHT_CLAMP = 0.08;
 export function feedWeights(userId: number): Map<number, number> {
   const rows = getDb()
     .prepare(
-      // Same "latest event per link wins" rule the taste profile uses, and
-      // 'view' stays weightless here too.
+      // Same "latest weighted event per link wins" rule the taste profile
+      // uses, and for the same reason.
       `SELECT e.feed_id AS feed_id,
               SUM(e.action IN ('save','like','open','dwell')) AS plus,
               SUM(e.action IN ('skip','dislike'))             AS minus
        FROM user_events e
        WHERE e.user_id = ? AND e.feed_id IS NOT NULL
+         AND e.action NOT IN ${WEIGHTLESS}
          AND e.id = (
            SELECT MAX(e2.id) FROM user_events e2
            WHERE e2.user_id = e.user_id AND e2.link = e.link
+             AND e2.action NOT IN ${WEIGHTLESS}
          )
        GROUP BY e.feed_id`
     )
