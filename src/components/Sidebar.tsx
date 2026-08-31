@@ -41,6 +41,26 @@ export function CompassIcon({ size = 14 }: { size?: number }) {
   );
 }
 
+export function ChartIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M6 20v-6" />
+      <path d="M12 20V6" />
+      <path d="M18 20v-9" />
+    </svg>
+  );
+}
+
 export function CalendarIcon({ size = 14 }: { size?: number }) {
   return (
     <svg
@@ -311,6 +331,12 @@ export function Sidebar({
           icon={<CompassIcon size={14} />}
           label="Discover"
           active={pathname === "/discover"}
+        />
+        <SectionRow
+          href="/stats"
+          icon={<ChartIcon size={14} />}
+          label="Your reading"
+          active={pathname === "/stats"}
         />
       </div>
 

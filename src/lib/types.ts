@@ -285,6 +285,11 @@ export interface ReadingStatsDto {
   // measured after. `seconds_measured` is the part that is not a guess.
   seconds_reading: number;
   seconds_measured: number;
+  // The days the range actually covers for this reader: its full length, or
+  // fewer if they have not been here that long. Dividing a month of reading
+  // across a year nobody was present for produces "1 min a day", which is
+  // true of the arithmetic and false about the reader.
+  days_counted: number;
   // Saved in the range; finished in the range; still waiting right now.
   // Saves undercount history: un-saving deletes the row and the event with it.
   saved: number;

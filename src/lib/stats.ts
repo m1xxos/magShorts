@@ -187,6 +187,7 @@ export function readingStats(
     articles_read: readLinks.size,
     articles_read_before: readBefore.size,
     ...readingSeconds(db, readLinks, finishedLinks, measured),
+    days_counted: daysCounted(db, userId, timeZone, today, spec.days),
     ...savedCounts(db, userId, start, finishedLinks),
     ...streaks(db, userId, timeZone, today),
     by_bucket: buckets,
@@ -194,6 +195,29 @@ export function readingStats(
     ...topicProfile(db, userId, spec.topicDays),
     note: chartNote(buckets, perWeekday, readLinks.size, spec),
   };
+}
+
+// How many days of the range this reader was actually around for. A per-day
+// average over days nobody could have read on is not an average of anything.
+function daysCounted(
+  db: ReturnType<typeof getDb>,
+  userId: number,
+  timeZone: string,
+  today: string,
+  days: number
+): number {
+  const first = db
+    .prepare(
+      "SELECT MIN(created_at) AS at FROM user_events WHERE user_id = ?"
+    )
+    .get(userId) as { at: string | null };
+  if (!first.at) return days;
+  const since = zonedNow(parseStamp(first.at), timeZone).date;
+  let counted = 1;
+  for (let cursor = today; cursor > since && counted < days; counted++) {
+    cursor = shiftDate(cursor, -1);
+  }
+  return counted;
 }
 
 // Measured where the reader timed itself, estimated where it did not. The two
