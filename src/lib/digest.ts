@@ -9,6 +9,7 @@ import { extractArticle, readContentText } from "./extract";
 import { readingMinutes } from "./readingTime";
 import { complete, llmConfigured, rankProviders } from "./llm";
 import { getCountSetting, getSetting } from "./settings";
+import { shiftDate, WEEKDAYS, zonedNow } from "./zoned";
 import {
   type DigestDto,
   type DigestItemDto,
@@ -51,14 +52,6 @@ const TEXT_TRUSTED_LENGTH = 1500;
 
 // ---------------------------------------------------------------- scheduling
 
-interface ZonedNow {
-  date: string; // YYYY-MM-DD in the digest timezone
-  minutes: number; // minutes since local midnight
-  weekday: number; // 0 = Sunday
-}
-
-const WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
-
 export function digestTimeZone(): string {
   return getSetting("digest_tz") || "UTC";
 }
@@ -69,35 +62,6 @@ export function digestSchedule(): { daily: string; weekly: string; timeZone: str
     weekly: getSetting("digest_weekly_at"),
     timeZone: digestTimeZone(),
   };
-}
-
-function zonedNow(now: Date, timeZone: string): ZonedNow {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    weekday: "short",
-  }).formatToParts(now);
-  const get = (type: string) =>
-    parts.find((part) => part.type === type)?.value ?? "";
-  // "24" shows up at midnight in some ICU versions.
-  const hour = Number(get("hour")) % 24;
-  return {
-    date: `${get("year")}-${get("month")}-${get("day")}`,
-    minutes: hour * 60 + Number(get("minute")),
-    weekday: Math.max(0, WEEKDAYS.indexOf(get("weekday").toLowerCase().slice(0, 3))),
-  };
-}
-
-function shiftDate(date: string, days: number): string {
-  const [year, month, day] = date.split("-").map(Number);
-  // Noon UTC keeps the arithmetic clear of every DST edge.
-  const shifted = new Date(Date.UTC(year, month - 1, day, 12) + days * 86_400_000);
-  return shifted.toISOString().slice(0, 10);
 }
 
 function parseTime(value: string | undefined, fallback: number): number {
