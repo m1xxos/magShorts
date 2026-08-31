@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { type FolderDto, type SettingsForm } from "@/lib/types";
+import { type ApiTokenDto, type FolderDto, type SettingsForm } from "@/lib/types";
 import { Switch } from "./ui/Switch";
 import { Segmented } from "./ui/Segmented";
 import { ChipRow, Chip } from "./ui/ChipRow";
@@ -26,11 +26,12 @@ const EDITABLE: Array<keyof SettingsForm> = [
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-type Tab = "reading" | "digest";
+type Tab = "reading" | "digest" | "connections";
 
 const TABS: Array<{ value: Tab; label: string }> = [
   { value: "reading", label: "Reading" },
   { value: "digest", label: "Digest" },
+  { value: "connections", label: "Connections" },
 ];
 
 // "Sun 19:00" → ["Sun", "19:00"], tolerating whatever is in the setting.
@@ -57,6 +58,12 @@ export function SettingsDialog({
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState<Tab>("reading");
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [tokens, setTokens] = useState<ApiTokenDto[]>([]);
+  const [tokenName, setTokenName] = useState("");
+  // The one time this value exists in the browser. Held in state rather than
+  // written anywhere, and gone the moment the dialog closes.
+  const [minted, setMinted] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   // Portrait: the modal becomes the screen and the rail becomes a segmented
   // control. A 196px rail beside a 380px column is most of the window.
   const narrow = useMediaQuery("(max-width: 899px)");
@@ -73,6 +80,12 @@ export function SettingsDialog({
       .then((data: FolderDto[]) => {
         if (Array.isArray(data)) setFolders(data);
       });
+    fetch("/api/tokens")
+      .then((response) => response.json())
+      .then((data: ApiTokenDto[]) => {
+        if (Array.isArray(data)) setTokens(data);
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -119,6 +132,34 @@ export function SettingsDialog({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ include_in_digest: next === 1 }),
     });
+  }
+
+  // Write-through, like the folder switches: a token is created the moment you
+  // ask for it, not when the settings form is saved. Saving a form that has
+  // already minted a token would be a Cancel button that cancels nothing.
+  async function createToken() {
+    const name = tokenName.trim();
+    if (!name) return;
+    const response = await fetch("/api/tokens", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    if (!response.ok) return;
+    const created = (await response.json()) as ApiTokenDto & { token: string };
+    const { token, ...row } = created;
+    setTokens((prev) => [row, ...prev]);
+    setMinted(token);
+    setCopied(false);
+    setTokenName("");
+  }
+
+  async function revokeToken(id: number) {
+    if (!window.confirm("Revoke this token? Anything using it stops syncing.")) {
+      return;
+    }
+    setTokens((prev) => prev.filter((entry) => entry.id !== id));
+    await fetch(`/api/tokens/${id}`, { method: "DELETE" });
   }
 
   async function submit(event: React.FormEvent) {
@@ -446,7 +487,97 @@ export function SettingsDialog({
   );
 
 
-  const panel = { reading, digest }[tab];
+  const connections = (
+    <div className="space-y-5">
+      <p className="text-[13px] leading-normal text-ink-soft">
+        A token lets something that is not this browser read your highlights —
+        the Obsidian plugin to begin with. It can read them and nothing else: it
+        cannot change a setting, and it cannot create another token.
+      </p>
+
+      <div className="flex gap-2">
+        <input
+          value={tokenName}
+          onChange={(event) => setTokenName(event.target.value)}
+          placeholder="What is it for — Obsidian on the laptop"
+          className="min-w-0 flex-1 rounded-xl border border-line bg-paper px-4 py-2.5 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-clay pointer-coarse:py-3 pointer-coarse:text-[15.5px]"
+        />
+        {/* type="button": this panel sits inside the settings form, and a bare
+            button would submit it. */}
+        <button
+          type="button"
+          onClick={createToken}
+          disabled={tokenName.trim() === ""}
+          className="shrink-0 rounded-full bg-clay px-4 py-2 text-sm text-white transition hover:opacity-90 disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-5"
+        >
+          Create
+        </button>
+      </div>
+
+      {minted && (
+        <div className="rounded-xl border border-clay/40 bg-clay-soft px-3 py-3">
+          <p className="text-[13px] font-medium text-clay">
+            Copy this now — it is not shown again.
+          </p>
+          <div className="mt-2 flex items-center gap-2">
+            <code className="min-w-0 flex-1 overflow-x-auto rounded-lg bg-paper-raised px-2.5 py-2 font-mono text-[12px] break-all text-ink">
+              {minted}
+            </code>
+            <button
+              type="button"
+              onClick={() => {
+                void navigator.clipboard.writeText(minted);
+                setCopied(true);
+              }}
+              className="shrink-0 rounded-full border border-line bg-paper-raised px-3 py-2 text-[13px] text-ink-soft transition hover:border-clay hover:text-clay pointer-coarse:min-h-11"
+            >
+              {copied ? "Copied" : "Copy"}
+            </button>
+          </div>
+          <p className="mt-2 text-[12px] text-ink-faint">
+            Only a hash of it is kept here, so nobody — including this page —
+            can read it back. Lose it and you make another one.
+          </p>
+        </div>
+      )}
+
+      {tokens.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-[11px] font-medium tracking-[0.14em] text-ink-faint uppercase">
+            In use
+          </p>
+          {tokens.map((token) => (
+            <div
+              key={token.id}
+              className="flex items-center gap-3 rounded-xl border border-line px-3 py-2.5"
+            >
+              <div className="min-w-0 flex-1">
+                <span className="block truncate text-[13px] font-medium text-ink-soft">
+                  {token.name}
+                </span>
+                <span className="mt-0.5 block text-[12px] text-ink-faint">
+                  <code className="font-mono">{token.prefix}…</code>
+                  <span className="mx-1.5">·</span>
+                  {token.last_used_at
+                    ? `last used ${token.last_used_at.slice(0, 10)}`
+                    : "never used"}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => revokeToken(token.id)}
+                className="shrink-0 rounded-full px-3 py-1.5 text-[13px] text-clay transition hover:bg-clay-soft pointer-coarse:min-h-11"
+              >
+                Revoke
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  const panel = { reading, digest, connections }[tab];
 
   const header = (
     <div className="flex items-baseline justify-between gap-4">
@@ -466,7 +597,9 @@ export function SettingsDialog({
       <p className="text-[12px] text-ink-faint">
         {dirty > 0
           ? `${dirty} unsaved change${dirty === 1 ? "" : "s"}`
-          : "Folder switches apply immediately."}
+          : tab === "connections"
+            ? "Tokens apply immediately."
+            : "Folder switches apply immediately."}
       </p>
       <div className="flex gap-2">
         <button
