@@ -432,6 +432,17 @@ export function getDb(): Database.Database {
     db.exec("ALTER TABLE articles ADD COLUMN content TEXT");
   }
 
+  // How long the reader was actually open, in seconds. Nullable on purpose:
+  // NULL means the event predates measurement, and "Your reading" has to tell
+  // a measured minute from an estimated one rather than quietly averaging the
+  // two together.
+  const eventColumns = db
+    .prepare("PRAGMA table_info(user_events)")
+    .all() as Array<{ name: string }>;
+  if (!eventColumns.some((column) => column.name === "seconds")) {
+    db.exec("ALTER TABLE user_events ADD COLUMN seconds INTEGER");
+  }
+
   // The digest picks its sources independently of For you: "what should I read
   // now" and "what did I miss overnight" are different questions, and a folder
   // of blogs can reasonably answer only the second. Seeded from the For you

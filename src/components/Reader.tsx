@@ -73,6 +73,11 @@ export function after<T>(list: T[], index: number): T[] {
 // How many cards the right rail holds. Exported because each page builds
 // its own list-order fallback and both have to agree on the length.
 export const UP_NEXT = 4;
+// Under five seconds nobody read anything — the same "a tap that bounced"
+// line readProgress.ts already draws. The hour is the other end: an article
+// left open on a second monitor is not an hour of reading.
+const MIN_READ_SECONDS = 5;
+const MAX_READ_SECONDS = 3600;
 const TYPE_KEY = "ms_reader_type";
 // Clears the sticky top bar (64px) and the progress rule (3px), plus a little
 // air. Used by both rails and by the outline's own scroll box.
@@ -280,6 +285,10 @@ export function Reader({
   // Highest fraction reached, not the current one: scrolling back up should
   // not un-read the article.
   const reached = useRef(0);
+  // Time on screen. The clock runs only while the tab is visible, which is the
+  // difference between "how long you read" and "how long the tab was open".
+  const visibleSince = useRef<number | null>(null);
+  const secondsRead = useRef(0);
   const ticking = useRef(false);
   const pending = useRef(0);
   const persistTimer = useRef<number | null>(null);
@@ -394,6 +403,51 @@ export function Reader({
     const link = article.link;
     return () => {
       if (reached.current >= 0.9) recordEvent(link, "dwell", article.title);
+    };
+  }, [article.link, article.title]);
+
+  // How long the article was actually read. Nothing else in the app records a
+  // duration — "Your reading" would otherwise be estimating every minute it
+  // shows from word counts.
+  useEffect(() => {
+    const link = article.link;
+    const title = article.title;
+    secondsRead.current = 0;
+    visibleSince.current =
+      document.visibilityState === "visible" ? Date.now() : null;
+
+    const stop = () => {
+      if (visibleSince.current === null) return;
+      secondsRead.current += (Date.now() - visibleSince.current) / 1000;
+      visibleSince.current = null;
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        visibleSince.current ??= Date.now();
+      } else {
+        stop();
+      }
+    };
+    // Zeroing the tally is what makes this safe to call twice: a pagehide
+    // followed by the unmount sends one event, not two.
+    const flush = () => {
+      stop();
+      const seconds = Math.min(
+        Math.round(secondsRead.current),
+        MAX_READ_SECONDS
+      );
+      secondsRead.current = 0;
+      if (seconds >= MIN_READ_SECONDS) {
+        recordEvent(link, "read", title, seconds);
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", flush);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", flush);
+      flush();
     };
   }, [article.link, article.title]);
 
