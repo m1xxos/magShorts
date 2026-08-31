@@ -48,11 +48,19 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Out-of-range or nonsense durations are dropped rather than clamped: a
-  // stored NULL means "not measured", which the estimate knows how to fill in,
-  // while a clamped 14400 would be a lie with a number on it.
+  // Only "read" carries a duration. Anything else offering one is a client
+  // bug or a hand-written POST, and the stats page sums this column across
+  // every reading action — so an "open" with seconds attached would count as
+  // measured time that was never measured.
+  //
+  // Out-of-range values are dropped rather than clamped: a stored NULL means
+  // "not measured", which the estimate knows how to fill in, while a clamped
+  // 14400 would be a lie with a number on it. The reader caps itself at an
+  // hour before sending; this is the backstop for everything that is not the
+  // reader.
   const raw = typeof body.seconds === "number" ? Math.round(body.seconds) : 0;
-  const seconds = raw > 0 && raw <= MAX_SECONDS ? raw : null;
+  const seconds =
+    action === "read" && raw > 0 && raw <= MAX_SECONDS ? raw : null;
 
   const db = getDb();
   // Snapshot the article (incl. its embedding) so taste history survives

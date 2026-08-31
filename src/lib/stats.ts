@@ -67,8 +67,11 @@ function parseStamp(value: string): Date {
 
 function monthLabel(key: string): string {
   const [year, month] = key.split("-").map(Number);
+  // timeZone matters: the key was built with Date.UTC, so formatting it in
+  // the server's own zone renders "Jul" for the bucket keyed 2026-08.
   return new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString("en-GB", {
     month: "short",
+    timeZone: "UTC",
   });
 }
 
@@ -77,6 +80,7 @@ function dayLabel(key: string): string {
   return new Date(Date.UTC(year, month - 1, day)).toLocaleDateString("en-GB", {
     day: "numeric",
     month: "short",
+    timeZone: "UTC",
   });
 }
 
@@ -100,6 +104,16 @@ function emptyBuckets(today: string, spec: RangeSpec): StatsBucketDto[] {
   return buckets;
 }
 
+// Whole days from one date to another, both ends counted.
+function daysBetween(from: string, to: string): number {
+  const at = (date: string) => {
+    const [year, month, day] = date.split("-").map(Number);
+    // Noon UTC, the same DST-proof anchor shiftDate uses.
+    return Date.UTC(year, month - 1, day, 12);
+  };
+  return Math.round((at(to) - at(from)) / 86_400_000) + 1;
+}
+
 function bucketKey(date: string, bucket: "day" | "month"): string {
   return bucket === "day" ? date : date.slice(0, 7);
 }
@@ -113,27 +127,43 @@ export function readingStats(
   const timeZone = digestTimeZone();
   const today = zonedNow(new Date(), timeZone).date;
 
+  const buckets = emptyBuckets(today, spec);
+
   // Two windows of equal length, so the range can be compared with the one
   // before it. Fetched together and split in JS: one indexed scan beats two.
-  const start = shiftDate(today, -(spec.days - 1));
-  const previousStart = shiftDate(start, -spec.days);
+  //
+  // The start is taken from the chart's own first bucket rather than counted
+  // back in days. On the year range those differ — twelve month buckets begin
+  // on the 1st, 364 days back lands mid-month — and the gap was counted in the
+  // headline while belonging to no bar, so the number disagreed with the
+  // picture underneath it.
+  const start = buckets[0].key.length === 7 ? `${buckets[0].key}-01` : buckets[0].key;
+  const span = daysBetween(start, today);
+  const previousStart = shiftDate(start, -span);
   // A day either side, because the zoned day boundary is not the UTC one.
   const cutoff = `${shiftDate(previousStart, -1)} 00:00:00`;
 
+  // Oldest first, and said out loud: the index on this table is
+  // (user_id, created_at DESC), so without this the rows arrive newest-first
+  // and "the day an article was opened on" becomes the day it was finished.
   const rows = db
     .prepare(
       `SELECT link, action, created_at, feed_id, title, seconds
          FROM user_events
-        WHERE user_id = ? AND created_at >= ?`
+        WHERE user_id = ? AND created_at >= ?
+        ORDER BY created_at ASC, id ASC`
     )
     .all(userId, cutoff) as EventRow[];
 
-  const buckets = emptyBuckets(today, spec);
   const byKey = new Map(buckets.map((bucket) => [bucket.key, bucket]));
   const perBucket = new Map<string, Set<string>>();
   const readLinks = new Set<string>();
   const readBefore = new Set<string>();
   const finishedLinks = new Set<string>();
+  const openedLinks = new Set<string>();
+  // When each article was last touched, so the estimate below can tell an
+  // event that predates measurement from one that was measured at zero.
+  const lastSeen = new Map<string, number>();
   const measured = new Map<string, number>();
   const feedLinks = new Map<number, Set<string>>();
   // Counted per calendar day whatever the chart's bucket is: with month
@@ -157,6 +187,8 @@ export function readingStats(
 
     readLinks.add(row.link);
     if (row.action === "dwell") finishedLinks.add(row.link);
+    if (row.action === "open") openedLinks.add(row.link);
+    lastSeen.set(row.link, parseStamp(row.created_at).getTime());
     if (row.seconds) {
       // Two sittings with the same article add up; a second event for a
       // sitting already counted would not, but the reader only sends one.
@@ -186,11 +218,20 @@ export function readingStats(
     }
   }
 
+  // Shorts calls it a dwell after fifteen seconds on a summary card, and that
+  // is not a finished article. The reader is the only surface that opens one,
+  // so a dwell with an open behind it is a reading and a dwell without one is
+  // a slow scroll past.
+  for (const link of [...finishedLinks]) {
+    if (!openedLinks.has(link)) finishedLinks.delete(link);
+  }
+
   const { perLink, ...seconds } = readingSeconds(
     db,
     readLinks,
     finishedLinks,
-    measured
+    measured,
+    unmeasurable(db, userId, lastSeen, measured)
   );
   for (const [link, value] of perLink) {
     const bucket = byKey.get(firstBucket.get(link) ?? "");
@@ -204,13 +245,41 @@ export function readingStats(
     articles_read_before: readBefore.size,
     ...seconds,
     days_counted: daysCounted(db, userId, timeZone, today, spec.days),
-    ...savedCounts(db, userId, start, finishedLinks),
+    ...savedCounts(db, userId, timeZone, start, finishedLinks),
     ...streaks(db, userId, timeZone, today),
     by_bucket: buckets,
     by_feed: topFeeds(db, feedLinks),
     ...topicProfile(db, userId, spec.topicDays),
     note: chartNote(buckets, perWeekday, readLinks.size, spec),
   };
+}
+
+// Which unmeasured articles are worth estimating.
+//
+// Before the reader started timing itself there is nothing but the word count
+// to go on, so those are estimated. After it, silence means something: the
+// reader sends nothing under five seconds, and an "open" recorded from a card
+// menu never opened the reader at all. Crediting those a third of the
+// article's length would invent minutes nobody spent, and unlike the legacy
+// history it would go on inventing them forever.
+function unmeasurable(
+  db: ReturnType<typeof getDb>,
+  userId: number,
+  lastSeen: Map<string, number>,
+  measured: Map<string, number>
+): Set<string> {
+  const first = db
+    .prepare(
+      "SELECT MIN(created_at) AS at FROM user_events WHERE user_id = ? AND action = 'read'"
+    )
+    .get(userId) as { at: string | null };
+  const measuringSince = first.at ? parseStamp(first.at).getTime() : Infinity;
+
+  const estimating = new Set<string>();
+  for (const [link, at] of lastSeen) {
+    if (!measured.has(link) && at < measuringSince) estimating.add(link);
+  }
+  return estimating;
 }
 
 // How many days of the range this reader was actually around for. A per-day
@@ -242,7 +311,8 @@ function readingSeconds(
   db: ReturnType<typeof getDb>,
   readLinks: Set<string>,
   finishedLinks: Set<string>,
-  measured: Map<string, number>
+  measured: Map<string, number>,
+  estimating: Set<string>
 ): {
   seconds_reading: number;
   seconds_measured: number;
@@ -254,7 +324,7 @@ function readingSeconds(
   const perLink = new Map(measured);
   for (const seconds of measured.values()) secondsMeasured += seconds;
 
-  const guessing = [...readLinks].filter((link) => !measured.has(link));
+  const guessing = [...readLinks].filter((link) => estimating.has(link));
   if (guessing.length === 0) {
     return {
       seconds_reading: Math.round(secondsMeasured),
@@ -295,27 +365,40 @@ function readingSeconds(
 function savedCounts(
   db: ReturnType<typeof getDb>,
   userId: number,
+  timeZone: string,
   start: string,
   finishedLinks: Set<string>
 ): { saved: number; finished: number; waiting: number } {
-  const saved = db
+  // Bucketed in the reader's timezone rather than compared against a UTC
+  // string, so a save at 23:00 local on the first day of the range is inside
+  // it. The list is tens of rows; this is cheaper than getting it wrong.
+  const savedRows = db
     .prepare(
-      "SELECT COUNT(*) AS n FROM reading_list WHERE user_id = ? AND added_at >= ?"
+      "SELECT added_at FROM reading_list WHERE user_id = ? AND added_at >= ?"
     )
-    .get(userId, `${start} 00:00:00`) as { n: number };
+    .all(userId, `${shiftDate(start, -1)} 00:00:00`) as Array<{ added_at: string }>;
+  const saved = savedRows.filter(
+    (row) => zonedNow(parseStamp(row.added_at), timeZone).date >= start
+  ).length;
   // Waiting is about the pile as it stands, not about the range: "what have I
   // saved and not read" does not become a different question in a week.
   const waiting = db
     .prepare(
       `SELECT COUNT(*) AS n FROM reading_list r
         WHERE r.user_id = ?
-          AND NOT EXISTS (
-            SELECT 1 FROM user_events e
-             WHERE e.user_id = r.user_id AND e.link = r.link AND e.action = 'dwell'
+          AND NOT (
+            EXISTS (
+              SELECT 1 FROM user_events e
+               WHERE e.user_id = r.user_id AND e.link = r.link AND e.action = 'dwell'
+            )
+            AND EXISTS (
+              SELECT 1 FROM user_events e
+               WHERE e.user_id = r.user_id AND e.link = r.link AND e.action = 'open'
+            )
           )`
     )
     .get(userId) as { n: number };
-  return { saved: saved.n, finished: finishedLinks.size, waiting: waiting.n };
+  return { saved, finished: finishedLinks.size, waiting: waiting.n };
 }
 
 // Consecutive days with something read. Today not counting yet is not a broken
@@ -566,6 +649,11 @@ function chartNote(
   const active = buckets.filter((bucket) => bucket.count > 0).length;
   const unit = spec.bucket === "day" ? "days" : "months";
   const fallback = `You read on ${active} of the last ${spec.buckets} ${unit}.`;
+
+  // Over a week each weekday happens once, so "you read most on Mondays"
+  // would be a habit inferred from a single Monday. Only a range with several
+  // of each can say it.
+  if (spec.buckets <= 7) return fallback;
 
   const peak = perWeekday.indexOf(Math.max(...perWeekday));
   const average = perWeekday.reduce((sum, count) => sum + count, 0) / 7;

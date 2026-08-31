@@ -442,11 +442,20 @@ export function Reader({
       }
     };
 
+    // Coming back from the back/forward cache fires pageshow and nothing
+    // else, so without this the clock stopped by the preceding pagehide would
+    // never start again and the rest of the reading would go unrecorded.
+    const onShow = () => {
+      if (document.visibilityState === "visible") visibleSince.current ??= Date.now();
+    };
+
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pagehide", flush);
+    window.addEventListener("pageshow", onShow);
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pagehide", flush);
+      window.removeEventListener("pageshow", onShow);
       flush();
     };
   }, [article.link, article.title]);

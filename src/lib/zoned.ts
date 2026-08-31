@@ -15,17 +15,31 @@ export interface ZonedNow {
 
 export const WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 
+// Building an Intl.DateTimeFormat costs about 30 microseconds, which is
+// nothing until the stats page asks what day each of thirty thousand events
+// happened on. One formatter per timezone, kept.
+const FORMATTERS = new Map<string, Intl.DateTimeFormat>();
+
+function formatter(timeZone: string): Intl.DateTimeFormat {
+  let found = FORMATTERS.get(timeZone);
+  if (!found) {
+    found = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+      weekday: "short",
+    });
+    FORMATTERS.set(timeZone, found);
+  }
+  return found;
+}
+
 export function zonedNow(now: Date, timeZone: string): ZonedNow {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    weekday: "short",
-  }).formatToParts(now);
+  const parts = formatter(timeZone).formatToParts(now);
   const get = (type: string) =>
     parts.find((part) => part.type === type)?.value ?? "";
   // "24" shows up at midnight in some ICU versions.

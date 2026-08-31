@@ -65,6 +65,10 @@ export default function StatsPage() {
   const [range, setRange] = useState<StatsRange>("month");
   const [stats, setStats] = useState<ReadingStatsDto | null>(null);
   const [loadedRange, setLoadedRange] = useState<StatsRange | null>(null);
+  // A request that came back with nothing. Tracked separately from `stats`,
+  // because "not loaded yet" and "asked and failed" look identical in a null
+  // and one of them has to stop saying "Loading…".
+  const [failed, setFailed] = useState(false);
   const [feeds, setFeeds] = useState<FeedDto[]>([]);
   const [folders, setFolders] = useState<FolderDto[]>([]);
   const [readingCount, setReadingCount] = useState(0);
@@ -102,6 +106,8 @@ export default function StatsPage() {
       .catch(() => {});
   }, [user]);
 
+  const [attempt, setAttempt] = useState(0);
+
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
@@ -111,12 +117,13 @@ export default function StatsPage() {
       .then((data: ReadingStatsDto | null) => {
         if (cancelled) return;
         setStats(data);
+        setFailed(data === null);
         setLoadedRange(range);
       });
     return () => {
       cancelled = true;
     };
-  }, [user, range]);
+  }, [user, range, attempt]);
 
   const loading = !user || loadedRange !== range;
   const caption = RANGES.find((option) => option.value === range)?.caption ?? "";
@@ -164,7 +171,27 @@ export default function StatsPage() {
             </div>
           </div>
 
-          {loading || !stats ? (
+          {failed && loadedRange === range ? (
+            <div className="mt-7 flex flex-col items-center gap-3 rounded-2xl border border-dashed border-line py-20 text-center">
+              <p className="font-serif text-xl text-ink">
+                Could not count that up
+              </p>
+              <p className="max-w-md text-sm text-ink-faint">
+                The figures did not come back. Nothing is lost — they are
+                counted fresh every time.
+              </p>
+              <button
+                onClick={() => {
+                  setFailed(false);
+                  setLoadedRange(null);
+                  setAttempt((n) => n + 1);
+                }}
+                className="mt-1 rounded-full bg-clay px-4 py-2 text-sm text-white transition hover:brightness-95"
+              >
+                Try again
+              </button>
+            </div>
+          ) : loading || !stats ? (
             <p className="py-24 text-center text-ink-faint">Loading…</p>
           ) : stats.articles_read === 0 && stats.streak_best === 0 ? (
             <div className="mt-7 flex flex-col items-center gap-3 rounded-2xl border border-dashed border-line py-20 text-center">
