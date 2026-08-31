@@ -66,18 +66,23 @@ export type FeedbackAction =
   | "skip"
   | "open"
   | "dwell"
-  | "view";
+  | "view"
+  | "read";
 
 // Fire-and-forget taste signal; keepalive lets it survive navigation.
+//
+// `seconds` belongs to "read" and nothing else: it is how long the reader was
+// on screen, and it is the only number on the stats page that isn't a guess.
 export function recordEvent(
   link: string,
   action: FeedbackAction,
-  title?: string
+  title?: string,
+  seconds?: number
 ): void {
   fetch("/api/events", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ link, action, title }),
+    body: JSON.stringify({ link, action, title, seconds }),
     keepalive: true,
   }).catch(() => {});
 }

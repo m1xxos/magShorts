@@ -10,6 +10,10 @@
   --line: #e8e5dc;
   --clay: #c96442;
   --clay-soft: #f3e0d8;
+  /* The one thing on the palette that means "this went well". Clay carries
+     attention, ink carries everything neutral, and neither can say a number
+     moved in the right direction. */
+  --sage: #7d9a6d;
 }
 
 @theme inline {
@@ -22,6 +26,7 @@
   --color-line: var(--line);
   --color-clay: var(--clay);
   --color-clay-soft: var(--clay-soft);
+  --color-sage: var(--sage);
   --font-sans: var(--font-geist-sans), var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --font-serif: var(--font-lora), "Iowan Old Style", Georgia, serif;
 }

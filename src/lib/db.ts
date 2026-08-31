@@ -107,13 +107,11 @@ export function getDb(): Database.Database {
 
     -- The taste profile joins every event to the article it came from, by
     -- link, and picks the newest event per link with a correlated subquery.
-    -- Without these two it is a nested scan of both tables — 880ms on 840
-    -- events, paid again by every For you, digest and Discover request.
+    -- Without this and its twin on user_events (below, where that table is
+    -- declared) it is a nested scan of both tables — 880ms on 840 events,
+    -- paid again by every For you, digest and Discover request.
     CREATE INDEX IF NOT EXISTS idx_articles_link
       ON articles(link);
-
-    CREATE INDEX IF NOT EXISTS idx_user_events_user_link
-      ON user_events(user_id, link);
 
     CREATE TABLE IF NOT EXISTS reading_list (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -159,6 +157,10 @@ export function getDb(): Database.Database {
 
     CREATE INDEX IF NOT EXISTS idx_user_events_user
       ON user_events(user_id, created_at DESC);
+
+    -- The other half of the taste-profile join; see idx_articles_link above.
+    CREATE INDEX IF NOT EXISTS idx_user_events_user_link
+      ON user_events(user_id, link);
 
     CREATE TABLE IF NOT EXISTS folders (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -430,6 +432,17 @@ export function getDb(): Database.Database {
   // Rows ingested before this landed stay NULL and fall back to a page fetch.
   if (!articleColumns.some((column) => column.name === "content")) {
     db.exec("ALTER TABLE articles ADD COLUMN content TEXT");
+  }
+
+  // How long the reader was actually open, in seconds. Nullable on purpose:
+  // NULL means the event predates measurement, and "Your reading" has to tell
+  // a measured minute from an estimated one rather than quietly averaging the
+  // two together.
+  const eventColumns = db
+    .prepare("PRAGMA table_info(user_events)")
+    .all() as Array<{ name: string }>;
+  if (!eventColumns.some((column) => column.name === "seconds")) {
+    db.exec("ALTER TABLE user_events ADD COLUMN seconds INTEGER");
   }
 
   // The digest picks its sources independently of For you: "what should I read
