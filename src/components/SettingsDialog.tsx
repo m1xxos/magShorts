@@ -64,6 +64,7 @@ export function SettingsDialog({
   // written anywhere, and gone the moment the dialog closes.
   const [minted, setMinted] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [minting, setMinting] = useState(false);
   // Portrait: the modal becomes the screen and the rail becomes a segmented
   // control. A 196px rail beside a 380px column is most of the window.
   const narrow = useMediaQuery("(max-width: 899px)");
@@ -139,27 +140,49 @@ export function SettingsDialog({
   // already minted a token would be a Cancel button that cancels nothing.
   async function createToken() {
     const name = tokenName.trim();
-    if (!name) return;
-    const response = await fetch("/api/tokens", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
-    });
-    if (!response.ok) return;
-    const created = (await response.json()) as ApiTokenDto & { token: string };
-    const { token, ...row } = created;
-    setTokens((prev) => [row, ...prev]);
-    setMinted(token);
-    setCopied(false);
-    setTokenName("");
+    // Guarded because the token is shown once: a second click mints a second
+    // token whose secret is overwritten in the same breath, leaving a live
+    // credential nobody ever saw.
+    if (!name || minting) return;
+    setMinting(true);
+    try {
+      const response = await fetch("/api/tokens", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!response.ok) {
+        onSaved("Could not create the token");
+        return;
+      }
+      const created = (await response.json()) as ApiTokenDto & { token: string };
+      const { token, ...row } = created;
+      setTokens((prev) => [row, ...prev]);
+      setMinted(token);
+      setCopied(false);
+      setTokenName("");
+    } catch {
+      onSaved("Could not create the token");
+    } finally {
+      setMinting(false);
+    }
   }
 
   async function revokeToken(id: number) {
     if (!window.confirm("Revoke this token? Anything using it stops syncing.")) {
       return;
     }
+    const previous = tokens;
     setTokens((prev) => prev.filter((entry) => entry.id !== id));
-    await fetch(`/api/tokens/${id}`, { method: "DELETE" });
+    try {
+      const response = await fetch(`/api/tokens/${id}`, { method: "DELETE" });
+      if (!response.ok) throw new Error(String(response.status));
+    } catch {
+      // Putting the row back is the point: a token that still works must not
+      // disappear from the one list that can revoke it.
+      setTokens(previous);
+      onSaved("Could not revoke that token — it still works");
+    }
   }
 
   async function submit(event: React.FormEvent) {
@@ -499,6 +522,15 @@ export function SettingsDialog({
         <input
           value={tokenName}
           onChange={(event) => setTokenName(event.target.value)}
+          // The panel lives inside the settings form, so Enter would submit it:
+          // the dialog closes, the settings are saved, and the name you typed
+          // is gone without a token to show for it.
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              void createToken();
+            }
+          }}
           placeholder="What is it for — Obsidian on the laptop"
           className="min-w-0 flex-1 rounded-xl border border-line bg-paper px-4 py-2.5 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-clay pointer-coarse:py-3 pointer-coarse:text-[15.5px]"
         />
@@ -507,7 +539,7 @@ export function SettingsDialog({
         <button
           type="button"
           onClick={createToken}
-          disabled={tokenName.trim() === ""}
+          disabled={tokenName.trim() === "" || minting}
           className="shrink-0 rounded-full bg-clay px-4 py-2 text-sm text-white transition hover:opacity-90 disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-5"
         >
           Create
@@ -526,8 +558,16 @@ export function SettingsDialog({
             <button
               type="button"
               onClick={() => {
-                void navigator.clipboard.writeText(minted);
-                setCopied(true);
+                // navigator.clipboard does not exist on an insecure origin, and
+                // this is the only moment the token is readable — saying
+                // "Copied" when nothing was is how it gets lost for good.
+                void navigator.clipboard
+                  ?.writeText(minted)
+                  .then(() => setCopied(true))
+                  .catch(() => onSaved("Could not reach the clipboard"));
+                if (!navigator.clipboard) {
+                  onSaved("Could not reach the clipboard — select it by hand");
+                }
               }}
               className="shrink-0 rounded-full border border-line bg-paper-raised px-3 py-2 text-[13px] text-ink-soft transition hover:border-clay hover:text-clay pointer-coarse:min-h-11"
             >
