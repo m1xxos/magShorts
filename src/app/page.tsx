@@ -85,6 +85,40 @@ function Skeleton({ density }: { density: Density }) {
   );
 }
 
+// The query the sidebar already builds for these, kept in one place so
+// arriving by link and choosing in place cannot disagree.
+function homeUrl(selection: Selection): string {
+  if (selection.kind === "feed") return `/?feed=${selection.feedId}`;
+  if (selection.kind === "folder") return `/?folder=${selection.folderId}`;
+  return `/?view=${selection.kind}`;
+}
+
+// Two selections that name the same list. Compared by value because the load
+// effect keys on the object: handing it an equal-but-new one refetches the
+// grid, which empties it, which loses the scroll position the reader was
+// closed to get back to.
+function sameList(a: Selection | null, b: Selection | null): boolean {
+  if (!a || !b || a.kind !== b.kind) return false;
+  if (a.kind === "feed" && b.kind === "feed") return a.feedId === b.feedId;
+  if (a.kind === "folder" && b.kind === "folder") {
+    return a.folderId === b.folderId;
+  }
+  return true;
+}
+
+function selectionFromUrl(): Selection | null {
+  const params = new URLSearchParams(window.location.search);
+  const feedId = Number(params.get("feed"));
+  if (Number.isInteger(feedId) && feedId > 0) return { kind: "feed", feedId };
+  const folderId = Number(params.get("folder"));
+  if (Number.isInteger(folderId) && folderId > 0) {
+    return { kind: "folder", folderId };
+  }
+  if (params.get("view") === "forYou") return { kind: "forYou" };
+  if (params.get("view") === "all") return { kind: "all" };
+  return null;
+}
+
 export default function HomePage() {
   const user = useUser();
   const [feeds, setFeeds] = useState<FeedDto[]>([]);
@@ -169,46 +203,88 @@ export default function HomePage() {
   }, []);
 
   // Open the view chosen in Settings (All publications / For you / a folder).
-  const viewInitialized = useRef(false);
+  //
+  // Read once and kept, because a bare "/" has to keep meaning the same list
+  // every time it is visited. Resolving it to "all" on the second visit is how
+  // closing an article threw away the view you were reading from.
+  const defaultView = useRef<Selection | null>(null);
   useEffect(() => {
-    if (!user || viewInitialized.current) return;
-    viewInitialized.current = true;
+    if (!user) return;
+    let cancelled = false;
+    // Fetched whether or not the URL names a list: open_in_reader lives here
+    // too, and arriving on /?feed=3 used to skip it and open the reader for
+    // someone who asked for the publisher's page.
+    void fetch("/api/settings")
+      .then((response) => response.json())
+      .then((settings: { default_view?: string; open_in_reader?: string }) => {
+        if (cancelled) return;
+        setOpenInReader(settings.open_in_reader !== "off");
+        const view = settings.default_view ?? "";
+        const folderId = view.startsWith("folder:")
+          ? Number(view.slice("folder:".length))
+          : NaN;
+        defaultView.current =
+          view === "forYou"
+            ? { kind: "forYou" }
+            : Number.isInteger(folderId)
+              ? { kind: "folder", folderId }
+              : { kind: "all" };
+        // The first paint had nothing to go on; correct it now, unless the URL
+        // said something or the reader has since chosen.
+        if (!selectionFromUrl()) {
+          setSelection((previous) => previous ?? defaultView.current);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
 
     // The sidebar on other pages links here with the selection in the URL, so
     // an explicit choice wins over the configured default view. Read from
     // location rather than useSearchParams: this page is prerendered, and that
     // hook would drag in a Suspense boundary for three lines of parsing.
-    async function resolveView(): Promise<Selection> {
-      const params = new URLSearchParams(window.location.search);
-      const feedId = Number(params.get("feed"));
-      if (Number.isInteger(feedId) && feedId > 0) {
-        return { kind: "feed", feedId };
-      }
-      const urlFolder = Number(params.get("folder"));
-      if (Number.isInteger(urlFolder) && urlFolder > 0) {
-        return { kind: "folder", folderId: urlFolder };
-      }
-      if (params.get("view") === "forYou") return { kind: "forYou" };
-      if (params.get("view") === "all") return { kind: "all" };
-
-      const settings: { default_view?: string; open_in_reader?: string } =
-        await fetch("/api/settings")
-          .then((response) => response.json())
-          .catch(() => ({}));
-      setOpenInReader(settings.open_in_reader !== "off");
-      const view = settings.default_view ?? "";
-      if (view === "forYou") return { kind: "forYou" };
-      if (view.startsWith("folder:")) {
-        const folderId = Number(view.slice("folder:".length));
-        return Number.isInteger(folderId)
-          ? { kind: "folder", folderId }
-          : { kind: "all" };
-      }
-      return { kind: "all" };
+    function resolveView(): Selection | null {
+      return selectionFromUrl() ?? defaultView.current;
     }
 
-    resolveView().then(setSelection);
+    let latest = true;
+    function apply() {
+      if (!latest) return;
+      const next = resolveView();
+      if (!next) return;
+      setSelection((previous) => (sameList(previous, next) ? previous : next));
+    }
+    apply();
+    // Back and Forward have to re-read the list out of the entry they landed
+    // on. Without this the URL says one thing and the grid shows another.
+    window.addEventListener("popstate", apply);
+    return () => {
+      latest = false;
+      window.removeEventListener("popstate", apply);
+    };
   }, [user]);
+
+  // Every change of list goes through here, so the address bar always names
+  // what is on screen. It is a history entry because the same click already
+  // was one from every other page — the rail pushes /?feed=N — and one control
+  // that means two different things depending on where you stand is exactly
+  // what made moving around here feel arbitrary.
+  const chooseList = useCallback(
+    (next: Selection) => {
+      // Tapping the list you are already on used to blank the grid to
+      // skeletons and leave a duplicate history entry behind, so the next
+      // Back looked like it did nothing.
+      if (sameList(selection, next)) return;
+      setSelection(next);
+      window.history.pushState(null, "", homeUrl(next));
+    },
+    [selection]
+  );
 
   const loadReadingCount = useCallback(async () => {
     const response = await fetch("/api/reading-list");
@@ -342,24 +418,32 @@ export default function HomePage() {
     if (result.ok) loadReadingCount();
   }
 
+  const railProps = {
+    feeds,
+    folders,
+    selection,
+    readingCount,
+    onSelect: chooseList,
+    onOpenSettings: () => setSettingsOpen(true),
+  };
+
   return (
     <div className="min-h-screen">
-      <TopBar selectedFeedId={selectedFeedId} username={user?.username} />
+      <TopBar
+        selectedFeedId={selectedFeedId}
+        username={user?.username}
+        nav={(close) => (
+          <Sidebar {...railProps} variant="sheet" onNavigate={close} />
+        )}
+      />
       {/* Full-bleed: the grid runs to the window edges, flush with the top bar. */}
       <div className="flex">
-        <Sidebar
-          feeds={feeds}
-          folders={folders}
-          selection={selection}
-          readingCount={readingCount}
-          onSelect={setSelection}
-          onOpenSettings={() => setSettingsOpen(true)}
-        />
+        <Sidebar {...railProps} />
         <main className="min-w-0 flex-1 px-5 py-6 md:px-8">
           {/* Mobile feed chips */}
           <div className="no-scrollbar -mx-5 mb-4 flex gap-2 overflow-x-auto px-5 lg:hidden">
             <button
-              onClick={() => setSelection({ kind: "forYou" })}
+              onClick={() => chooseList({ kind: "forYou" })}
               className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[13px] ${
                 selection?.kind === "forYou"
                   ? "border-ink bg-ink text-paper"
@@ -369,7 +453,7 @@ export default function HomePage() {
               <SparkleIcon size={11} /> For you
             </button>
             <button
-              onClick={() => setSelection({ kind: "all" })}
+              onClick={() => chooseList({ kind: "all" })}
               className={`shrink-0 rounded-full border px-3.5 py-1.5 text-[13px] ${
                 selection?.kind === "all"
                   ? "border-ink bg-ink text-paper"
@@ -383,7 +467,7 @@ export default function HomePage() {
               .map((feed) => (
                 <button
                   key={feed.id}
-                  onClick={() => setSelection({ kind: "feed", feedId: feed.id })}
+                  onClick={() => chooseList({ kind: "feed", feedId: feed.id })}
                   className={`shrink-0 rounded-full border px-3.5 py-1.5 text-[13px] ${
                     selectedFeedId === feed.id
                       ? "border-ink bg-ink text-paper"
@@ -397,7 +481,7 @@ export default function HomePage() {
               <button
                 key={`folder-${folder.id}`}
                 onClick={() =>
-                  setSelection({ kind: "folder", folderId: folder.id })
+                  chooseList({ kind: "folder", folderId: folder.id })
                 }
                 className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[13px] ${
                   selection?.kind === "folder" && selection.folderId === folder.id
@@ -486,9 +570,14 @@ export default function HomePage() {
             <div className="flex flex-col items-center gap-3 py-24 text-center">
               <p className="font-serif text-xl text-ink">Nothing here yet</p>
               <p className="max-w-sm text-sm text-ink-faint">
-                Add a publication with the button in the sidebar and fresh
-                articles will appear here.
+                Subscribe to a publication and fresh articles will appear here.
               </p>
+              <Link
+                href="/sources"
+                className="rounded-full bg-clay px-4 py-2 text-sm text-white transition hover:brightness-95"
+              >
+                Add a publication
+              </Link>
             </div>
           ) : (
             <>

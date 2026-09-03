@@ -132,6 +132,18 @@ export default function ReadingListPage() {
   );
   const reader = useReader(resolveArticle);
 
+  // Closing the reader is exactly when the row behind it learns how far you
+  // got. Keyed on the article going away rather than on the × being pressed,
+  // because the browser's Back closes it too and never calls onClose — which
+  // left the row showing a stale percentage, and left the highlights panel
+  // armed for whatever you opened next.
+  useEffect(() => {
+    if (reader.article) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reading back a localStorage value the overlay just wrote
+    setOpenHighlights(false);
+    setProgress(readProgress());
+  }, [reader.article]);
+
   // The rest of the list, so finishing one saved article offers the next.
   const upNext = after(
     items,
@@ -217,17 +229,24 @@ export default function ReadingListPage() {
     );
   }
 
+  const railProps = {
+    feeds,
+    folders,
+    selection: null,
+    readingCount: items.length,
+    onOpenSettings: () => setSettingsOpen(true),
+  };
+
   return (
     <div className="min-h-screen">
-      <TopBar username={user?.username} />
+      <TopBar
+        username={user?.username}
+        nav={(close) => (
+          <Sidebar {...railProps} variant="sheet" onNavigate={close} />
+        )}
+      />
       <div className="flex">
-        <Sidebar
-          feeds={feeds}
-          folders={folders}
-          selection={null}
-          readingCount={items.length}
-          onOpenSettings={() => setSettingsOpen(true)}
-        />
+        <Sidebar {...railProps} />
         <main className="mx-auto min-w-0 max-w-[760px] flex-1 px-5 py-8 md:px-8">
         <div className="flex items-baseline justify-between gap-4">
           <div className="min-w-0">
@@ -256,7 +275,7 @@ export default function ReadingListPage() {
           </Link>
         </div>
 
-        {items.length > 1 && (
+        {items.length > 0 && (
           <div className="mt-5 flex justify-end">
             <Segmented
               options={SORTS}
@@ -441,13 +460,7 @@ export default function ReadingListPage() {
           onToast={showToast}
           showHighlights={openHighlights}
           onOpenArticle={reader.open}
-          onClose={() => {
-            reader.close();
-            setOpenHighlights(false);
-            // The reader is an overlay on this page: closing it is exactly
-            // when the row behind it learns how far you got.
-            setProgress(readProgress());
-          }}
+          onClose={() => reader.close()}
         />
       )}
       {surveyItem && (

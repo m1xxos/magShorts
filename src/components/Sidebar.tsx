@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { type MouseEvent } from "react";
 import { type FeedDto, type FolderDto, type Selection } from "@/lib/types";
 import { FeedAvatar } from "./FeedAvatar";
 import { BookmarkIcon } from "./SwipeableCard";
@@ -211,11 +212,18 @@ export function Sidebar({
   readingCount,
   onSelect,
   onOpenSettings,
+  variant = "rail",
+  onNavigate,
 }: {
   feeds: FeedDto[];
   folders: FolderDto[];
   selection: Selection | null;
   readingCount: number;
+  // "sheet" is the same rail without its own sticky column, for the narrow
+  // screens where there is nowhere to stand one.
+  variant?: "rail" | "sheet";
+  // Lets the sheet close itself once you have gone somewhere.
+  onNavigate?: () => void;
   // Omitted on pages other than the home grid: there the sidebar is pure
   // navigation, and selecting a feed goes home with the choice in the URL
   // rather than mutating a page that has no grid to update.
@@ -226,6 +234,7 @@ export function Sidebar({
   const pathname = usePathname();
   // Either update the grid in place, or leave for it.
   const select = (next: Selection) => {
+    onNavigate?.();
     if (onSelect) return onSelect(next);
     const query =
       next.kind === "feed"
@@ -294,11 +303,32 @@ export function Sidebar({
   // below the bottom of a long list — the two things you reach for most were
   // the two least likely to be on screen.
   //
-  // Held back to lg: on a portrait tablet the 288px rail costs a third of the
-  // window, and the chip row on the home page already covers the same
-  // navigation.
+  // Held back to lg as a column: on a portrait tablet the 288px rail costs a
+  // third of the window. Below that it is the same rows in a sheet — for a
+  // long time it was simply absent, and with it went the only way to reach
+  // the digest, Discover, Your reading or the settings at all.
+  const Frame = variant === "sheet" ? "div" : "aside";
   return (
-    <aside className="sticky top-16 hidden h-[calc(100vh-4rem)] w-72 shrink-0 flex-col lg:flex">
+    <Frame
+      className={
+        variant === "sheet"
+          ? "flex min-h-0 flex-1 flex-col"
+          : "sticky top-16 hidden h-[calc(100vh-4rem)] w-72 shrink-0 flex-col lg:flex"
+      }
+      // One handler rather than a callback threaded through every row: in a
+      // sheet, everything in here is a destination and reaching one is the
+      // cue to close. Everything except expanding a folder, which is how you
+      // find the destination in the first place.
+      onClick={
+        onNavigate
+          ? (event: MouseEvent) => {
+              if (!(event.target as HTMLElement).closest("[data-stay]")) {
+                onNavigate();
+              }
+            }
+          : undefined
+      }
+    >
       <div className="flex shrink-0 flex-col gap-0.5 border-b border-line px-3 py-4">
         <SectionRow
           href="/digest"
@@ -390,6 +420,7 @@ export function Sidebar({
                   )}
                   <button
                     title={open ? "Collapse folder" : "Expand folder"}
+                    data-stay
                     onClick={() => toggleOpen(folder.id)}
                     className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-faint transition hover:text-ink pointer-coarse:h-11 pointer-coarse:w-11"
                   >
@@ -477,7 +508,7 @@ export function Sidebar({
           />
         )}
       </div>
-    </aside>
+    </Frame>
   );
 }
 
