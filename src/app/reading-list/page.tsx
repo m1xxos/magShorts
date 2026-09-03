@@ -217,17 +217,22 @@ export default function ReadingListPage() {
     );
   }
 
+  const railProps = {
+    feeds,
+    folders,
+    selection: null,
+    readingCount: items.length,
+    onOpenSettings: () => setSettingsOpen(true),
+  };
+
   return (
     <div className="min-h-screen">
-      <TopBar username={user?.username} />
+      <TopBar
+        username={user?.username}
+        nav={<Sidebar {...railProps} variant="sheet" />}
+      />
       <div className="flex">
-        <Sidebar
-          feeds={feeds}
-          folders={folders}
-          selection={null}
-          readingCount={items.length}
-          onOpenSettings={() => setSettingsOpen(true)}
-        />
+        <Sidebar {...railProps} />
         <main className="mx-auto min-w-0 max-w-[760px] flex-1 px-5 py-8 md:px-8">
         <div className="flex items-baseline justify-between gap-4">
           <div className="min-w-0">

@@ -9,6 +9,8 @@ import {
   type DigestDto,
   type DigestItemDto,
   type DigestKind,
+  type FeedDto,
+  type FolderDto,
 } from "@/lib/types";
 import {
   cachedImageUrl,
@@ -22,6 +24,7 @@ import { Toast, useToast } from "@/components/Toast";
 import { BookmarkIcon } from "@/components/SwipeableCard";
 import { Reader, after } from "@/components/Reader";
 import { SettingsDialog } from "@/components/SettingsDialog";
+import { Sidebar } from "@/components/Sidebar";
 import { readerLink, useReader } from "@/lib/useReader";
 import { useUser } from "@/lib/useUser";
 
@@ -123,6 +126,29 @@ export default function DigestPage() {
   const [skipped, setSkipped] = useState<string[]>([]);
   const [showAll, setShowAll] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // The digest is a reading page and keeps its centred column — no rail down
+  // the side. But below lg there is no rail anywhere, and this was the one
+  // page you could not get out of except back to the feed, so the same rows
+  // are available here from the menu.
+  const [feeds, setFeeds] = useState<FeedDto[]>([]);
+  const [folders, setFolders] = useState<FolderDto[]>([]);
+  const [readingCount, setReadingCount] = useState(0);
+
+  useEffect(() => {
+    if (!user) return;
+    void fetch("/api/feeds")
+      .then((response) => response.json())
+      .then((data) => setFeeds(Array.isArray(data) ? data : []))
+      .catch(() => {});
+    void fetch("/api/folders")
+      .then((response) => response.json())
+      .then((data) => setFolders(Array.isArray(data) ? data : []))
+      .catch(() => {});
+    void fetch("/api/reading-list")
+      .then((response) => response.json())
+      .then((data) => setReadingCount(Array.isArray(data) ? data.length : 0))
+      .catch(() => {});
+  }, [user]);
   // Links already in Read later, so the reader's bookmark pill starts right.
   const [savedLinks, setSavedLinks] = useState<Set<string>>(new Set());
   const { toast, showToast } = useToast();
@@ -274,7 +300,19 @@ export default function DigestPage() {
 
   return (
     <div className="min-h-screen">
-      <TopBar username={user?.username} />
+      <TopBar
+        username={user?.username}
+        nav={
+          <Sidebar
+            feeds={feeds}
+            folders={folders}
+            selection={null}
+            readingCount={readingCount}
+            onOpenSettings={() => setSettingsOpen(true)}
+            variant="sheet"
+          />
+        }
+      />
       <main className="mx-auto max-w-[1080px] px-5 pt-9 pb-10 md:px-11">
         <div className="flex flex-wrap items-end justify-between gap-4 border-b border-line pb-5">
           <div>

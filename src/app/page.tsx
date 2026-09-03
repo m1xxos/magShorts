@@ -394,19 +394,25 @@ export default function HomePage() {
     if (result.ok) loadReadingCount();
   }
 
+  const railProps = {
+    feeds,
+    folders,
+    selection,
+    readingCount,
+    onSelect: chooseList,
+    onOpenSettings: () => setSettingsOpen(true),
+  };
+
   return (
     <div className="min-h-screen">
-      <TopBar selectedFeedId={selectedFeedId} username={user?.username} />
+      <TopBar
+        selectedFeedId={selectedFeedId}
+        username={user?.username}
+        nav={<Sidebar {...railProps} variant="sheet" />}
+      />
       {/* Full-bleed: the grid runs to the window edges, flush with the top bar. */}
       <div className="flex">
-        <Sidebar
-          feeds={feeds}
-          folders={folders}
-          selection={selection}
-          readingCount={readingCount}
-          onSelect={chooseList}
-          onOpenSettings={() => setSettingsOpen(true)}
-        />
+        <Sidebar {...railProps} />
         <main className="min-w-0 flex-1 px-5 py-6 md:px-8">
           {/* Mobile feed chips */}
           <div className="no-scrollbar -mx-5 mb-4 flex gap-2 overflow-x-auto px-5 lg:hidden">

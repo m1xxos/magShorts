@@ -137,17 +137,22 @@ export default function StatsPage() {
     ? Math.round(stats.seconds_reading / stats.days_counted / 60)
     : 0;
 
+  const railProps = {
+    feeds,
+    folders,
+    selection: null,
+    readingCount,
+    onOpenSettings: () => setSettingsOpen(true),
+  };
+
   return (
     <div className="min-h-screen">
-      <TopBar username={user?.username} />
+      <TopBar
+        username={user?.username}
+        nav={<Sidebar {...railProps} variant="sheet" />}
+      />
       <div className="flex">
-        <Sidebar
-          feeds={feeds}
-          folders={folders}
-          selection={null}
-          readingCount={readingCount}
-          onOpenSettings={() => setSettingsOpen(true)}
-        />
+        <Sidebar {...railProps} />
         <main className="mx-auto min-w-0 max-w-[1080px] flex-1 px-5 py-8 md:px-8">
           <div className="flex flex-wrap items-end justify-between gap-4 border-b border-line pb-5">
             <div className="min-w-0">

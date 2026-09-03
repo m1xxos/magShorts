@@ -20,6 +20,7 @@ import {
 import { TopBar } from "@/components/TopBar";
 import { Sidebar } from "@/components/Sidebar";
 import { BookmarkIcon } from "@/components/SwipeableCard";
+import { SettingsDialog } from "@/components/SettingsDialog";
 import { Toast, useToast } from "@/components/Toast";
 import { PublicationBlock } from "@/components/PublicationBlock";
 import { useUser } from "@/lib/useUser";
@@ -207,6 +208,9 @@ export default function DiscoverPage() {
   const [feeds, setFeeds] = useState<FeedDto[]>([]);
   const [folders, setFolders] = useState<FolderDto[]>([]);
   const [readingCount, setReadingCount] = useState(0);
+  // Discover was the one page that never offered the settings, so the row
+  // vanished from the rail on exactly one screen out of five.
+  const [settingsOpen, setSettingsOpen] = useState(false);
   // What is already in Read later, by link. Loaded once so the mark survives a
   // reload rather than only lasting as long as the click that made it.
   const [savedLinks, setSavedLinks] = useState<Set<string>>(new Set());
@@ -521,16 +525,22 @@ export default function DiscoverPage() {
   const isUrl = looksLikeUrl(search);
   const shown = view === "publications" ? publications.length : articles.length;
 
+  const railProps = {
+    feeds,
+    folders,
+    selection: null,
+    readingCount,
+    onOpenSettings: () => setSettingsOpen(true),
+  };
+
   return (
     <div className="min-h-screen">
-      <TopBar username={user?.username} />
+      <TopBar
+        username={user?.username}
+        nav={<Sidebar {...railProps} variant="sheet" />}
+      />
       <div className="flex">
-        <Sidebar
-          feeds={feeds}
-          folders={folders}
-          selection={null}
-          readingCount={readingCount}
-        />
+        <Sidebar {...railProps} />
         <main className="mx-auto min-w-0 max-w-[1180px] flex-1 px-5 pt-[26px] pb-10 md:px-8">
           <div className="flex items-baseline justify-between gap-4">
             <h1 className="font-serif text-[26px] text-ink">Discover</h1>
@@ -674,6 +684,12 @@ export default function DiscoverPage() {
           )}
         </main>
       </div>
+      {settingsOpen && (
+        <SettingsDialog
+          onClose={() => setSettingsOpen(false)}
+          onSaved={(message) => showToast(message)}
+        />
+      )}
       <Toast toast={toast} />
     </div>
   );
