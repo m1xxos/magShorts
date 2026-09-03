@@ -59,10 +59,15 @@ export function useReader(
 
   const open = useCallback(
     (next: ArticleDto) => {
-      // Spread whatever is already there: Next keeps its own router state in
-      // this object, and replacing it wholesale is not ours to do.
+      // Only our own key. Next patches pushState and bails out early on
+      // anything carrying its __NA marker — that is how it recognises its own
+      // calls — so spreading the existing state means the entry is pushed but
+      // the router is never told the URL moved, and usePathname and
+      // useSearchParams go stale until something rewrites the address bar back.
+      // The patch copies Next's internals onto whatever we pass, so they are
+      // not lost by leaving them out.
       window.history.pushState(
-        { ...window.history.state, [DEPTH]: depthOf(window.history.state) + 1 },
+        { [DEPTH]: depthOf(window.history.state) + 1 },
         "",
         readerUrl(next.id)
       );
@@ -74,11 +79,12 @@ export function useReader(
   // Strip ?article= from wherever we are standing and show the list. The way
   // out for a reader with nothing behind it to go back to.
   const dropParam = useCallback(() => {
+    closing.current = false;
     const params = new URLSearchParams(window.location.search);
     params.delete("article");
     const query = params.toString();
     window.history.replaceState(
-      window.history.state,
+      { [DEPTH]: depthOf(window.history.state) },
       "",
       query ? `${window.location.pathname}?${query}` : window.location.pathname
     );
@@ -86,7 +92,10 @@ export function useReader(
   }, [show]);
 
   const close = useCallback(() => {
-    if (!current.current) return;
+    // history.go is asynchronous, so without this a held Escape key or a
+    // double-clicked × fires it again on the same entry — four articles deep
+    // that is go(-4) twice, which walks clean off the site.
+    if (!current.current || closing.current) return;
     const depth = depthOf(window.history.state);
     if (depth > 0) {
       // Unwind every entry this reader pushed, however many articles deep the

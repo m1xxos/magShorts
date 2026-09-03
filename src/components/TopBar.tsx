@@ -34,7 +34,11 @@ export function TopBar({
   // The same rail the wide layout puts down the side, for the widths that have
   // no room to stand one. Without it the digest, Discover, Your reading and
   // the settings had no entrance at all below 1024px.
-  nav?: ReactNode;
+  //
+  // Given the closer rather than handed over as a finished element: choosing a
+  // feed on the home page changes the grid without changing the route, so
+  // nothing unmounts and the sheet would sit there covering what it just did.
+  nav?: (close: () => void) => ReactNode;
 }) {
   const [navOpen, setNavOpen] = useState(false);
   const router = useRouter();
@@ -120,7 +124,7 @@ export function TopBar({
           sheet to a 64px-tall box. */}
       {nav && (
         <Sheet open={navOpen} onClose={() => setNavOpen(false)} full>
-          {nav}
+          {nav(() => setNavOpen(false))}
         </Sheet>
       )}
     </>

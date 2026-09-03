@@ -26,6 +26,7 @@ import { Reader, after } from "@/components/Reader";
 import { SettingsDialog } from "@/components/SettingsDialog";
 import { Sidebar } from "@/components/Sidebar";
 import { readerLink, useReader } from "@/lib/useReader";
+import { useMediaQuery } from "@/lib/useMediaQuery";
 import { useUser } from "@/lib/useUser";
 
 // A digest item seen as the article every other part of the app deals in. The
@@ -133,9 +134,13 @@ export default function DigestPage() {
   const [feeds, setFeeds] = useState<FeedDto[]>([]);
   const [folders, setFolders] = useState<FolderDto[]>([]);
   const [readingCount, setReadingCount] = useState(0);
+  // Only where the menu can actually be opened. The hamburger is lg:hidden and
+  // this page has no rail, so on a wide screen these three requests would be
+  // filling a menu with no way in.
+  const narrow = useMediaQuery("(max-width: 1023px)");
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !narrow) return;
     void fetch("/api/feeds")
       .then((response) => response.json())
       .then((data) => setFeeds(Array.isArray(data) ? data : []))
@@ -148,7 +153,7 @@ export default function DigestPage() {
       .then((response) => response.json())
       .then((data) => setReadingCount(Array.isArray(data) ? data.length : 0))
       .catch(() => {});
-  }, [user]);
+  }, [user, narrow]);
   // Links already in Read later, so the reader's bookmark pill starts right.
   const [savedLinks, setSavedLinks] = useState<Set<string>>(new Set());
   const { toast, showToast } = useToast();
@@ -302,7 +307,7 @@ export default function DigestPage() {
     <div className="min-h-screen">
       <TopBar
         username={user?.username}
-        nav={
+        nav={(close) => (
           <Sidebar
             feeds={feeds}
             folders={folders}
@@ -310,8 +315,9 @@ export default function DigestPage() {
             readingCount={readingCount}
             onOpenSettings={() => setSettingsOpen(true)}
             variant="sheet"
+            onNavigate={close}
           />
-        }
+        )}
       />
       <main className="mx-auto max-w-[1080px] px-5 pt-9 pb-10 md:px-11">
         <div className="flex flex-wrap items-end justify-between gap-4 border-b border-line pb-5">

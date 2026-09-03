@@ -203,7 +203,44 @@ export default function HomePage() {
   }, []);
 
   // Open the view chosen in Settings (All publications / For you / a folder).
-  const settingsRead = useRef(false);
+  //
+  // Read once and kept, because a bare "/" has to keep meaning the same list
+  // every time it is visited. Resolving it to "all" on the second visit is how
+  // closing an article threw away the view you were reading from.
+  const defaultView = useRef<Selection | null>(null);
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    // Fetched whether or not the URL names a list: open_in_reader lives here
+    // too, and arriving on /?feed=3 used to skip it and open the reader for
+    // someone who asked for the publisher's page.
+    void fetch("/api/settings")
+      .then((response) => response.json())
+      .then((settings: { default_view?: string; open_in_reader?: string }) => {
+        if (cancelled) return;
+        setOpenInReader(settings.open_in_reader !== "off");
+        const view = settings.default_view ?? "";
+        const folderId = view.startsWith("folder:")
+          ? Number(view.slice("folder:".length))
+          : NaN;
+        defaultView.current =
+          view === "forYou"
+            ? { kind: "forYou" }
+            : Number.isInteger(folderId)
+              ? { kind: "folder", folderId }
+              : { kind: "all" };
+        // The first paint had nothing to go on; correct it now, unless the URL
+        // said something or the reader has since chosen.
+        if (!selectionFromUrl()) {
+          setSelection((previous) => previous ?? defaultView.current);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
   useEffect(() => {
     if (!user) return;
 
@@ -211,36 +248,16 @@ export default function HomePage() {
     // an explicit choice wins over the configured default view. Read from
     // location rather than useSearchParams: this page is prerendered, and that
     // hook would drag in a Suspense boundary for three lines of parsing.
-    async function resolveView(): Promise<Selection> {
-      const fromUrl = selectionFromUrl();
-      if (fromUrl) return fromUrl;
-
-      // Only the first time: the default view answers "what should I see when
-      // I arrive with nothing specified", not "what should Back mean".
-      if (settingsRead.current) return { kind: "all" };
-      settingsRead.current = true;
-      const settings: { default_view?: string; open_in_reader?: string } =
-        await fetch("/api/settings")
-          .then((response) => response.json())
-          .catch(() => ({}));
-      setOpenInReader(settings.open_in_reader !== "off");
-      const view = settings.default_view ?? "";
-      if (view === "forYou") return { kind: "forYou" };
-      if (view.startsWith("folder:")) {
-        const folderId = Number(view.slice("folder:".length));
-        return Number.isInteger(folderId)
-          ? { kind: "folder", folderId }
-          : { kind: "all" };
-      }
-      return { kind: "all" };
+    function resolveView(): Selection | null {
+      return selectionFromUrl() ?? defaultView.current;
     }
 
     let latest = true;
     function apply() {
-      void resolveView().then((next) => {
-        if (!latest) return;
-        setSelection((previous) => (sameList(previous, next) ? previous : next));
-      });
+      if (!latest) return;
+      const next = resolveView();
+      if (!next) return;
+      setSelection((previous) => (sameList(previous, next) ? previous : next));
     }
     apply();
     // Back and Forward have to re-read the list out of the entry they landed
@@ -257,10 +274,17 @@ export default function HomePage() {
   // was one from every other page — the rail pushes /?feed=N — and one control
   // that means two different things depending on where you stand is exactly
   // what made moving around here feel arbitrary.
-  const chooseList = useCallback((next: Selection) => {
-    setSelection(next);
-    window.history.pushState(null, "", homeUrl(next));
-  }, []);
+  const chooseList = useCallback(
+    (next: Selection) => {
+      // Tapping the list you are already on used to blank the grid to
+      // skeletons and leave a duplicate history entry behind, so the next
+      // Back looked like it did nothing.
+      if (sameList(selection, next)) return;
+      setSelection(next);
+      window.history.pushState(null, "", homeUrl(next));
+    },
+    [selection]
+  );
 
   const loadReadingCount = useCallback(async () => {
     const response = await fetch("/api/reading-list");
@@ -408,7 +432,9 @@ export default function HomePage() {
       <TopBar
         selectedFeedId={selectedFeedId}
         username={user?.username}
-        nav={<Sidebar {...railProps} variant="sheet" />}
+        nav={(close) => (
+          <Sidebar {...railProps} variant="sheet" onNavigate={close} />
+        )}
       />
       {/* Full-bleed: the grid runs to the window edges, flush with the top bar. */}
       <div className="flex">

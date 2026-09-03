@@ -590,7 +590,9 @@ export function SourcesManager() {
     <div className="min-h-screen">
       <TopBar
         username={user?.username}
-        nav={<Sidebar {...railProps} variant="sheet" />}
+        nav={(close) => (
+          <Sidebar {...railProps} variant="sheet" onNavigate={close} />
+        )}
       />
       <div className="flex">
         <Sidebar {...railProps} />
