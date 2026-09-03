@@ -43,6 +43,10 @@ export function useReader(
   // The same value as `article`, readable synchronously from the callbacks
   // below without making them depend on a re-render.
   const current = useRef<ArticleDto | null>(null);
+  // Set while close() unwinds the stack. The entry it lands on may itself be
+  // a reader — arriving on a pasted ?article= link and then following Up next
+  // leaves one underneath — and closing has to mean the list either way.
+  const closing = useRef(false);
   const resolveRef = useRef(resolve);
   useEffect(() => {
     resolveRef.current = resolve;
@@ -67,6 +71,20 @@ export function useReader(
     [show]
   );
 
+  // Strip ?article= from wherever we are standing and show the list. The way
+  // out for a reader with nothing behind it to go back to.
+  const dropParam = useCallback(() => {
+    const params = new URLSearchParams(window.location.search);
+    params.delete("article");
+    const query = params.toString();
+    window.history.replaceState(
+      window.history.state,
+      "",
+      query ? `${window.location.pathname}?${query}` : window.location.pathname
+    );
+    show(null);
+  }, [show]);
+
   const close = useCallback(() => {
     if (!current.current) return;
     const depth = depthOf(window.history.state);
@@ -74,21 +92,12 @@ export function useReader(
       // Unwind every entry this reader pushed, however many articles deep the
       // reading went. popstate does the closing, so there is one path out and
       // the Back button and the × cannot drift apart.
+      closing.current = true;
       window.history.go(-depth);
       return;
     }
-    // A reader opened by a pasted link has nothing behind it to go back to, so
-    // it closes by rewriting the URL instead.
-    const params = new URLSearchParams(window.location.search);
-    params.delete("article");
-    const query = params.toString();
-    window.history.replaceState(
-      null,
-      "",
-      query ? `${window.location.pathname}?${query}` : window.location.pathname
-    );
-    show(null);
-  }, [show]);
+    dropParam();
+  }, [dropParam]);
 
   useEffect(() => {
     // Per call, not per effect: two quick presses of Back start two resolves,
@@ -100,7 +109,16 @@ export function useReader(
       const raw = new URLSearchParams(window.location.search).get("article");
       const id = Number(raw);
       if (!raw || !Number.isInteger(id) || id <= 0) {
+        closing.current = false;
         show(null);
+        return;
+      }
+      // Landed back on an article while closing: the reading started from a
+      // link to this one, so there is no list entry to unwind to. Leave it
+      // the only way left.
+      if (closing.current) {
+        closing.current = false;
+        dropParam();
         return;
       }
       if (current.current?.id === id) return;
@@ -115,7 +133,7 @@ export function useReader(
       latest++;
       window.removeEventListener("popstate", sync);
     };
-  }, [show]);
+  }, [show, dropParam]);
 
   return { article, open, close };
 }
