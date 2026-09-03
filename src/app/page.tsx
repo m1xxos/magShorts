@@ -544,9 +544,14 @@ export default function HomePage() {
             <div className="flex flex-col items-center gap-3 py-24 text-center">
               <p className="font-serif text-xl text-ink">Nothing here yet</p>
               <p className="max-w-sm text-sm text-ink-faint">
-                Add a publication with the button in the sidebar and fresh
-                articles will appear here.
+                Subscribe to a publication and fresh articles will appear here.
               </p>
+              <Link
+                href="/sources"
+                className="rounded-full bg-clay px-4 py-2 text-sm text-white transition hover:brightness-95"
+              >
+                Add a publication
+              </Link>
             </div>
           ) : (
             <>

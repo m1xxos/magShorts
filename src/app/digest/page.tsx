@@ -370,6 +370,16 @@ export default function DigestPage() {
                   "If nothing new arrived in the period, there is nothing to digest."
                 : "Nothing to digest for this period yet."}
             </p>
+            {/* The schedule is most worth changing on the day nothing arrived,
+                which was the one day this button could not be reached: it
+                lived inside the branch that only renders when there is a
+                digest to show. */}
+            <button
+              onClick={() => setSettingsOpen(true)}
+              className="rounded-full border border-line px-4 py-2 text-sm text-ink-soft transition hover:border-clay hover:text-clay"
+            >
+              Digest settings
+            </button>
           </div>
         ) : (
           <div className="mt-7 flex flex-col gap-8 lg:flex-row">
