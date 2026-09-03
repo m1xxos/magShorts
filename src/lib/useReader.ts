@@ -12,9 +12,23 @@ import { type ArticleDto } from "./types";
 // router in sync with it — so the view is linkable and the browser's Back
 // button closes the reader instead of leaving the site.
 //
-// One history entry, not one per article: following "Up next" replaces the
-// entry rather than stacking, so Back is always "return to the list" and never
-// "walk back through four articles".
+// One entry per article, and the depth rides in the history entry itself.
+// Following "Up next" stacks, so Back returns to the article you were reading
+// rather than dumping you out of the reading altogether — and the "← Back to
+// …" button still leaves for the list in one press, by unwinding as many
+// entries as it pushed.
+//
+// The depth lives in history.state rather than in a ref because a ref cannot
+// survive what a reader actually does to it: Back, then Forward, then close.
+// The entry knows how deep it is; nothing here has to remember.
+
+// Where the depth is kept inside history.state.
+const DEPTH = "msReaderDepth";
+
+function depthOf(state: unknown): number {
+  const depth = (state as Record<string, unknown> | null)?.[DEPTH];
+  return typeof depth === "number" && depth > 0 ? depth : 0;
+}
 
 export interface ReaderState {
   article: ArticleDto | null;
@@ -29,9 +43,6 @@ export function useReader(
   // The same value as `article`, readable synchronously from the callbacks
   // below without making them depend on a re-render.
   const current = useRef<ArticleDto | null>(null);
-  // Did we add the history entry ourselves? A reader opened by a pasted link
-  // has nothing to go back to, so it closes by rewriting the URL instead.
-  const pushed = useRef(false);
   const resolveRef = useRef(resolve);
   useEffect(() => {
     resolveRef.current = resolve;
@@ -44,13 +55,13 @@ export function useReader(
 
   const open = useCallback(
     (next: ArticleDto) => {
-      const url = readerUrl(next.id);
-      if (current.current) {
-        window.history.replaceState(null, "", url);
-      } else {
-        window.history.pushState(null, "", url);
-        pushed.current = true;
-      }
+      // Spread whatever is already there: Next keeps its own router state in
+      // this object, and replacing it wholesale is not ours to do.
+      window.history.pushState(
+        { ...window.history.state, [DEPTH]: depthOf(window.history.state) + 1 },
+        "",
+        readerUrl(next.id)
+      );
       show(next);
     },
     [show]
@@ -58,13 +69,16 @@ export function useReader(
 
   const close = useCallback(() => {
     if (!current.current) return;
-    if (pushed.current) {
-      pushed.current = false;
-      // popstate does the closing, so there is one path out and the Back
-      // button and the × cannot drift apart.
-      window.history.back();
+    const depth = depthOf(window.history.state);
+    if (depth > 0) {
+      // Unwind every entry this reader pushed, however many articles deep the
+      // reading went. popstate does the closing, so there is one path out and
+      // the Back button and the × cannot drift apart.
+      window.history.go(-depth);
       return;
     }
+    // A reader opened by a pasted link has nothing behind it to go back to, so
+    // it closes by rewriting the URL instead.
     const params = new URLSearchParams(window.location.search);
     params.delete("article");
     const query = params.toString();
@@ -77,24 +91,28 @@ export function useReader(
   }, [show]);
 
   useEffect(() => {
-    let cancelled = false;
+    // Per call, not per effect: two quick presses of Back start two resolves,
+    // and without this the slower one lands last and shows the article you
+    // just left.
+    let latest = 0;
     async function sync() {
+      const token = ++latest;
       const raw = new URLSearchParams(window.location.search).get("article");
       const id = Number(raw);
       if (!raw || !Number.isInteger(id) || id <= 0) {
-        pushed.current = false;
         show(null);
         return;
       }
       if (current.current?.id === id) return;
       const found = await resolveRef.current(id);
-      if (!cancelled) show(found);
+      if (token === latest) show(found);
     }
     window.addEventListener("popstate", sync);
     // Also on mount, so a pasted or reloaded ?article= link opens the reader.
     void sync();
     return () => {
-      cancelled = true;
+      // Nothing in flight may win after this effect is torn down.
+      latest++;
       window.removeEventListener("popstate", sync);
     };
   }, [show]);
