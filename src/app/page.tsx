@@ -85,6 +85,40 @@ function Skeleton({ density }: { density: Density }) {
   );
 }
 
+// The query the sidebar already builds for these, kept in one place so
+// arriving by link and choosing in place cannot disagree.
+function homeUrl(selection: Selection): string {
+  if (selection.kind === "feed") return `/?feed=${selection.feedId}`;
+  if (selection.kind === "folder") return `/?folder=${selection.folderId}`;
+  return `/?view=${selection.kind}`;
+}
+
+// Two selections that name the same list. Compared by value because the load
+// effect keys on the object: handing it an equal-but-new one refetches the
+// grid, which empties it, which loses the scroll position the reader was
+// closed to get back to.
+function sameList(a: Selection | null, b: Selection | null): boolean {
+  if (!a || !b || a.kind !== b.kind) return false;
+  if (a.kind === "feed" && b.kind === "feed") return a.feedId === b.feedId;
+  if (a.kind === "folder" && b.kind === "folder") {
+    return a.folderId === b.folderId;
+  }
+  return true;
+}
+
+function selectionFromUrl(): Selection | null {
+  const params = new URLSearchParams(window.location.search);
+  const feedId = Number(params.get("feed"));
+  if (Number.isInteger(feedId) && feedId > 0) return { kind: "feed", feedId };
+  const folderId = Number(params.get("folder"));
+  if (Number.isInteger(folderId) && folderId > 0) {
+    return { kind: "folder", folderId };
+  }
+  if (params.get("view") === "forYou") return { kind: "forYou" };
+  if (params.get("view") === "all") return { kind: "all" };
+  return null;
+}
+
 export default function HomePage() {
   const user = useUser();
   const [feeds, setFeeds] = useState<FeedDto[]>([]);
@@ -169,28 +203,22 @@ export default function HomePage() {
   }, []);
 
   // Open the view chosen in Settings (All publications / For you / a folder).
-  const viewInitialized = useRef(false);
+  const settingsRead = useRef(false);
   useEffect(() => {
-    if (!user || viewInitialized.current) return;
-    viewInitialized.current = true;
+    if (!user) return;
 
     // The sidebar on other pages links here with the selection in the URL, so
     // an explicit choice wins over the configured default view. Read from
     // location rather than useSearchParams: this page is prerendered, and that
     // hook would drag in a Suspense boundary for three lines of parsing.
     async function resolveView(): Promise<Selection> {
-      const params = new URLSearchParams(window.location.search);
-      const feedId = Number(params.get("feed"));
-      if (Number.isInteger(feedId) && feedId > 0) {
-        return { kind: "feed", feedId };
-      }
-      const urlFolder = Number(params.get("folder"));
-      if (Number.isInteger(urlFolder) && urlFolder > 0) {
-        return { kind: "folder", folderId: urlFolder };
-      }
-      if (params.get("view") === "forYou") return { kind: "forYou" };
-      if (params.get("view") === "all") return { kind: "all" };
+      const fromUrl = selectionFromUrl();
+      if (fromUrl) return fromUrl;
 
+      // Only the first time: the default view answers "what should I see when
+      // I arrive with nothing specified", not "what should Back mean".
+      if (settingsRead.current) return { kind: "all" };
+      settingsRead.current = true;
       const settings: { default_view?: string; open_in_reader?: string } =
         await fetch("/api/settings")
           .then((response) => response.json())
@@ -207,8 +235,32 @@ export default function HomePage() {
       return { kind: "all" };
     }
 
-    resolveView().then(setSelection);
+    let latest = true;
+    function apply() {
+      void resolveView().then((next) => {
+        if (!latest) return;
+        setSelection((previous) => (sameList(previous, next) ? previous : next));
+      });
+    }
+    apply();
+    // Back and Forward have to re-read the list out of the entry they landed
+    // on. Without this the URL says one thing and the grid shows another.
+    window.addEventListener("popstate", apply);
+    return () => {
+      latest = false;
+      window.removeEventListener("popstate", apply);
+    };
   }, [user]);
+
+  // Every change of list goes through here, so the address bar always names
+  // what is on screen. It is a history entry because the same click already
+  // was one from every other page — the rail pushes /?feed=N — and one control
+  // that means two different things depending on where you stand is exactly
+  // what made moving around here feel arbitrary.
+  const chooseList = useCallback((next: Selection) => {
+    setSelection(next);
+    window.history.pushState(null, "", homeUrl(next));
+  }, []);
 
   const loadReadingCount = useCallback(async () => {
     const response = await fetch("/api/reading-list");
@@ -352,14 +404,14 @@ export default function HomePage() {
           folders={folders}
           selection={selection}
           readingCount={readingCount}
-          onSelect={setSelection}
+          onSelect={chooseList}
           onOpenSettings={() => setSettingsOpen(true)}
         />
         <main className="min-w-0 flex-1 px-5 py-6 md:px-8">
           {/* Mobile feed chips */}
           <div className="no-scrollbar -mx-5 mb-4 flex gap-2 overflow-x-auto px-5 lg:hidden">
             <button
-              onClick={() => setSelection({ kind: "forYou" })}
+              onClick={() => chooseList({ kind: "forYou" })}
               className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[13px] ${
                 selection?.kind === "forYou"
                   ? "border-ink bg-ink text-paper"
@@ -369,7 +421,7 @@ export default function HomePage() {
               <SparkleIcon size={11} /> For you
             </button>
             <button
-              onClick={() => setSelection({ kind: "all" })}
+              onClick={() => chooseList({ kind: "all" })}
               className={`shrink-0 rounded-full border px-3.5 py-1.5 text-[13px] ${
                 selection?.kind === "all"
                   ? "border-ink bg-ink text-paper"
@@ -383,7 +435,7 @@ export default function HomePage() {
               .map((feed) => (
                 <button
                   key={feed.id}
-                  onClick={() => setSelection({ kind: "feed", feedId: feed.id })}
+                  onClick={() => chooseList({ kind: "feed", feedId: feed.id })}
                   className={`shrink-0 rounded-full border px-3.5 py-1.5 text-[13px] ${
                     selectedFeedId === feed.id
                       ? "border-ink bg-ink text-paper"
@@ -397,7 +449,7 @@ export default function HomePage() {
               <button
                 key={`folder-${folder.id}`}
                 onClick={() =>
-                  setSelection({ kind: "folder", folderId: folder.id })
+                  chooseList({ kind: "folder", folderId: folder.id })
                 }
                 className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[13px] ${
                   selection?.kind === "folder" && selection.folderId === folder.id
