@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { ArticleGrid, ArticleGridSkeleton } from "@/components/ArticleGrid";
 import { SearchField } from "@/components/SearchField";
 import { SettingsDialog } from "@/components/SettingsDialog";
@@ -21,17 +22,27 @@ import { useUser } from "@/lib/useUser";
 
 const PAGE_SIZE = 40;
 
-// Read from the address bar rather than held in state, because the reader
-// pushes ?article= onto whatever is already there: /search?q=foo&article=12
-// opens a result over its own list and closes back onto it, and the link
-// survives being pasted somewhere else.
-function queryFromUrl(): string {
-  return new URLSearchParams(window.location.search).get("q")?.trim() ?? "";
+export default function SearchPage() {
+  // useSearchParams needs one, and the page is otherwise prerendered.
+  return (
+    <Suspense>
+      <SearchResults />
+    </Suspense>
+  );
 }
 
-export default function SearchPage() {
+function SearchResults() {
   const user = useUser();
-  const [query, setQuery] = useState("");
+  // From the address bar, not from state, because the reader appends
+  // ?article= to whatever is already there: /search?q=foo&article=12 opens a
+  // result over its own list and closes back onto it, and the link survives
+  // being pasted somewhere else.
+  //
+  // useSearchParams rather than reading location on popstate: searching again
+  // from this page is a router.push to the same route, which fires no popstate
+  // and does not remount anything — so the URL changed and the results did
+  // not. This hook hears both.
+  const query = useSearchParams().get("q")?.trim() ?? "";
   const [results, setResults] = useState<ArticleDto[]>([]);
   // Which query the results on screen belong to. A slow answer to an old
   // query must not overwrite a fast answer to a new one.
@@ -55,17 +66,6 @@ export default function SearchPage() {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time localStorage read after hydration
       setDensity(saved);
     }
-  }, []);
-
-  // The query lives in the URL, so it has to be re-read when the URL moves —
-  // which the top bar does on every search and the reader does on every open.
-  useEffect(() => {
-    function apply() {
-      setQuery(queryFromUrl());
-    }
-    apply();
-    window.addEventListener("popstate", apply);
-    return () => window.removeEventListener("popstate", apply);
   }, []);
 
   const loadReadingList = useCallback(async () => {

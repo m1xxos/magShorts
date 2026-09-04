@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 export function SearchIcon({ size = 15 }: { size?: number }) {
@@ -35,6 +35,7 @@ export function SearchField({
   autoFocus?: boolean;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [value, setValue] = useState(initial);
   const input = useRef<HTMLInputElement>(null);
 
@@ -76,7 +77,18 @@ export function SearchField({
       onSubmit={(event) => {
         event.preventDefault();
         const query = value.trim();
-        if (query) router.push(`/search?q=${encodeURIComponent(query)}`);
+        if (!query) return;
+        const url = `/search?q=${encodeURIComponent(query)}`;
+        // Searching again from the results page is a push to the route you are
+        // already on, and a production build does not re-render for that — the
+        // address bar changed and the results did not. pushState does, because
+        // Next patches it and tells its own router; it is the same thing the
+        // home grid uses to change lists.
+        if (pathname === "/search") {
+          window.history.pushState(null, "", url);
+        } else {
+          router.push(url);
+        }
       }}
       className={`flex items-center gap-2.5 rounded-xl border border-line bg-paper-raised px-3.5 py-2 focus-within:border-clay ${className}`}
     >
