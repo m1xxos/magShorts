@@ -121,6 +121,45 @@ describe("search", () => {
   });
 });
 
+describe("tags", () => {
+  it("searches a tag from the pill on a card", async () => {
+    // Typing "tag:" is not a thing anyone should have to know.
+    const page = await open();
+    await go(page, "/?view=all");
+    await page.locator("main button", { hasText: "Kubernetes" }).first().click();
+    await page.waitForURL("**/search**");
+    await page.waitForTimeout(1200);
+    assert.equal(path(page), "/search?q=" + encodeURIComponent("tag:Kubernetes"));
+    assert.ok((await results(page)) > 0);
+    await page.close();
+  });
+
+  it("searches a tag from a chip, and the chip clears it", async () => {
+    const page = await open();
+    await go(page, "/search");
+    const chip = page.getByRole("button", { name: /^Python/ }).first();
+    await chip.click();
+    await page.waitForTimeout(1200);
+    assert.equal(path(page), "/search?q=" + encodeURIComponent("tag:Python"));
+    assert.equal(await results(page), 2);
+    assert.equal(await chip.getAttribute("aria-pressed"), "true");
+
+    await chip.click();
+    await page.waitForTimeout(900);
+    assert.equal(path(page), "/search");
+    assert.equal(await results(page), 0, "back to nothing searched");
+    await page.close();
+  });
+
+  it("lights the right chip for a pasted tag link", async () => {
+    const page = await open();
+    await go(page, "/search?q=" + encodeURIComponent("tag:python"));
+    const chip = page.getByRole("button", { name: /^Python/ }).first();
+    assert.equal(await chip.getAttribute("aria-pressed"), "true");
+    await page.close();
+  });
+});
+
 describe("the list you are looking at", () => {
   it("is named in the address bar, and Back walks the lists", async () => {
     // Picking a feed used to change React state and nothing else: leaving and

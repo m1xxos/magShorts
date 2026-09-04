@@ -35,12 +35,18 @@ const FEEDS = [
   { title: "Not subscribed", url: "https://catalog.test/rss", subscribed: 0 },
 ];
 
+// Tags repeat on purpose: the tag list only offers a tag once at least two
+// articles carry it, so one-of-each fixtures would produce no chips at all
+// and every test about them would be testing nothing.
 const ARTICLES = [
   { feed: 0, title: "Кубернетес для чайников", topic: "Kubernetes", summary: "Разбираем оркестрацию" },
   { feed: 0, title: "Почему процессор перегревается", topic: "Железо", summary: "Про термопасту" },
+  { feed: 0, title: "Ещё про охлаждение", topic: "Железо", summary: "Вентиляторы" },
   { feed: 0, title: "Пишем на Python", topic: "Python", summary: "Скрипты и не только" },
-  { feed: 1, title: "How to scale Kubernetes", topic: "Blogs", summary: "Top strategies" },
+  { feed: 0, title: "Python и асинхронность", topic: "Python", summary: "Корутины" },
+  { feed: 1, title: "How to scale Kubernetes", topic: "Kubernetes", summary: "Top strategies" },
   { feed: 1, title: "A quiet week in tech", topic: "Magazines", summary: "Nothing about kubernetes here" },
+  { feed: 1, title: "Another quiet week", topic: "Magazines", summary: "Still nothing" },
   { feed: 2, title: "Kubernetes in the catalog", topic: "Kubernetes", summary: "Should never be found" },
 ];
 
@@ -66,20 +72,35 @@ export async function startApp(port: number): Promise<TestApp> {
   const { getDb } = await import("../../src/lib/db");
   const { createSession, hashPassword } = await import("../../src/lib/auth");
   const db = getDb();
+  // getDb seeds four real publications into an empty database. Left alone,
+  // the scheduler then fetches them over the internet and the fixtures are
+  // whatever Habr published this morning — which is exactly how a tag test
+  // started counting three articles instead of two.
+  db.exec("DELETE FROM articles; DELETE FROM feeds;");
 
   const user = db
     .prepare("INSERT INTO users (username, password_hash) VALUES (?, ?)")
     .run("tester", hashPassword("secret"));
   const { token } = createSession(Number(user.lastInsertRowid));
 
+  // Folders exist because the tag list excludes their names: ingest writes the
+  // folder name into `topic` when an article has no category of its own, and
+  // without a folder called Magazines there is nothing for that rule to catch.
+  const folderIds = ["Magazines", "Blogs"].map((name) =>
+    Number(
+      db.prepare("INSERT INTO folders (name) VALUES (?)").run(name)
+        .lastInsertRowid
+    )
+  );
+
   const feedIds = FEEDS.map(
     (feed) =>
       Number(
         db
           .prepare(
-            "INSERT INTO feeds (title, url, subscribed, enabled) VALUES (?, ?, ?, 1)"
+            "INSERT INTO feeds (title, url, subscribed, enabled, folder_id) VALUES (?, ?, ?, 1, ?)"
           )
-          .run(feed.title, feed.url, feed.subscribed).lastInsertRowid
+          .run(feed.title, feed.url, feed.subscribed, folderIds[0]).lastInsertRowid
       )
   );
 
@@ -112,7 +133,8 @@ export async function startApp(port: number): Promise<TestApp> {
     ["next", "start", "--port", String(port)],
     {
       cwd: ROOT,
-      env: { ...process.env, DATA_DIR: dataDir },
+      // No feed refreshing, no digests: the fixtures are the fixtures.
+      env: { ...process.env, DATA_DIR: dataDir, SCHEDULER: "off" },
       stdio: process.env.TEST_SERVER_LOG ? "inherit" : "ignore",
     }
   );

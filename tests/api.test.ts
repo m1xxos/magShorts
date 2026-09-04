@@ -51,7 +51,10 @@ describe("search", () => {
   });
 
   it("searches tags when asked", async () => {
-    assert.deepEqual(await search("tag:python"), ["Пишем на Python"]);
+    assert.deepEqual((await search("tag:python")).sort(), [
+      "Python и асинхронность",
+      "Пишем на Python",
+    ].sort());
   });
 
   it("keeps the catalogue out", async () => {
@@ -91,6 +94,23 @@ describe("search", () => {
 
   it("needs a session", async () => {
     const response = await fetch(`${app.baseUrl}/api/search?q=kubernetes`);
+    assert.equal(response.status, 401);
+  });
+});
+
+describe("the tags on offer", () => {
+  it("leaves out the folder names ingest puts in the tag column", async () => {
+    const { body } = await api(app, "/api/tags");
+    const topics = (body as Array<{ topic: string }>).map((t) => t.topic);
+    // Both seeded feeds sit in no folder, but Magazines and Blogs are the two
+    // values ingest writes when an article publishes no category of its own —
+    // they say nothing about any article and must never be offered as tags.
+    assert.ok(!topics.includes("Magazines"), "Magazines is not a tag");
+    assert.ok(!topics.includes("Blogs"), "Blogs is not a tag");
+  });
+
+  it("needs a session", async () => {
+    const response = await fetch(`${app.baseUrl}/api/tags`);
     assert.equal(response.status, 401);
   });
 });

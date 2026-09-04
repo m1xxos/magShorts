@@ -8,6 +8,7 @@ import { SearchField } from "@/components/SearchField";
 import { SettingsDialog } from "@/components/SettingsDialog";
 import { Sidebar } from "@/components/Sidebar";
 import { Toast, useToast } from "@/components/Toast";
+import { Chip, ChipRow } from "@/components/ui/ChipRow";
 import { TopBar } from "@/components/TopBar";
 import { Reader, after } from "@/components/Reader";
 import {
@@ -58,7 +59,9 @@ function SearchResults() {
   // Links already saved, so the reader's bookmark starts in the right state.
   const [savedLinks, setSavedLinks] = useState<Set<string>>(new Set());
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [tags, setTags] = useState<Array<{ topic: string; count: number }>>([]);
   const { toast, showToast } = useToast();
+
 
   useEffect(() => {
     const saved = window.localStorage.getItem("ms_density");
@@ -98,6 +101,10 @@ function SearchResults() {
     void fetch("/api/folders")
       .then((response) => response.json())
       .then((data) => setFolders(Array.isArray(data) ? data : []))
+      .catch(() => {});
+    void fetch("/api/tags")
+      .then((response) => response.json())
+      .then((data) => setTags(Array.isArray(data) ? data : []))
       .catch(() => {});
     // eslint-disable-next-line react-hooks/set-state-in-effect -- async data fetch, state updates happen after await
     void loadReadingList();
@@ -172,6 +179,26 @@ function SearchResults() {
     results.findIndex((article) => article.id === reader.article?.id)
   );
 
+  // Which tag, if any, this search is. Read off the query rather than kept
+  // beside it, so a pasted /search?q=tag:python link lights the same chip.
+  const activeTag = /^\s*(?:tag|тег):\s*(.+)$/i.exec(query)?.[1]?.trim() ?? "";
+
+  const searchTag = useCallback(
+    (topic: string) => {
+      const next =
+        activeTag.toLowerCase() === topic.toLowerCase() ? "" : `tag:${topic}`;
+      // pushState rather than router.push: this is the route we are already
+      // on, and a production build does not re-render for a push to the same
+      // one.
+      window.history.pushState(
+        null,
+        "",
+        next ? `/search?q=${encodeURIComponent(next)}` : "/search"
+      );
+    },
+    [activeTag]
+  );
+
   const railProps = {
     feeds,
     folders,
@@ -217,8 +244,25 @@ function SearchResults() {
               ? loading
                 ? "Looking…"
                 : `${results.length}${hasMore ? "+" : ""} in your subscriptions`
-              : "Titles and tags across everything you subscribe to. Start a search with tag: to look only at tags."}
+              : "Titles and tags across everything you subscribe to. Pick a tag below, or type."}
           </p>
+
+          {/* The tags you actually have, so searching by one is a tap rather
+              than knowing that "tag:" is a thing you can type. */}
+          {tags.length > 0 && (
+            <ChipRow wrap className="mt-4">
+              {tags.map((tag) => (
+                <Chip
+                  key={tag.topic}
+                  active={activeTag.toLowerCase() === tag.topic.toLowerCase()}
+                  count={tag.count}
+                  onClick={() => searchTag(tag.topic)}
+                >
+                  {tag.topic}
+                </Chip>
+              ))}
+            </ChipRow>
+          )}
 
           <div className="mt-6">
             {!query ? null : loading ? (

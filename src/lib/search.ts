@@ -10,6 +10,7 @@
 // find a word in the middle of one article and miss the same word in the next,
 // for no reason a reader could see from the outside.
 
+import { GENERIC_TOPICS } from "./catalog";
 import { ARTICLE_COLUMNS, getDb } from "./db";
 import { type ArticleDto } from "./types";
 
@@ -63,4 +64,54 @@ export function searchArticles(
         LIMIT ? OFFSET ?`
     )
     .all(expression, limit, offset) as ArticleDto[];
+}
+
+// The tags worth offering as a starting point, commonest first.
+//
+// Ingest writes the feed's folder name into `topic` when an article publishes
+// no usable category of its own, so "Magazines" is the single commonest value
+// in this column and means nothing about any article. Those are excluded here
+// for the same reason Discover excludes them from its chips: a tag that covers
+// a third of everything is not a way to narrow anything down.
+export function subscriptionTags(limit = 24): Array<{
+  topic: string;
+  count: number;
+}> {
+  return (
+    getDb()
+      .prepare(
+        `SELECT a.topic AS topic, COUNT(*) AS count
+           FROM articles a JOIN feeds f ON f.id = a.feed_id
+          WHERE f.subscribed = 1 AND f.enabled = 1
+            AND a.topic IS NOT NULL AND a.topic != ''
+            AND a.topic NOT IN (SELECT name FROM folders)
+          GROUP BY a.topic
+         HAVING count >= 2
+          ORDER BY count DESC, topic ASC
+          LIMIT ?`
+      )
+      .all(limit * 4) as Array<{ topic: string; count: number }>
+  )
+    // Some feeds number their categories. "1" is not a subject.
+    .filter(
+      (row) =>
+        !GENERIC_TOPICS.has(row.topic.toLowerCase()) && !/^\d+$/.test(row.topic)
+    )
+    // "Ai" and "AI" are one tag written twice: ingest title-cases plain words
+    // and leaves anything already cased alone, so the same subject arrives
+    // spelled two ways and used to take two chips. Merged under the spelling
+    // that turns up most, which is also the one search matches either way.
+    .reduce<Array<{ topic: string; count: number }>>((merged, row) => {
+      const same = merged.find(
+        (entry) => entry.topic.toLowerCase() === row.topic.toLowerCase()
+      );
+      if (same) {
+        same.count += row.count;
+        return merged;
+      }
+      merged.push({ ...row });
+      return merged;
+    }, [])
+    .sort((a, b) => b.count - a.count || a.topic.localeCompare(b.topic))
+    .slice(0, limit);
 }
