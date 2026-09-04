@@ -445,6 +445,59 @@ export function getDb(): Database.Database {
     db.exec("ALTER TABLE user_events ADD COLUMN seconds INTEGER");
   }
 
+  // What search reads. An index rather than a LIKE scan, for two reasons that
+  // are both about this corpus: half of it is Russian, and SQLite's LIKE is
+  // case-insensitive for ASCII only — so "железо" would never find "Железо" —
+  // and a leading-wildcard LIKE cannot use an index at all.
+  //
+  // external content: the text stays in `articles` and is not stored a second
+  // time. That buys correctness work instead: the three triggers below are the
+  // only thing keeping the index and the table telling the same story, and
+  // every way an article leaves has to go through one of them. Both do — the
+  // Discover trim and the de-duplication above are plain DELETEs on articles.
+  //
+  // unicode61 rather than porter: porter stems English, and applying it to a
+  // corpus that is half Russian would be wrong for half the rows.
+  const searchIndexed = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'articles_fts'")
+    .get();
+  if (!searchIndexed) {
+    db.exec(`
+      CREATE VIRTUAL TABLE articles_fts USING fts5(
+        title, topic, summary,
+        content=articles,
+        content_rowid=id,
+        tokenize="unicode61 remove_diacritics 2"
+      );
+
+      CREATE TRIGGER articles_fts_insert AFTER INSERT ON articles BEGIN
+        INSERT INTO articles_fts (rowid, title, topic, summary)
+        VALUES (new.id, new.title, new.topic, new.summary);
+      END;
+
+      -- 'delete' in single quotes: double quotes make SQLite read it as a
+      -- column name and the trigger fails to compile.
+      CREATE TRIGGER articles_fts_delete AFTER DELETE ON articles BEGIN
+        INSERT INTO articles_fts (articles_fts, rowid, title, topic, summary)
+        VALUES ('delete', old.id, old.title, old.topic, old.summary);
+      END;
+
+      CREATE TRIGGER articles_fts_update AFTER UPDATE ON articles BEGIN
+        INSERT INTO articles_fts (articles_fts, rowid, title, topic, summary)
+        VALUES ('delete', old.id, old.title, old.topic, old.summary);
+        INSERT INTO articles_fts (rowid, title, topic, summary)
+        VALUES (new.id, new.title, new.topic, new.summary);
+      END;
+    `);
+    const indexed = db
+      .prepare(
+        `INSERT INTO articles_fts (rowid, title, topic, summary)
+         SELECT id, title, topic, summary FROM articles`
+      )
+      .run();
+    console.log(`[db] search index built over ${indexed.changes} articles`);
+  }
+
   // The digest picks its sources independently of For you: "what should I read
   // now" and "what did I miss overnight" are different questions, and a folder
   // of blogs can reasonably answer only the second. Seeded from the For you
