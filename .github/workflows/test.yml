@@ -1,0 +1,32 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npx tsc --noEmit
+      - run: npm run lint
+
+      # The browser suite drives the built app, so the build has to come first
+      # — a stale one silently tests the previous commit, which is how the
+      # search bug got past a local run.
+      - run: npm run build
+
+      # playwright-core brings no browser of its own; the runner already has
+      # Chrome, and the suite asks for it by channel.
+      - run: npx tsx --test tests/api.test.ts tests/browser.test.ts

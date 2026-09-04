@@ -28,7 +28,7 @@ const IMAGE_PENALTY = 0.06;
 
 // Feed categories that say nothing about an article. These make useless chips
 // and would otherwise dominate them, since a big feed tags everything alike.
-const GENERIC_TOPICS = new Set([
+export const GENERIC_TOPICS = new Set([
   "uncategorized",
   "articles",
   "article",

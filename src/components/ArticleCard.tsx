@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { type ArticleDto, type Density, feedTone, timeAgo } from "@/lib/types";
 import {
@@ -42,11 +43,24 @@ function ActionButton({
   );
 }
 
+// The tag, and the way to see everything else carrying it. A button rather
+// than a link because the whole card is already an anchor, and an anchor
+// inside an anchor is not a thing — the same reason the save and open buttons
+// above are buttons.
 function TopicPill({ topic }: { topic: string }) {
+  const router = useRouter();
   return (
-    <span className="shrink-0 rounded-full bg-paper-sunken px-[9px] py-[3px] text-[11px] text-ink-soft">
+    <button
+      title={`Everything tagged ${topic}`}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        router.push(`/search?q=${encodeURIComponent(`tag:${topic}`)}`);
+      }}
+      className="shrink-0 rounded-full bg-paper-sunken px-[9px] py-[3px] text-[11px] text-ink-soft transition hover:bg-clay-soft hover:text-clay"
+    >
       {topic}
-    </span>
+    </button>
   );
 }
 
