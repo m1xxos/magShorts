@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { type MouseEvent } from "react";
 import { type FeedDto, type FolderDto, type Selection } from "@/lib/types";
 import { FeedAvatar } from "./FeedAvatar";
+import { SearchIcon } from "./SearchField";
 import { BookmarkIcon } from "./SwipeableCard";
 
 export function SparkleIcon({ size = 14 }: { size?: number }) {
@@ -330,6 +331,12 @@ export function Sidebar({
       }
     >
       <div className="flex shrink-0 flex-col gap-0.5 border-b border-line px-3 py-4">
+        <SectionRow
+          href="/search"
+          icon={<SearchIcon size={14} />}
+          label="Search"
+          active={pathname === "/search"}
+        />
         <SectionRow
           href="/digest"
           icon={<CalendarIcon size={14} />}

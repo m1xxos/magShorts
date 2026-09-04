@@ -18,6 +18,7 @@ import {
   saveToReadingList,
 } from "@/lib/actions";
 import { TopBar } from "@/components/TopBar";
+import { SearchIcon } from "@/components/SearchField";
 import { Sidebar } from "@/components/Sidebar";
 import { BookmarkIcon } from "@/components/SwipeableCard";
 import { SettingsDialog } from "@/components/SettingsDialog";
@@ -43,25 +44,6 @@ function looksLikeUrl(value: string): boolean {
   if (/\s/.test(text)) return false;
   return (
     /^https?:\/\/\S+$/i.test(text) || /^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(text)
-  );
-}
-
-function SearchIcon() {
-  return (
-    <svg
-      width="15"
-      height="15"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <circle cx="11" cy="11" r="7" />
-      <path d="M21 21l-4.3-4.3" />
-    </svg>
   );
 }
 

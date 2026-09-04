@@ -12,7 +12,7 @@ import {
   type Selection,
 } from "@/lib/types";
 import { Reader, after } from "@/components/Reader";
-import { ArticleCard } from "@/components/ArticleCard";
+import { ArticleGrid, ArticleGridSkeleton } from "@/components/ArticleGrid";
 import { SettingsDialog } from "@/components/SettingsDialog";
 import { FolderIcon, Sidebar, SparkleIcon } from "@/components/Sidebar";
 import { Toast, useToast } from "@/components/Toast";
@@ -38,52 +38,9 @@ const DENSITIES: Array<{ value: Density; label: string }> = [
 // fit at the minimum width, so the count follows the window on any display
 // instead of stepping at sizes picked in advance. The minimum is the only
 // knob — raise it for fewer, wider cards.
-const GRID_CLASSES: Record<Density, string> = {
-  // Two floors, because no single one satisfies both ends: a portrait tablet
-  // needs <=238px to fit three columns, while five columns on a 2000px window
-  // need >258px.
-  cards:
-    "grid grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-5 min-[1536px]:grid-cols-[repeat(auto-fill,minmax(270px,1fr))]",
-  // The dense modes get their own, much wider minimum so a row never stretches
-  // to a full window's worth of unreadably long summary lines.
-  list: "grid grid-cols-[repeat(auto-fill,minmax(520px,1fr))] gap-3",
-  compact: "grid grid-cols-[repeat(auto-fill,minmax(420px,1fr))] gap-1.5",
-};
 
 const PAGE_SIZE = 40;
 
-function Skeleton({ density }: { density: Density }) {
-  if (density === "compact") {
-    return (
-      <div className="flex min-h-14 animate-pulse items-center gap-3 rounded-xl border border-line bg-paper-raised px-4">
-        <div className="h-6 w-6 shrink-0 rounded-full bg-paper-sunken" />
-        <div className="h-4 w-2/3 rounded bg-paper-sunken" />
-      </div>
-    );
-  }
-  if (density === "list") {
-    return (
-      <div className="flex animate-pulse gap-4 rounded-2xl border border-line bg-paper-raised p-3">
-        <div className="aspect-[4/3] w-[104px] shrink-0 rounded-[10px] bg-paper-sunken sm:w-[140px]" />
-        <div className="flex-1 space-y-2 py-1">
-          <div className="h-3 w-1/4 rounded bg-paper-sunken" />
-          <div className="h-4 w-10/12 rounded bg-paper-sunken" />
-          <div className="h-3 w-full rounded bg-paper-sunken" />
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div className="animate-pulse overflow-hidden rounded-2xl border border-line bg-paper-raised">
-      <div className="aspect-[2/1] bg-paper-sunken" />
-      <div className="space-y-2 p-4">
-        <div className="h-4 w-11/12 rounded bg-paper-sunken" />
-        <div className="h-4 w-2/3 rounded bg-paper-sunken" />
-        <div className="h-3 w-1/3 rounded bg-paper-sunken" />
-      </div>
-    </div>
-  );
-}
 
 // The query the sidebar already builds for these, kept in one place so
 // arriving by link and choosing in place cannot disagree.
@@ -559,13 +516,7 @@ export default function HomePage() {
           </div>
 
           {loading ? (
-            <div className={GRID_CLASSES[density]}>
-              {Array.from({ length: density === "compact" ? 12 : 8 }).map(
-                (_, index) => (
-                  <Skeleton key={index} density={density} />
-                )
-              )}
-            </div>
+            <ArticleGridSkeleton density={density} />
           ) : articles.length === 0 ? (
             <div className="flex flex-col items-center gap-3 py-24 text-center">
               <p className="font-serif text-xl text-ink">Nothing here yet</p>
@@ -581,20 +532,15 @@ export default function HomePage() {
             </div>
           ) : (
             <>
-              <div className={GRID_CLASSES[density]}>
-                {articles.map((article) => (
-                  <ArticleCard
-                    key={article.id}
-                    article={article}
-                    density={density}
-                    onOpen={openInReader ? reader.open : undefined}
-                    onToast={(message, error) => {
-                      showToast(message, error);
-                      if (!error) loadReadingCount();
-                    }}
-                  />
-                ))}
-              </div>
+              <ArticleGrid
+                articles={articles}
+                density={density}
+                onOpen={openInReader ? reader.open : undefined}
+                onToast={(message, error) => {
+                  showToast(message, error);
+                  if (!error) loadReadingCount();
+                }}
+              />
               <div ref={sentinelRef} className="h-px" />
               {hasMore && (
                 <p className="py-6 text-center text-[13px] text-ink-faint">
