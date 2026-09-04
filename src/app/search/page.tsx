@@ -50,6 +50,9 @@ function SearchResults() {
   const [loadedQuery, setLoadedQuery] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const loadingMore = useRef(false);
+  // Aborted when the query changes, so a page-two request started for one
+  // search cannot deliver into another one's results.
+  const pageRequest = useRef<AbortController | null>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
   const [density, setDensity] = useState<Density>("cards");
@@ -110,6 +113,14 @@ function SearchResults() {
     void loadReadingList();
   }, [user, loadReadingList]);
 
+  // One controller per query, so everything asked for on its behalf can be
+  // called off together when it changes.
+  useEffect(() => {
+    const controller = new AbortController();
+    pageRequest.current = controller;
+    return () => controller.abort();
+  }, [query]);
+
   useEffect(() => {
     if (!user) return;
     if (!query) {
@@ -137,10 +148,19 @@ function SearchResults() {
   const loadMore = useCallback(async () => {
     if (loadingMore.current || !hasMore || !query) return;
     loadingMore.current = true;
-    const response = await fetch(
-      `/api/search?q=${encodeURIComponent(query)}&limit=${PAGE_SIZE}&offset=${results.length}`
-    );
-    const page: ArticleDto[] = response.ok ? await response.json() : [];
+    let page: ArticleDto[] = [];
+    try {
+      const response = await fetch(
+        `/api/search?q=${encodeURIComponent(query)}&limit=${PAGE_SIZE}&offset=${results.length}`,
+        { signal: pageRequest.current?.signal }
+      );
+      page = response.ok ? await response.json() : [];
+    } catch {
+      // Aborted because the query moved on. Appending this would put one
+      // search's results under another search's heading.
+      loadingMore.current = false;
+      return;
+    }
     setResults((previous) => {
       const seen = new Set(previous.map((article) => article.id));
       return [...previous, ...page.filter((article) => !seen.has(article.id))];

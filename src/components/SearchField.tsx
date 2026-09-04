@@ -65,6 +65,11 @@ export function SearchField({
       ) {
         return;
       }
+      // The reader and the sheets cover the whole window, header included.
+      // Focusing the box underneath one means typing into a field nobody can
+      // see, and Enter then changes the results behind the article you are
+      // reading.
+      if (document.querySelector("[role=dialog][aria-modal=true]")) return;
       event.preventDefault();
       input.current?.focus();
     }
@@ -77,8 +82,10 @@ export function SearchField({
       onSubmit={(event) => {
         event.preventDefault();
         const query = value.trim();
-        if (!query) return;
-        const url = `/search?q=${encodeURIComponent(query)}`;
+        // An emptied box means "nothing searched", not "do nothing" — which
+        // left the field disagreeing with the heading beside it and no way
+        // back except editing the URL.
+        const url = query ? `/search?q=${encodeURIComponent(query)}` : "/search";
         // Searching again from the results page is a push to the route you are
         // already on, and a production build does not re-render for that — the
         // address bar changed and the results did not. pushState does, because

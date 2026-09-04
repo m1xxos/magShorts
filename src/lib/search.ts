@@ -47,7 +47,13 @@ export function searchArticles(
   const match = toMatch(query.replace(TAG_PREFIX, ""));
   if (!match) return [];
   // Scoped to one column when asked, which is the whole of "search by tag".
-  const expression = tagged ? `topic: ${match}` : match;
+  // The brackets are load-bearing: a column filter binds to the one phrase
+  // after it, so `topic: "machine" "learning"*` asks for a topic containing
+  // machine and *any column* containing learning — which returns an article
+  // titled "Learning to weld" and tagged Machine Shop. Tags of two words are
+  // ordinary here (Social Media, Illegal Immigration), and a chip is a click,
+  // not something anyone typed.
+  const expression = tagged ? `topic: (${match})` : match;
 
   return getDb()
     .prepare(

@@ -160,6 +160,38 @@ describe("tags", () => {
   });
 });
 
+describe("the search box", () => {
+  it("clears back to nothing searched when emptied", async () => {
+    const page = await open();
+    await go(page, "/search?q=kubernetes");
+    assert.ok((await results(page)) > 0);
+    await page.getByLabel("Search articles").first().fill("");
+    await page.keyboard.press("Enter");
+    await page.waitForTimeout(1000);
+    assert.equal(path(page), "/search");
+    assert.equal(await results(page), 0);
+    await page.close();
+  });
+
+  it("is not focused by slash while the reader covers it", async () => {
+    // Focusing a field under the overlay means typing into something nobody
+    // can see, and Enter then changes the results behind the article.
+    const page = await open();
+    await go(page, "/?view=all");
+    await page.locator("main a[href*='article=']").first().click();
+    await page.waitForTimeout(1200);
+    const before = path(page);
+    await page.keyboard.press("/");
+    await page.waitForTimeout(300);
+    assert.notEqual(
+      await page.evaluate(() => document.activeElement?.getAttribute("aria-label")),
+      "Search articles"
+    );
+    assert.equal(path(page), before, "and nothing navigated");
+    await page.close();
+  });
+});
+
 describe("the list you are looking at", () => {
   it("is named in the address bar, and Back walks the lists", async () => {
     // Picking a feed used to change React state and nothing else: leaving and

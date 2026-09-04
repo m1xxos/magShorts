@@ -304,13 +304,17 @@ export function getDb(): Database.Database {
     db.exec("ALTER TABLE feeds ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1");
   }
   if (!feedColumns.some((column) => column.name === "folder_id")) {
-    db.exec("ALTER TABLE feeds ADD COLUMN folder_id INTEGER REFERENCES folders(id)");
+    db.exec(
+      "ALTER TABLE feeds ADD COLUMN folder_id INTEGER REFERENCES folders(id)",
+    );
   }
   // A publication in the Discover catalog is one you haven't subscribed to:
   // same table, same ingest, same embeddings — it just never appears in the
   // grid, Shorts, For you or the digest. Existing feeds are all subscriptions.
   if (!feedColumns.some((column) => column.name === "subscribed")) {
-    db.exec("ALTER TABLE feeds ADD COLUMN subscribed INTEGER NOT NULL DEFAULT 1");
+    db.exec(
+      "ALTER TABLE feeds ADD COLUMN subscribed INTEGER NOT NULL DEFAULT 1",
+    );
   }
   // One sentence about what the publication is, written once and cached.
   if (!feedColumns.some((column) => column.name === "description")) {
@@ -330,7 +334,9 @@ export function getDb(): Database.Database {
   const articleIndexes = db
     .prepare("PRAGMA index_list(articles)")
     .all() as Array<{ name: string }>;
-  if (!articleIndexes.some((index) => index.name === "idx_articles_feed_link")) {
+  if (
+    !articleIndexes.some((index) => index.name === "idx_articles_feed_link")
+  ) {
     // Publishers change guid schemes, and a reader keyed on the guid stores
     // the whole feed a second time when they do: The Atlantic switched from
     // RSS to Atom and arrived with 25 new ids for 25 articles already on file.
@@ -342,15 +348,13 @@ export function getDb(): Database.Database {
       .prepare(
         `DELETE FROM articles WHERE id NOT IN (
            SELECT MIN(id) FROM articles GROUP BY feed_id, link
-         )`
+         )`,
       )
       .run();
     if (removed.changes > 0) {
       console.log(`[db] removed ${removed.changes} duplicate article(s)`);
     }
-    db.exec(
-      "CREATE INDEX idx_articles_feed_link ON articles(feed_id, link)"
-    );
+    db.exec("CREATE INDEX idx_articles_feed_link ON articles(feed_id, link)");
   }
 
   // Feeds that publish site-relative item links (Harper's does) used to be
@@ -360,9 +364,14 @@ export function getDb(): Database.Database {
     .prepare(
       `SELECT a.id, a.link, f.site_url, f.url FROM articles a
        JOIN feeds f ON f.id = a.feed_id
-       WHERE a.link NOT LIKE 'http%'`
+       WHERE a.link NOT LIKE 'http%'`,
     )
-    .all() as Array<{ id: number; link: string; site_url: string | null; url: string }>;
+    .all() as Array<{
+    id: number;
+    link: string;
+    site_url: string | null;
+    url: string;
+  }>;
   if (relative.length > 0) {
     const fix = db.prepare("UPDATE articles SET link = ? WHERE id = ?");
     let fixed = 0;
@@ -381,7 +390,7 @@ export function getDb(): Database.Database {
   // plausible client has synced, they are just rows.
   const stale = db
     .prepare(
-      "DELETE FROM highlights WHERE deleted_at IS NOT NULL AND deleted_at < datetime('now', '-90 days')"
+      "DELETE FROM highlights WHERE deleted_at IS NOT NULL AND deleted_at < datetime('now', '-90 days')",
     )
     .run();
   if (stale.changes > 0) {
@@ -392,11 +401,13 @@ export function getDb(): Database.Database {
   // a database that hands every setting back unredacted.
   const omnivore = db
     .prepare(
-      "DELETE FROM settings WHERE key IN ('omnivore_url', 'omnivore_api_key')"
+      "DELETE FROM settings WHERE key IN ('omnivore_url', 'omnivore_api_key')",
     )
     .run();
   if (omnivore.changes > 0) {
-    console.log(`[db] removed ${omnivore.changes} stored Omnivore credential(s)`);
+    console.log(
+      `[db] removed ${omnivore.changes} stored Omnivore credential(s)`,
+    );
   }
 
   // Pictures stored before the reader asked for a synchronous decode. On an
@@ -407,16 +418,18 @@ export function getDb(): Database.Database {
   // would mean fetching every publisher again.
   const undecoded = db
     .prepare(
-      "SELECT COUNT(*) AS n FROM article_content WHERE html LIKE '%<img %' AND html NOT LIKE '%decoding=%'"
+      "SELECT COUNT(*) AS n FROM article_content WHERE html LIKE '%<img %' AND html NOT LIKE '%decoding=%'",
     )
     .get() as { n: number };
   if (undecoded.n > 0) {
     db.prepare(
       `UPDATE article_content
           SET html = replace(html, '<img ', '<img decoding="sync" ')
-        WHERE html LIKE '%<img %' AND html NOT LIKE '%decoding=%'`
+        WHERE html LIKE '%<img %' AND html NOT LIKE '%decoding=%'`,
     ).run();
-    console.log(`[db] marked pictures in ${undecoded.n} stored article(s) for synchronous decoding`);
+    console.log(
+      `[db] marked pictures in ${undecoded.n} stored article(s) for synchronous decoding`,
+    );
   }
 
   const articleColumns = db
@@ -459,10 +472,21 @@ export function getDb(): Database.Database {
   // unicode61 rather than porter: porter stems English, and applying it to a
   // corpus that is half Russian would be wrong for half the rows.
   const searchIndexed = db
-    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'articles_fts'")
+    .prepare(
+      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'articles_fts'",
+    )
     .get();
   if (!searchIndexed) {
-    db.exec(`
+    // One transaction over the table, the triggers and the backfill. Dying
+    // between creating it and filling it would leave a table that exists and
+    // is empty, which the guard above would then skip forever: every article
+    // that predates the crash unfindable, every new one found, and nothing
+    // said about it anywhere.
+    // A local binding: inside the callback TypeScript can no longer see that
+    // the module-level handle is non-null.
+    const database = db;
+    database.transaction(() => {
+      database.exec(`
       CREATE VIRTUAL TABLE articles_fts USING fts5(
         title, topic, summary,
         content=articles,
@@ -489,20 +513,23 @@ export function getDb(): Database.Database {
         VALUES (new.id, new.title, new.topic, new.summary);
       END;
     `);
-    const indexed = db
-      .prepare(
-        `INSERT INTO articles_fts (rowid, title, topic, summary)
-         SELECT id, title, topic, summary FROM articles`
-      )
-      .run();
-    console.log(`[db] search index built over ${indexed.changes} articles`);
+      const indexed = database
+        .prepare(
+          `INSERT INTO articles_fts (rowid, title, topic, summary)
+         SELECT id, title, topic, summary FROM articles`,
+        )
+        .run();
+      console.log(`[db] search index built over ${indexed.changes} articles`);
+    })();
   }
 
   // The digest picks its sources independently of For you: "what should I read
   // now" and "what did I miss overnight" are different questions, and a folder
   // of blogs can reasonably answer only the second. Seeded from the For you
   // toggle so switching to two columns changes nothing until asked.
-  const folderColumns = db.prepare("PRAGMA table_info(folders)").all() as Array<{
+  const folderColumns = db
+    .prepare("PRAGMA table_info(folders)")
+    .all() as Array<{
     name: string;
   }>;
   if (!folderColumns.some((column) => column.name === "include_in_digest")) {
@@ -545,7 +572,7 @@ export function getDb(): Database.Database {
   };
   if (feedCount.n === 0) {
     const insert = db.prepare(
-      "INSERT INTO feeds (title, url, site_url) VALUES (?, ?, ?)"
+      "INSERT INTO feeds (title, url, site_url) VALUES (?, ?, ?)",
     );
     for (const feed of DEFAULT_FEEDS) {
       insert.run(feed.title, feed.url, feed.site_url);

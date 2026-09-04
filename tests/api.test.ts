@@ -57,6 +57,13 @@ describe("search", () => {
     ].sort());
   });
 
+  it("scopes every word of a tag to the tag", async () => {
+    // "Learning to weld" is tagged Machine Shop. An unbracketed column filter
+    // asks for a topic containing machine and *any column* containing
+    // learning, and hands it back.
+    assert.deepEqual(await search("tag:Machine Learning"), ["Welding tips"]);
+  });
+
   it("keeps the catalogue out", async () => {
     // The third feed is subscribed = 0. Its article says Kubernetes twice and
     // must still never appear.

@@ -46,6 +46,11 @@ const ARTICLES = [
   { feed: 0, title: "Python и асинхронность", topic: "Python", summary: "Корутины" },
   { feed: 1, title: "How to scale Kubernetes", topic: "Kubernetes", summary: "Top strategies" },
   { feed: 1, title: "A quiet week in tech", topic: "Magazines", summary: "Nothing about kubernetes here" },
+  // Two-word tags sharing a word: a column filter that only scopes the first
+  // one returns the wrong article here, and two-word tags are ordinary —
+  // ingest accepts categories up to two words long.
+  { feed: 1, title: "Learning to weld", topic: "Machine Shop", summary: "" },
+  { feed: 1, title: "Welding tips", topic: "Machine Learning", summary: "" },
   { feed: 1, title: "Another quiet week", topic: "Magazines", summary: "Still nothing" },
   { feed: 2, title: "Kubernetes in the catalog", topic: "Kubernetes", summary: "Should never be found" },
 ];
@@ -136,6 +141,10 @@ export async function startApp(port: number): Promise<TestApp> {
       // No feed refreshing, no digests: the fixtures are the fixtures.
       env: { ...process.env, DATA_DIR: dataDir, SCHEDULER: "off" },
       stdio: process.env.TEST_SERVER_LOG ? "inherit" : "ignore",
+      // Its own process group: the child here is npx, and signalling npx does
+      // not reliably reach the next server underneath it. A survivor keeps the
+      // port and fails the next run in a way that looks like a product bug.
+      detached: true,
     }
   );
 
@@ -149,8 +158,27 @@ export async function startApp(port: number): Promise<TestApp> {
     articles,
     db,
     stop: async () => {
-      server.kill("SIGTERM");
-      await new Promise((resolve) => setTimeout(resolve, 400));
+      const ended = new Promise<void>((resolve) =>
+        server.once("exit", () => resolve())
+      );
+      try {
+        process.kill(-server.pid!, "SIGTERM");
+      } catch {
+        server.kill("SIGTERM");
+      }
+      // Waited for rather than slept through, and killed outright if it will
+      // not go — the data directory is deleted next, and a server still
+      // reading it is how a test run poisons the one after it.
+      await Promise.race([
+        ended,
+        new Promise((resolve) => setTimeout(resolve, 5000)).then(() => {
+          try {
+            process.kill(-server.pid!, "SIGKILL");
+          } catch {
+            server.kill("SIGKILL");
+          }
+        }),
+      ]);
       db.close();
       fs.rmSync(dataDir, { recursive: true, force: true });
     },
