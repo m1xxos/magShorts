@@ -228,14 +228,16 @@ Every view is titled above the cards, and a **Cards / List / Compact** switch on
 the right sets how densely they are drawn — the choice is remembered in
 `localStorage`. The grid runs the full width of the window and takes as many
 columns as fit, so a wide display shows more cards rather than wider ones. The
-sidebar appears from 1024px up; below that its navigation is the chip row above
-the grid, which leaves a portrait tablet room for three columns.
+sidebar appears from 1024px up; below that the same rows are a tap away behind
+the menu button in the top bar, which leaves a portrait tablet room for three
+columns.
 
 Cards lead with a 2:1 cover, then the full headline (never truncated, so the
 row simply grows), three lines of summary and a metadata line pinned to the
 bottom edge so neighbouring cards stay aligned. That line carries the source,
 the age and a **topic pill**: the first usable `<category>` the feed publishes,
 falling back to the folder the feed lives in, and omitted when neither exists.
+Press the pill for everything else carrying that tag.
 Topics are derived when an article is ingested, so articles already stored
 before the feature landed stay untagged until their feed republishes them.
 
@@ -347,6 +349,81 @@ the whole point of that page.
   sanitised against a tag/attribute allowlist before it is stored, and its
   images are rewritten through `/api/images`.
 
+## Search (v2.5)
+
+The box in the top bar searches everything you subscribe to, by **title and
+tag**, and lands on `/search?q=…`. Press `/` from anywhere to reach it.
+
+- **An index, not a scan.** SQLite's `LIKE` folds case for ASCII only, so
+  `железо` would never have found `Железо` — half this corpus is Russian, and
+  that is not a detail. An FTS5 index over title, tag and summary: 3.8 MB over
+  8,500 articles, built in 330 ms, kept in step by three triggers so an
+  article that is edited or deleted follows.
+- **Tags are tapped, not typed.** The tag printed on every card is a button —
+  press it for everything carrying it. `/search` also offers the tags you
+  actually have, commonest first, with counts. `tag:python` still works if you
+  prefer typing.
+- **What you type is never syntax.** Words are extracted and quoted, the last
+  one gets a prefix `*` so results narrow as you type, and anything that looks
+  like an operator arrives as text. A box full of punctuation returns nothing
+  rather than an error.
+- **Bodies are not indexed.** The extracted text exists for the articles
+  somebody opened, so searching it would find a word inside one article and
+  miss the same word in the next, for no reason you could see.
+
+## Highlights (v2.5)
+
+Select a passage in the reader and keep it, with a note if you want one. They
+are listed in the rail beside the article and in a sheet on a narrow screen,
+and **Copy all** takes the lot as text or Markdown.
+
+- **Anchored to the words, not to a number.** A highlight stores the quote
+  plus a little of the text either side. Offsets are a cache: when a publisher
+  edits the page the passage is found again by its own words.
+- **Nothing is thrown away.** A passage that can no longer be found is kept
+  and marked *not in this version of the article* rather than deleted — an
+  extraction that broke today is exactly when a note must not vanish.
+- Deleting one leaves a tombstone for 90 days, so a client that has already
+  written it somewhere else learns it went away.
+
+## Your reading (v2.5)
+
+`/stats` — what you have actually read: articles, time, saved against
+finished, a reading streak, a chart by day, where it came from, and the
+keywords "For you" has learned from your titles.
+
+- **Time is measured, not guessed.** The reader times itself while the tab is
+  visible and reports the seconds. Anything older than that is estimated from
+  word counts, and the card says which it is.
+- **Honest about thin data.** The keyword card needs a term in three separate
+  articles before it will show it; under that it says so rather than offering
+  coincidences.
+
+## Obsidian sync (v2.5)
+
+A read-only API for clients that are not a browser — the
+[Obsidian plugin](https://github.com/m1xxos/magshorts-obsidian) to begin with.
+Mint a token in **Settings → Connections**; it can read your highlights and
+nothing else, and it cannot mint another token.
+
+- Tokens are stored as a sha256 hash. The token itself is shown exactly once.
+- `GET /api/sync/highlights` pages on a `"<updated_at>|<id>"` cursor, because
+  `datetime('now')` has one-second resolution and a bulk edit ties. Deletions
+  ride the same stream as tombstones.
+
+## Getting around (v2.5)
+
+- **The list you are looking at is in the address bar.** Picking a feed or a
+  folder is a history entry, so Back walks the lists you looked at, leaving for
+  Read later and coming back keeps your choice, and the link you copy carries it.
+- **Back inside the reader returns to the article you were reading**, however
+  many *Up next* cards deep you went. The "← Back to …" button still leaves for
+  the list in one press: the depth of the reading rides in the history entry.
+- **Every destination is reachable on a narrow screen.** Below 1024px there is
+  no room for the rail, so the menu button in the top bar opens the same rows
+  in a sheet — before this the digest, Discover, Your reading and the settings
+  simply could not be got to on a tablet.
+
 ## Swipes & reading list
 
 - **Swipe right** on any card (home grid or Shorts) — or use the bookmark
@@ -380,6 +457,10 @@ the whole point of that page.
   articles keep their covers even after publishers delete them, and
   Referer-based hotlink blocks don't apply. On a cache failure the route just
   redirects to the original image.
+- **Tests** live in `tests/` and run against a real server on its own port
+  over a database they seed themselves: `npm test`. The browser suite drives
+  the production build, because the dev server does not behave like the thing
+  that ships — see [`tests/README.md`](tests/README.md).
 - Shorts mode is a CSS scroll-snap column with keyboard navigation
   (↑/↓, j/k, space, ←/→ to swipe, Esc to exit). The default Shorts feed has
   its own algorithm, separate from For you: today's most interesting articles
@@ -390,7 +471,8 @@ the whole point of that page.
 
 ## API
 
-All data routes require a session cookie (sign in at `/login`).
+All data routes require a session cookie (sign in at `/login`). The `/api/sync/*`
+routes also accept `Authorization: Bearer <token>`.
 
 | Method | Route | Description |
 | --- | --- | --- |
@@ -423,3 +505,15 @@ All data routes require a session cookie (sign in at `/login`).
 | POST | `/api/discover/suggest` | Fill the catalog: `{ "seed": true }` for the curated list, `{}` to ask the model |
 | GET | `/api/digest` | The stored digest snapshot; `?kind=daily\|weekly` |
 | POST | `/api/digest/build` | Build it now: `{ "kind", "force"? }` — `force` discards the period's snapshot and rebuilds |
+| GET | `/api/search` | Search titles and tags; `?q=`, `?limit=`, `?offset=`. `q=tag:NAME` searches tags only |
+| GET | `/api/tags` | The tags your subscriptions carry, commonest first |
+| GET | `/api/stats` | Everything on Your reading; `?range=week\|month\|year` |
+| GET | `/api/highlights` | Your highlights; `?link=` for one article, `?counts=1` for per-article totals |
+| POST | `/api/highlights` | Keep a passage: `{ "link", "article_title", "quote", "prefix"?, "note"? }` |
+| PATCH | `/api/highlights/:id` | Edit its note |
+| DELETE | `/api/highlights/:id` | Delete it (leaves a tombstone for 90 days) |
+| GET | `/api/tokens` | API tokens in use |
+| POST | `/api/tokens` | Mint one: `{ "name" }` — the token is returned exactly once |
+| DELETE | `/api/tokens/:id` | Revoke one |
+| GET | `/api/sync/health` | Bearer-token check: who am I |
+| GET | `/api/sync/highlights` | Highlights since a cursor; `?since=`, `?limit=`. Accepts `Authorization: Bearer` |
