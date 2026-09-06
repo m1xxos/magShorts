@@ -44,3 +44,9 @@ next-env.d.ts
 
 # data
 /data
+# Never: a copy of the live database carries the password hash, a working
+# session token and every API key in the settings table.
+/data-backups
+*.db
+*.db-shm
+*.db-wal
