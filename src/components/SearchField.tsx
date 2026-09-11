@@ -2,6 +2,24 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { type SearchSort } from "@/lib/types";
+
+// Where a search goes. One function, so the box in the header, the tag chips
+// and the source chips cannot disagree about what a search URL looks like.
+export function searchUrl(
+  query: string,
+  sort: SearchSort = "relevance",
+  feed: number | null = null
+) {
+  const params = new URLSearchParams();
+  if (query) params.set("q", query);
+  // Relevance is the default and "every publication" is the default, and a URL
+  // should not carry what it already means.
+  if (sort !== "relevance") params.set("sort", sort);
+  if (feed) params.set("feed", String(feed));
+  const search = params.toString();
+  return search ? `/search?${search}` : "/search";
+}
 
 export function SearchIcon({ size = 15 }: { size?: number }) {
   return (
@@ -27,10 +45,16 @@ export function SearchIcon({ size = 15 }: { size?: number }) {
 // be kept agreeing with each other.
 export function SearchField({
   initial = "",
+  sort = "relevance",
   className = "",
   autoFocus = false,
 }: {
   initial?: string;
+  // Carried into the next search, because the order results come in is how
+  // this reader likes to look at them rather than a property of one query.
+  // The publication is not carried: it was picked out of one search's own
+  // sources and means nothing in the next.
+  sort?: SearchSort;
   className?: string;
   autoFocus?: boolean;
 }) {
@@ -85,7 +109,7 @@ export function SearchField({
         // An emptied box means "nothing searched", not "do nothing" — which
         // left the field disagreeing with the heading beside it and no way
         // back except editing the URL.
-        const url = query ? `/search?q=${encodeURIComponent(query)}` : "/search";
+        const url = searchUrl(query, sort);
         // Searching again from the results page is a push to the route you are
         // already on, and a production build does not re-render for that — the
         // address bar changed and the results did not. pushState does, because

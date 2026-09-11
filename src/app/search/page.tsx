@@ -4,11 +4,12 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { ArticleGrid, ArticleGridSkeleton } from "@/components/ArticleGrid";
-import { SearchField } from "@/components/SearchField";
+import { SearchField, searchUrl } from "@/components/SearchField";
 import { SettingsDialog } from "@/components/SettingsDialog";
 import { Sidebar } from "@/components/Sidebar";
 import { Toast, useToast } from "@/components/Toast";
 import { Chip, ChipRow } from "@/components/ui/ChipRow";
+import { Segmented } from "@/components/ui/Segmented";
 import { TopBar } from "@/components/TopBar";
 import { Reader, after } from "@/components/Reader";
 import {
@@ -16,12 +17,28 @@ import {
   type Density,
   type FeedDto,
   type FolderDto,
+  type SearchSort,
+  type SearchSourceDto,
 } from "@/lib/types";
 import { removeFromReadingList, saveToReadingList } from "@/lib/actions";
 import { useReader } from "@/lib/useReader";
 import { useUser } from "@/lib/useUser";
 
 const PAGE_SIZE = 40;
+
+const SORTS: Array<{ value: SearchSort; label: string; title: string }> = [
+  { value: "relevance", label: "Relevance", title: "Best match first" },
+  { value: "newest", label: "Newest", title: "Most recently published first" },
+  { value: "oldest", label: "Oldest", title: "Earliest published first" },
+];
+
+// A broad word lands in three dozen publications here, and three dozen chips
+// is not a filter, it is a wall. The rest are one press away.
+const SOURCE_LIMIT = 8;
+
+function isSort(value: string | null): value is SearchSort {
+  return value === "relevance" || value === "newest" || value === "oldest";
+}
 
 export default function SearchPage() {
   // useSearchParams needs one, and the page is otherwise prerendered.
@@ -43,11 +60,20 @@ function SearchResults() {
   // from this page is a router.push to the same route, which fires no popstate
   // and does not remount anything — so the URL changed and the results did
   // not. This hook hears both.
-  const query = useSearchParams().get("q")?.trim() ?? "";
+  const params = useSearchParams();
+  const query = params.get("q")?.trim() ?? "";
+  const sortParam = params.get("sort");
+  const sort: SearchSort = isSort(sortParam) ? sortParam : "relevance";
+  const feedParam = Number(params.get("feed"));
+  const feed = Number.isInteger(feedParam) && feedParam > 0 ? feedParam : null;
+  const requestKey = `${query}\u0000${sort}\u0000${feed ?? ""}`;
   const [results, setResults] = useState<ArticleDto[]>([]);
-  // Which query the results on screen belong to. A slow answer to an old
-  // query must not overwrite a fast answer to a new one.
-  const [loadedQuery, setLoadedQuery] = useState<string | null>(null);
+  // Which request the results on screen belong to — the query, the order and
+  // the publication together, because changing any of the three changes the
+  // list. A slow answer to an old one must not overwrite a fast answer to a
+  // new one, and the skeleton has to appear when the order changes rather
+  // than leaving the previous order on screen looking like the new one.
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const loadingMore = useRef(false);
   // Aborted when the query changes, so a page-two request started for one
@@ -63,6 +89,12 @@ function SearchResults() {
   const [savedLinks, setSavedLinks] = useState<Set<string>>(new Set());
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tags, setTags] = useState<Array<{ topic: string; count: number }>>([]);
+  // Which publications this query found anything in. Fetched per query, not
+  // per sort or per publication: reordering the same results cannot change
+  // which publications they came from, and neither can narrowing to one.
+  const [sources, setSources] = useState<SearchSourceDto[]>([]);
+  const [loadedSourcesQuery, setLoadedSourcesQuery] = useState("");
+  const [allSources, setAllSources] = useState(false);
   const { toast, showToast } = useToast();
 
 
@@ -113,32 +145,60 @@ function SearchResults() {
     void loadReadingList();
   }, [user, loadReadingList]);
 
-  // One controller per query, so everything asked for on its behalf can be
-  // called off together when it changes.
+  // One controller per request, so every page asked for on its behalf can be
+  // called off together when the query, the order or the publication changes.
   useEffect(() => {
     const controller = new AbortController();
     pageRequest.current = controller;
     return () => controller.abort();
-  }, [query]);
+  }, [requestKey]);
 
   useEffect(() => {
     if (!user) return;
     if (!query) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- clearing results when the box empties, which the URL drives
       setResults([]);
-      setLoadedQuery("");
+      setLoadedKey(requestKey);
       setHasMore(false);
       return;
     }
     let cancelled = false;
-    void fetch(`/api/search?q=${encodeURIComponent(query)}&limit=${PAGE_SIZE}`)
+    void fetch(
+      `/api/search?q=${encodeURIComponent(query)}&sort=${sort}` +
+        (feed ? `&feed=${feed}` : "") +
+        `&limit=${PAGE_SIZE}`
+    )
       .then((response) => (response.ok ? response.json() : []))
       .catch(() => [])
       .then((page: ArticleDto[]) => {
         if (cancelled) return;
         setResults(page);
         setHasMore(page.length === PAGE_SIZE);
-        setLoadedQuery(query);
+        setLoadedKey(requestKey);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user, query, sort, feed, requestKey]);
+
+  useEffect(() => {
+    if (!user || !query) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clearing the filter when the box empties, which the URL drives
+      setSources([]);
+      setLoadedSourcesQuery(query);
+      return;
+    }
+    let cancelled = false;
+    void fetch(`/api/search/sources?q=${encodeURIComponent(query)}`)
+      .then((response) => (response.ok ? response.json() : []))
+      .catch(() => [])
+      .then((rows: SearchSourceDto[]) => {
+        if (cancelled) return;
+        setSources(Array.isArray(rows) ? rows : []);
+        setLoadedSourcesQuery(query);
+        // A new search is a new set of publications, and an expanded row of
+        // the last one's is not a head start.
+        setAllSources(false);
       });
     return () => {
       cancelled = true;
@@ -151,7 +211,9 @@ function SearchResults() {
     let page: ArticleDto[] = [];
     try {
       const response = await fetch(
-        `/api/search?q=${encodeURIComponent(query)}&limit=${PAGE_SIZE}&offset=${results.length}`,
+        `/api/search?q=${encodeURIComponent(query)}&sort=${sort}` +
+          (feed ? `&feed=${feed}` : "") +
+          `&limit=${PAGE_SIZE}&offset=${results.length}`,
         { signal: pageRequest.current?.signal }
       );
       page = response.ok ? await response.json() : [];
@@ -167,7 +229,7 @@ function SearchResults() {
     });
     setHasMore(page.length === PAGE_SIZE);
     loadingMore.current = false;
-  }, [hasMore, query, results.length]);
+  }, [hasMore, query, sort, feed, results.length]);
 
   useEffect(() => {
     const sentinel = sentinelRef.current;
@@ -203,21 +265,55 @@ function SearchResults() {
   // beside it, so a pasted /search?q=tag:python link lights the same chip.
   const activeTag = /^\s*(?:tag|тег):\s*(.+)$/i.exec(query)?.[1]?.trim() ?? "";
 
+  // pushState rather than router.push throughout: this is the route we are
+  // already on, and a production build does not re-render for a push to the
+  // same one.
+  const go = useCallback((url: string) => {
+    window.history.pushState(null, "", url);
+  }, []);
+
   const searchTag = useCallback(
     (topic: string) => {
       const next =
         activeTag.toLowerCase() === topic.toLowerCase() ? "" : `tag:${topic}`;
-      // pushState rather than router.push: this is the route we are already
-      // on, and a production build does not re-render for a push to the same
-      // one.
-      window.history.pushState(
-        null,
-        "",
-        next ? `/search?q=${encodeURIComponent(next)}` : "/search"
-      );
+      // The order survives a change of query — it is how this reader likes to
+      // look at results. The publication does not: it was picked out of one
+      // search's own sources and means nothing in the next.
+      go(searchUrl(next, sort, null));
     },
-    [activeTag]
+    [activeTag, go, sort]
   );
+
+  // The publication currently narrowed to, taken from the sources rather than
+  // kept beside them, so a pasted ?feed= link lights the right chip.
+  const activeSource = sources.find((row) => row.feed_id === feed) ?? null;
+  const total = sources.reduce((sum, row) => sum + row.count, 0);
+  // The busiest handful, plus the one being filtered on wherever it ranks —
+  // a chip you are pressing has to be visible to be pressed again.
+  const shownSources =
+    allSources || sources.length <= SOURCE_LIMIT + 1
+      ? sources
+      : [
+          ...sources.slice(0, SOURCE_LIMIT),
+          ...(activeSource && sources.indexOf(activeSource) >= SOURCE_LIMIT
+            ? [activeSource]
+            : []),
+        ];
+  // The real number, now that the sources have counted them. Until they land —
+  // and on the page that failed to fetch them — the length of what is on
+  // screen, which is the honest answer to how many there are.
+  //
+  // `feed && !activeSource` is the same fallback: a ?feed= naming a
+  // publication this search found nothing in, which is a URL somebody can
+  // type and what a link becomes after the publication is unsubscribed. The
+  // total belongs to the whole search, and printing it over an empty grid
+  // read "1162 in your subscriptions" above "Nothing matched".
+  const counted =
+    loadedSourcesQuery === query && sources.length > 0 && (!feed || activeSource)
+      ? activeSource
+        ? `${activeSource.count} from ${activeSource.feed_title}`
+        : `${total} in your subscriptions`
+      : `${results.length}${hasMore ? "+" : ""} in your subscriptions`;
 
   const railProps = {
     feeds,
@@ -226,13 +322,14 @@ function SearchResults() {
     readingCount,
     onOpenSettings: () => setSettingsOpen(true),
   };
-  const loading = !user || loadedQuery !== query;
+  const loading = !user || loadedKey !== requestKey;
 
   return (
     <div className="min-h-screen">
       <TopBar
         username={user?.username}
         searchQuery={query}
+        searchSort={sort}
         nav={(close) => (
           <Sidebar {...railProps} variant="sheet" onNavigate={close} />
         )}
@@ -244,6 +341,7 @@ function SearchResults() {
               instead — one box visible at a time, never two. */}
           <SearchField
             initial={query}
+            sort={sort}
             autoFocus={!query}
             className="mb-5 sm:hidden"
           />
@@ -259,17 +357,35 @@ function SearchResults() {
               ← Feed
             </Link>
           </div>
-          <p className="mt-1 text-[13px] text-ink-faint">
-            {query
-              ? loading
-                ? "Looking…"
-                : `${results.length}${hasMore ? "+" : ""} in your subscriptions`
-              : "Titles and tags across everything you subscribe to. Pick a tag below, or type."}
-          </p>
+          <div className="mt-1 flex flex-wrap items-center justify-between gap-x-4 gap-y-2.5">
+            <p className="text-[13px] text-ink-faint">
+              {query
+                ? loading
+                  ? "Looking…"
+                  : counted
+                : "Titles and tags across everything you subscribe to. Pick a tag below, or type."}
+            </p>
+            {/* Only where there is something to order. On an empty page it
+                would be three buttons that do nothing, and on a search that
+                found one article it is a distinction without a difference. */}
+            {query && results.length > 1 && (
+              <Segmented
+                options={SORTS}
+                value={sort}
+                onChange={(next) => go(searchUrl(query, next, feed))}
+                ariaLabel="How to order the results"
+              />
+            )}
+          </div>
 
           {/* The tags you actually have, so searching by one is a tap rather
-              than knowing that "tag:" is a thing you can type. */}
-          {tags.length > 0 && (
+              than knowing that "tag:" is a thing you can type.
+              Not shown over the results of a typed search: a tag chip
+              *replaces* the query rather than narrowing it, so there it is a
+              row of buttons that throw away what you came here with. On the
+              empty page it is the way in, and on a tag search it is how you
+              switch tag or turn the tag off. */}
+          {tags.length > 0 && (!query || activeTag) && (
             <ChipRow wrap className="mt-4">
               {tags.map((tag) => (
                 <Chip
@@ -281,6 +397,45 @@ function SearchResults() {
                   {tag.topic}
                 </Chip>
               ))}
+            </ChipRow>
+          )}
+
+          {/* Which publications these results came from. A refinement of the
+              search you already have, unlike the tags above, and the reason
+              it sits closest to the results. One publication is not a choice
+              between anything.
+              Not wrapped, unlike the tags: this row sits directly above the
+              results, and at 420px a wrapped row of nine publications took
+              five lines and pushed the first card off the screen. A row that
+              scrolls sideways costs one line at any width. */}
+          {query && sources.length > 1 && loadedSourcesQuery === query && (
+            <ChipRow className="mt-4">
+              <Chip active={!feed} onClick={() => go(searchUrl(query, sort, null))}>
+                All sources
+              </Chip>
+              {shownSources.map((source) => (
+                <Chip
+                  key={source.feed_id}
+                  active={feed === source.feed_id}
+                  count={source.count}
+                  onClick={() =>
+                    go(
+                      searchUrl(
+                        query,
+                        sort,
+                        feed === source.feed_id ? null : source.feed_id
+                      )
+                    )
+                  }
+                >
+                  {source.feed_title}
+                </Chip>
+              ))}
+              {shownSources.length < sources.length && (
+                <Chip active={false} onClick={() => setAllSources(true)}>
+                  {sources.length - shownSources.length} more
+                </Chip>
+              )}
             </ChipRow>
           )}
 

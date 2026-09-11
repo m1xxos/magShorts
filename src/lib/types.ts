@@ -58,6 +58,18 @@ export interface FolderDto {
   feed_count: number;
 }
 
+// How search orders what it found. Relevance is bm25 over the index; the two
+// date orders ignore the score entirely, which is the point of asking for them.
+export type SearchSort = "relevance" | "newest" | "oldest";
+
+// One publication in the search's source filter, with how many of the results
+// came from it.
+export interface SearchSourceDto {
+  feed_id: number;
+  feed_title: string;
+  count: number;
+}
+
 export interface ArticleDto {
   id: number;
   feed_id: number;

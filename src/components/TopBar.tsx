@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { SearchField, SearchIcon } from "./SearchField";
 import { Sheet } from "./ui/Sheet";
+import { type SearchSort } from "@/lib/types";
 
 function MenuIcon({ size = 18 }: { size?: number }) {
   return (
@@ -30,6 +31,7 @@ export function TopBar({
   username,
   nav,
   searchQuery,
+  searchSort,
 }: {
   selectedFeedId?: number | null;
   username?: string;
@@ -44,6 +46,7 @@ export function TopBar({
   // Pre-fills the box on the results page, so the header field and the URL
   // never disagree about what was searched for.
   searchQuery?: string;
+  searchSort?: SearchSort;
 }) {
   const [navOpen, setNavOpen] = useState(false);
   const router = useRouter();
@@ -83,6 +86,7 @@ export function TopBar({
             and the results page carries the box instead. */}
         <SearchField
           initial={searchQuery ?? ""}
+          sort={searchSort}
           className="mx-4 hidden min-w-0 max-w-md flex-1 sm:flex"
         />
         <Link

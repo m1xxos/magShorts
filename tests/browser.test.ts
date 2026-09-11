@@ -121,6 +121,114 @@ describe("search", () => {
   });
 });
 
+describe("ordering and narrowing the results", () => {
+  // The first card's own text, which is where an order is visible.
+  const first = (page: Page) =>
+    page.locator("main a[href*='article=']").first().innerText();
+
+  it("reorders by date and says so in the address bar", async () => {
+    const page = await open();
+    await go(page, "/search?q=kubernetes");
+    // Relevance leads with the title match; the Russian article matches only
+    // through its Kubernetes tag.
+    assert.ok((await first(page)).includes("How to scale Kubernetes"));
+
+    await page.getByRole("button", { name: "Newest" }).click();
+    await page.waitForTimeout(900);
+    assert.equal(path(page), "/search?q=kubernetes&sort=newest");
+    assert.ok((await first(page)).includes("Кубернетес"));
+
+    await page.getByRole("button", { name: "Oldest" }).click();
+    await page.waitForTimeout(900);
+    assert.equal(path(page), "/search?q=kubernetes&sort=oldest");
+    assert.ok((await first(page)).includes("quiet week"));
+
+    // Back to the default, and the URL stops carrying what it already means.
+    await page.getByRole("button", { name: "Relevance" }).click();
+    await page.waitForTimeout(900);
+    assert.equal(path(page), "/search?q=kubernetes");
+    assert.deepEqual((page as Page & { failures: string[] }).failures, []);
+    await page.close();
+  });
+
+  it("opens a pasted order without being told twice", async () => {
+    const page = await open();
+    await go(page, "/search?q=kubernetes&sort=newest");
+    assert.ok((await first(page)).includes("Кубернетес"));
+    assert.equal(
+      await page
+        .getByRole("button", { name: "Newest" })
+        .getAttribute("aria-pressed"),
+      "true"
+    );
+    await page.close();
+  });
+
+  it("narrows to one publication, and the same chip widens again", async () => {
+    const page = await open();
+    await go(page, "/search?q=kubernetes");
+    assert.equal(await results(page), 3);
+
+    const chip = page.getByRole("button", { name: /^Habr/ });
+    await chip.click();
+    await page.waitForTimeout(900);
+    assert.ok(path(page).startsWith("/search?q=kubernetes&feed="));
+    assert.equal(await results(page), 1);
+    assert.ok((await first(page)).includes("Кубернетес"));
+    // The publications it did not narrow to are still offered — a filter that
+    // deletes every other option can only be undone by pressing it again.
+    await page.getByRole("button", { name: /^The Verge/ }).waitFor();
+
+    await chip.click();
+    await page.waitForTimeout(900);
+    assert.equal(path(page), "/search?q=kubernetes");
+    assert.equal(await results(page), 3);
+    await page.close();
+  });
+
+  it("keeps the order but drops the publication on a new search", async () => {
+    // The order is how this reader likes to look at results. The publication
+    // was picked out of one search's own sources and means nothing in the next.
+    const page = await open();
+    await go(page, "/search?q=kubernetes&sort=newest");
+    await page.getByRole("button", { name: /^Habr/ }).click();
+    await page.waitForTimeout(900);
+
+    const box = page.getByRole("textbox", { name: "Search articles" }).first();
+    await box.fill("python");
+    await box.press("Enter");
+    await page.waitForTimeout(1200);
+    assert.equal(path(page), "/search?q=python&sort=newest");
+    assert.equal(await results(page), 2);
+    await page.close();
+  });
+
+  it("does not count a publication the search never found", async () => {
+    // A ?feed= naming a publication this search found nothing in — a URL
+    // somebody can type, and what a link becomes once the publication is
+    // unsubscribed. The count belongs to the whole search, and printing it
+    // here read "3 in your subscriptions" directly above "Nothing matched".
+    const page = await open();
+    await go(page, "/search?q=kubernetes&feed=99999");
+    assert.equal(await results(page), 0);
+    const line = await page.locator("main p").first().innerText();
+    assert.match(line, /^0 in your subscriptions/);
+    await page.close();
+  });
+
+  it("offers no order for a search that found one thing", async () => {
+    const page = await open();
+    await go(page, "/search?q=" + encodeURIComponent("tag:Machine Learning"));
+    assert.equal(await results(page), 1);
+    assert.equal(
+      await page.getByRole("button", { name: "Newest" }).count(),
+      0,
+      "three buttons that reorder a single card are a distinction without a difference"
+    );
+    await page.close();
+  });
+});
+
 describe("tags", () => {
   it("searches a tag from the pill on a card", async () => {
     // Typing "tag:" is not a thing anyone should have to know.
@@ -148,6 +256,21 @@ describe("tags", () => {
     await page.waitForTimeout(900);
     assert.equal(path(page), "/search");
     assert.equal(await results(page), 0, "back to nothing searched");
+    await page.close();
+  });
+
+  it("offers no tag chips over a typed search", async () => {
+    // A tag chip *replaces* the query rather than narrowing it, so over the
+    // results of something you typed it is a row of buttons that throw away
+    // what you came here with. The publications underneath narrow instead.
+    const page = await open();
+    await go(page, "/search?q=kubernetes");
+    assert.equal(
+      await page.getByRole("button", { name: /^Python/ }).count(),
+      0
+    );
+    await go(page, "/search");
+    assert.ok((await page.getByRole("button", { name: /^Python/ }).count()) > 0);
     await page.close();
   });
 

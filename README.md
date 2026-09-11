@@ -81,6 +81,10 @@ and tags across everything you subscribe to.
   by triggers so an edited or deleted article follows.
 - **Tags are tapped, not typed** — the tag on any card, or the list of the tags
   you actually have on `/search`, commonest first. `tag:python` works too.
+- **Relevance, newest or oldest**, and a row of the publications the results
+  actually came from, with how many from each — a broad word lands in three
+  dozen of them here. Both are in the address bar, so a search you send someone
+  arrives in the order you were reading it.
 - What you type is never syntax. Words are extracted and quoted, the last gets
   a prefix `*` so results narrow as you type, and a box full of punctuation
   returns nothing rather than an error.
@@ -398,7 +402,8 @@ All data routes require a session cookie (sign in at `/login`). The
 | GET | `/api/articles/:id/related` | What to read next, ranked against this article |
 | GET | `/api/articles/:id/content` | Extracted body from cache; never fetches |
 | POST | `/api/articles/:id/content` | Extract or return cache; `?retry=1` re-runs a failed one |
-| GET | `/api/search` | Search titles and tags; `?q=`, `?limit=`, `?offset=`. `q=tag:NAME` searches tags only |
+| GET | `/api/search` | Search titles and tags; `?q=`, `?sort=relevance\|newest\|oldest`, `?feed=ID`, `?limit=`, `?offset=`. `q=tag:NAME` searches tags only |
+| GET | `/api/search/sources` | Which publications a search found something in, and how many from each |
 | GET | `/api/tags` | The tags your subscriptions carry, commonest first |
 | GET | `/api/recommendations` | Personalized feed; `?window=day\|week\|month`, `?limit=`, `?offset=` |
 | GET | `/api/shorts` | The Shorts deck; `?limit=`, `?folder=ID` |

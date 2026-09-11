@@ -20,6 +20,20 @@ async function search(query: string, extra = ""): Promise<string[]> {
   return (body as Array<{ title: string }>).map((article) => article.title);
 }
 
+interface SourceRow {
+  feed_id: number;
+  feed_title: string;
+  count: number;
+}
+
+async function sources(query: string): Promise<SourceRow[]> {
+  const { body } = await api(
+    app,
+    `/api/search/sources?q=${encodeURIComponent(query)}`
+  );
+  return body as SourceRow[];
+}
+
 describe("search", () => {
   it("finds a word in a title", async () => {
     const titles = await search("kubernetes");
@@ -48,6 +62,86 @@ describe("search", () => {
 
   it("matches a prefix, so results narrow as you type", async () => {
     assert.ok((await search("кубер")).includes("Кубернетес для чайников"));
+  });
+
+  it("orders by date when asked, both ways", async () => {
+    // The fixture publishes one article a day, newest first, so the date
+    // orders are each other's reverse over the same set of matches.
+    const newest = await search("kubernetes", "&sort=newest");
+    const oldest = await search("kubernetes", "&sort=oldest");
+    assert.ok(newest.length > 1);
+    assert.deepEqual(oldest, [...newest].reverse());
+  });
+
+  it("puts the freshest article first, whatever it scores", async () => {
+    // The Russian article matches only through its Kubernetes tag, so
+    // relevance does not lead with it and the date order must.
+    const newest = await search("kubernetes", "&sort=newest");
+    assert.equal(newest[0], "Кубернетес для чайников");
+    assert.equal((await search("kubernetes"))[0], "How to scale Kubernetes");
+  });
+
+  it("treats a sort it does not know as relevance", async () => {
+    // It arrives from a URL a person can edit. The honest answer is the
+    // results, not an error page where the search used to be.
+    const { status } = await api(app, "/api/search?q=kubernetes&sort=banana");
+    assert.equal(status, 200);
+    assert.deepEqual(await search("kubernetes", "&sort=banana"),
+      await search("kubernetes"));
+  });
+
+  it("lists which publications the results came from", async () => {
+    const rows = await sources("kubernetes");
+    assert.deepEqual(
+      rows.map((row) => row.feed_title).sort(),
+      ["Habr", "The Verge"]
+    );
+    // The counts are the whole result set, not the page that was fetched.
+    const total = rows.reduce((sum, row) => sum + row.count, 0);
+    assert.equal(total, (await search("kubernetes")).length);
+  });
+
+  it("never counts a publication nobody subscribed to", async () => {
+    assert.ok(
+      !(await sources("kubernetes")).some(
+        (row) => row.feed_title === "Not subscribed"
+      )
+    );
+  });
+
+  it("narrows to one publication", async () => {
+    const verge = (await sources("kubernetes")).find(
+      (row) => row.feed_title === "The Verge"
+    )!;
+    const titles = await search("kubernetes", `&feed=${verge.feed_id}`);
+    assert.equal(titles.length, verge.count);
+    assert.ok(titles.includes("How to scale Kubernetes"));
+    assert.ok(!titles.includes("Кубернетес для чайников"));
+  });
+
+  it("keeps offering the other publications while one is chosen", async () => {
+    // The filter's own buttons. Narrowing them to the publication already
+    // picked would leave a filter that can only be undone by pressing the
+    // same button again.
+    assert.equal((await sources("kubernetes")).length, 2);
+  });
+
+  it("ignores a publication that is not one", async () => {
+    assert.deepEqual(await search("kubernetes", "&feed=abc"),
+      await search("kubernetes"));
+    assert.deepEqual(await search("kubernetes", "&feed=99999"), []);
+  });
+
+  it("pages a date order without repeating an article", async () => {
+    const first = await search("kubernetes", "&sort=newest&limit=1");
+    const second = await search("kubernetes", "&sort=newest&limit=1&offset=1");
+    assert.equal(first.length, 1);
+    assert.notDeepEqual(first, second);
+  });
+
+  it("wants a session for the sources too", async () => {
+    const response = await fetch(`${app.baseUrl}/api/search/sources?q=a`);
+    assert.equal(response.status, 401);
   });
 
   it("searches tags when asked", async () => {
