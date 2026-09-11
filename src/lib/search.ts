@@ -12,7 +12,11 @@
 
 import { GENERIC_TOPICS } from "./catalog";
 import { ARTICLE_COLUMNS, getDb } from "./db";
-import { type ArticleDto } from "./types";
+import {
+  type ArticleDto,
+  type SearchSort,
+  type SearchSourceDto,
+} from "./types";
 
 // Title first by a wide margin, then the tag, then the summary. Checked
 // against the real 8,492: "kubernetes" and "apple" both put six title matches
@@ -38,14 +42,34 @@ function toMatch(input: string): string | null {
     .join(" ");
 }
 
-export function searchArticles(
-  query: string,
-  limit: number,
-  offset: number
-): ArticleDto[] {
+// Never interpolated from anything the user typed: the sort arrives as one of
+// three names and picks one of three fixed clauses.
+//
+// Relevance keeps the date as its tiebreak, so two equally good matches come
+// back newest first. The date sorts put `id` under the date because a feed
+// that publishes ten items in one minute shares a timestamp to the second,
+// and without it the page boundary of an infinite scroll falls in a different
+// place each request and an article shows up twice.
+//
+// NULL dates: SQLite sorts NULL smallest, so DESC already puts them last.
+// Ascending needs saying, or an article with no date at all would be the
+// oldest thing you own.
+const ORDER: Record<SearchSort, string> = {
+  relevance: `bm25(articles_fts, ${WEIGHTS}), a.published_at DESC, a.id DESC`,
+  newest: "a.published_at DESC, a.id DESC",
+  oldest: "a.published_at IS NULL, a.published_at ASC, a.id ASC",
+};
+
+export function isSearchSort(value: unknown): value is SearchSort {
+  return value === "relevance" || value === "newest" || value === "oldest";
+}
+
+// What both the results and the source counts are asking about: the MATCH
+// expression, or null when there is nothing to ask.
+function expressionFor(query: string): string | null {
   const tagged = TAG_PREFIX.test(query);
   const match = toMatch(query.replace(TAG_PREFIX, ""));
-  if (!match) return [];
+  if (!match) return null;
   // Scoped to one column when asked, which is the whole of "search by tag".
   // The brackets are load-bearing: a column filter binds to the one phrase
   // after it, so `topic: "machine" "learning"*` asks for a topic containing
@@ -53,7 +77,22 @@ export function searchArticles(
   // titled "Learning to weld" and tagged Machine Shop. Tags of two words are
   // ordinary here (Social Media, Illegal Immigration), and a chip is a click,
   // not something anyone typed.
-  const expression = tagged ? `topic: (${match})` : match;
+  return tagged ? `topic: (${match})` : match;
+}
+
+// The same scope the grid uses. Without it search is the one place in the app
+// that hands back the Discover catalogue nobody subscribed to.
+const SCOPE = "f.enabled = 1 AND f.subscribed = 1";
+
+export function searchArticles(
+  query: string,
+  limit: number,
+  offset: number,
+  options: { sort?: SearchSort; feedId?: number | null } = {}
+): ArticleDto[] {
+  const expression = expressionFor(query);
+  if (!expression) return [];
+  const { sort = "relevance", feedId = null } = options;
 
   return getDb()
     .prepare(
@@ -61,15 +100,37 @@ export function searchArticles(
          FROM articles_fts
          JOIN articles a ON a.id = articles_fts.rowid
          JOIN feeds f ON f.id = a.feed_id
-        WHERE articles_fts MATCH ?
-          -- The same scope the grid uses. Without it search is the one place
-          -- in the app that hands back the Discover catalogue nobody
-          -- subscribed to.
-          AND f.enabled = 1 AND f.subscribed = 1
-        ORDER BY bm25(articles_fts, ${WEIGHTS}), a.published_at DESC
-        LIMIT ? OFFSET ?`
+        WHERE articles_fts MATCH @match
+          AND ${SCOPE}
+          -- One statement for "every publication" and for "just this one",
+          -- rather than two query strings that drift apart.
+          AND (@feed IS NULL OR a.feed_id = @feed)
+        ORDER BY ${ORDER[sort]}
+        LIMIT @limit OFFSET @offset`
     )
-    .all(expression, limit, offset) as ArticleDto[];
+    .all({ match: expression, feed: feedId, limit, offset }) as ArticleDto[];
+}
+
+// Which publications this search found something in, biggest first.
+//
+// Deliberately *not* narrowed by the publication already chosen: these are the
+// filter's own buttons, and a filter that deletes every other option the
+// moment you use one can only be undone by pressing the same button again.
+export function searchSources(query: string): SearchSourceDto[] {
+  const expression = expressionFor(query);
+  if (!expression) return [];
+
+  return getDb()
+    .prepare(
+      `SELECT a.feed_id AS feed_id, f.title AS feed_title, COUNT(*) AS count
+         FROM articles_fts
+         JOIN articles a ON a.id = articles_fts.rowid
+         JOIN feeds f ON f.id = a.feed_id
+        WHERE articles_fts MATCH ? AND ${SCOPE}
+        GROUP BY a.feed_id, f.title
+        ORDER BY count DESC, f.title ASC`
+    )
+    .all(expression) as SearchSourceDto[];
 }
 
 // The tags worth offering as a starting point, commonest first.
