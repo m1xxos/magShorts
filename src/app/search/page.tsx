@@ -302,8 +302,14 @@ function SearchResults() {
   // The real number, now that the sources have counted them. Until they land —
   // and on the page that failed to fetch them — the length of what is on
   // screen, which is the honest answer to how many there are.
+  //
+  // `feed && !activeSource` is the same fallback: a ?feed= naming a
+  // publication this search found nothing in, which is a URL somebody can
+  // type and what a link becomes after the publication is unsubscribed. The
+  // total belongs to the whole search, and printing it over an empty grid
+  // read "1162 in your subscriptions" above "Nothing matched".
   const counted =
-    loadedSourcesQuery === query && sources.length > 0
+    loadedSourcesQuery === query && sources.length > 0 && (!feed || activeSource)
       ? activeSource
         ? `${activeSource.count} from ${activeSource.feed_title}`
         : `${total} in your subscriptions`

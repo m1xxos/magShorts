@@ -203,6 +203,19 @@ describe("ordering and narrowing the results", () => {
     await page.close();
   });
 
+  it("does not count a publication the search never found", async () => {
+    // A ?feed= naming a publication this search found nothing in — a URL
+    // somebody can type, and what a link becomes once the publication is
+    // unsubscribed. The count belongs to the whole search, and printing it
+    // here read "3 in your subscriptions" directly above "Nothing matched".
+    const page = await open();
+    await go(page, "/search?q=kubernetes&feed=99999");
+    assert.equal(await results(page), 0);
+    const line = await page.locator("main p").first().innerText();
+    assert.match(line, /^0 in your subscriptions/);
+    await page.close();
+  });
+
   it("offers no order for a search that found one thing", async () => {
     const page = await open();
     await go(page, "/search?q=" + encodeURIComponent("tag:Machine Learning"));
