@@ -9,6 +9,7 @@ export type RecWindow = "day" | "week" | "month";
 // Shape of /api/settings. The dialog edits only some of these; the per-domain
 // lists are written from Manage sources.
 export interface SettingsForm {
+  city: string;
   marreta_url: string;
   archive_url: string;
   direct_domains: string;

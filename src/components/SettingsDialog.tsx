@@ -22,6 +22,7 @@ const EDITABLE: Array<keyof SettingsForm> = [
   "digest_weekly_at",
   "digest_tz",
   "digest_rerank",
+  "city",
 ];
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -369,6 +370,16 @@ export function SettingsDialog({
 
   const digest = (
     <div className="space-y-5">
+      <div>
+        {field(
+          "Your city",
+          "city",
+          "Санкт-Петербург",
+          "Local news gets a digest of its own, from publications found for " +
+            "this city. They never appear in your feed, For you or search."
+        )}
+      </div>
+
       <div>
         <span className="text-[13px] font-medium text-ink-soft">Sources</span>
         <span className="mt-1 mb-2 block text-[12px] text-ink-faint pointer-coarse:text-[13.5px]">

@@ -175,6 +175,30 @@ describe("city publications stay out of everything", () => {
     drop.run("How to scale Kubernetes");
   });
 
+  it("stops being local news the moment you subscribe to it", async () => {
+    // subscribed = 1 with a city set reads as an ordinary subscription to
+    // every query in the app and as local news to the digest. Made impossible
+    // rather than handled.
+    const feed = app.db
+      .prepare("SELECT id FROM feeds WHERE city IS NOT NULL")
+      .get() as { id: number };
+    await api(app, `/api/feeds/${feed.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ subscribed: true }),
+    });
+    const after = app.db
+      .prepare("SELECT subscribed, city FROM feeds WHERE id = ?")
+      .get(feed.id) as { subscribed: number; city: string | null };
+    assert.equal(after.subscribed, 1);
+    assert.equal(after.city, null);
+
+    // Put it back, since the rest of this suite depends on it.
+    app.db
+      .prepare("UPDATE feeds SET subscribed = 0, city = ? WHERE id = ?")
+      .run("Санкт-Петербург", feed.id);
+  });
+
   it("is still reachable by id, because the reader needs it", async () => {
     const city = app.articles.find((a) => a.title === CITY_TITLE)!;
     const { status, body } = await api(app, `/api/articles/${city.id}`);
