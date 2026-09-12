@@ -20,7 +20,10 @@ export type SettingKey =
   | "digest_daily_at"
   | "digest_weekly_at"
   | "digest_tz"
-  | "digest_rerank";
+  | "digest_rerank"
+  // The city whose local news gets its own digest, as the reader spells it.
+  // Empty means the feature is off and the third pill never appears.
+  | "city";
 
 export const SETTING_KEYS: SettingKey[] = [
   "marreta_url",
@@ -35,6 +38,7 @@ export const SETTING_KEYS: SettingKey[] = [
   "digest_weekly_at",
   "digest_tz",
   "digest_rerank",
+  "city",
 ];
 
 const ENV_FALLBACKS: Record<SettingKey, string | undefined> = {
@@ -52,6 +56,7 @@ const ENV_FALLBACKS: Record<SettingKey, string | undefined> = {
   // in the wrong zone is the whole feature landing at the wrong hour.
   digest_tz: process.env.DIGEST_TZ ?? process.env.TZ,
   digest_rerank: process.env.DIGEST_RERANK,
+  city: process.env.CITY,
 };
 
 const DEFAULTS: Partial<Record<SettingKey, string>> = {
@@ -69,7 +74,23 @@ const DEFAULTS: Partial<Record<SettingKey, string>> = {
   digest_tz: "UTC",
   // "off" keeps the scored order and saves the one ranking call.
   digest_rerank: "on",
+  // No default. Nobody's city is a sensible guess, and guessing wrong would
+  // fetch a stranger's local news every fifteen minutes.
+  city: "",
 };
+
+// The city as it is matched against feeds.city, which is an exact comparison:
+// "Санкт-Петербург", "санкт-петербург " and "Санкт-Петербург" are one place,
+// and without this the digest would empty itself the first time the field was
+// re-typed with different capitalisation.
+export function normalizeCity(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+// The city the app is currently reporting on, normalised, or "" if none.
+export function currentCity(): string {
+  return normalizeCity(getSetting("city"));
+}
 
 function matchesDomainList(articleUrl: string, key: SettingKey): boolean {
   let host: string;

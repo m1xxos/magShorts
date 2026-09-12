@@ -264,6 +264,46 @@ LLM_BENCH_PROVIDERS='ollama,groq' npm run llm-bench
 It writes `docs/llm-bench.md` — a speed table plus every annotation side by
 side, one column per model, so quality is judged by eye.
 
+## Your city
+
+Name your city in Settings and local news gets a digest of its own, beside
+Daily and Weekly, carrying the city's own name.
+
+The publications are found for you: the model is asked to name the city's
+press, and every candidate goes through the same three gates the Discover
+catalogue uses — it must resolve to a real feed, it must be new, and it must
+belong, judged on ten of its real headlines after they have been fetched.
+That last gate is load-bearing here in a way it is not for Discover. A made-up
+national magazine domain usually does not exist; a made-up *local* one often
+does, parked or squatted or belonging to a real business, and nothing else
+catches a live site for the wrong place.
+
+**They stay out of everything else.** Not the grid, not For you, not Shorts,
+not search, not the main digest — and they teach the taste profile nothing, so
+reading about a bridge closure does not change what For you thinks you like.
+A local wire files dozens of items a day and would drown a feed built by
+subject. The exception is deliberate: saving one puts it in Read later like
+anything else, and syncs to Obsidian like anything else.
+
+**Ranked by what happened, not by what you like.** The taste profile is built
+from what you read and knows nothing about a road closure, so the city digest
+asks a different question: how many of the city's own publications thought a
+story worth filing. Three of them leading with the same thing outranks one
+outlet's fresher piece. Recency is the tiebreak underneath it, and a model
+call reorders the top of the list — or does not, and the scored order is
+already a real answer.
+
+**Expect a short list, and check it.** Manage sources gains a *Local news*
+section: what was found, how many articles each has filed, and a × on each.
+Plenty of local publications have no feed at all — asked for Санкт-Петербург
+the model named six, three of which publish nothing to subscribe to — so the
+same section takes a URL you paste in. That door is also the whole feature
+when no model is configured, because there is no way to work out the papers of
+a city without one.
+
+Changing your city switches the old city's publications off rather than
+deleting them; correcting a typo switches them back on.
+
 ## Sources and folders
 
 **Manage sources** (`/sources`) is the admin surface: add a source by pasting
@@ -420,8 +460,12 @@ All data routes require a session cookie (sign in at `/login`). The
 | GET | `/api/discover/publications` | Catalogue publications; `?topic=`, `?q=`, `?limit=`, `?offset=` |
 | GET | `/api/discover/articles` | The catalogue flattened to articles; same filters |
 | POST | `/api/discover/suggest` | Fill it: `{ "seed": true }` for the curated list, `{}` to ask the model |
-| GET | `/api/digest` | The stored digest snapshot; `?kind=daily\|weekly` |
+| GET | `/api/digest` | The stored digest snapshot; `?kind=daily\|weekly\|city` |
 | POST | `/api/digest/build` | Build it now: `{ "kind", "force"? }` — `force` discards the period's snapshot |
+| GET | `/api/city/sources` | The local publications feeding the city digest |
+| POST | `/api/city/sources` | Add one by URL: `{ "url" }` — a feed or just the site |
+| DELETE | `/api/city/sources/:id` | Remove one, and its articles |
+| POST | `/api/city/discover` | Ask the model for this city's press and verify what it names |
 | GET | `/api/tokens` | API tokens in use |
 | POST | `/api/tokens` | Mint one: `{ "name" }` — the token is returned exactly once |
 | DELETE | `/api/tokens/:id` | Revoke one |

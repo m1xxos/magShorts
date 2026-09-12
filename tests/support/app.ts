@@ -33,6 +33,18 @@ const FEEDS = [
   { title: "Habr", url: "https://habr.test/rss", subscribed: 1 },
   { title: "The Verge", url: "https://verge.test/rss", subscribed: 1 },
   { title: "Not subscribed", url: "https://catalog.test/rss", subscribed: 0 },
+  // A city publication: unsubscribed like a catalog one, but carrying a city,
+  // which is what keeps it out of the catalog as well as out of everything
+  // else. Its article is the probe for every isolation test.
+  {
+    title: "Fontanka",
+    url: "https://fontanka.test/rss",
+    subscribed: 0,
+    // Stored normalised, the way every insert path in the app writes it:
+    // feeds.city is matched with `=`, so the match key and the spelling shown
+    // on screen are deliberately different things.
+    city: "санкт-петербург",
+  },
 ];
 
 // Tags repeat on purpose: the tag list only offers a tag once at least two
@@ -53,6 +65,7 @@ const ARTICLES = [
   { feed: 1, title: "Welding tips", topic: "Machine Learning", summary: "" },
   { feed: 1, title: "Another quiet week", topic: "Magazines", summary: "Still nothing" },
   { feed: 2, title: "Kubernetes in the catalog", topic: "Kubernetes", summary: "Should never be found" },
+  { feed: 3, title: "Мост развели раньше срока", topic: "Город", summary: "Kubernetes is mentioned here so search would find it if it could" },
 ];
 
 async function waitFor(url: string, attempts = 60): Promise<void> {
@@ -103,9 +116,16 @@ export async function startApp(port: number): Promise<TestApp> {
       Number(
         db
           .prepare(
-            "INSERT INTO feeds (title, url, subscribed, enabled, folder_id) VALUES (?, ?, ?, 1, ?)"
+            "INSERT INTO feeds (title, url, subscribed, enabled, folder_id, city) VALUES (?, ?, ?, 1, ?, ?)"
           )
-          .run(feed.title, feed.url, feed.subscribed, folderIds[0]).lastInsertRowid
+          .run(
+            feed.title,
+            feed.url,
+            feed.subscribed,
+            // A city publication belongs to no folder, like a catalog one.
+            "city" in feed ? null : folderIds[0],
+            "city" in feed ? feed.city : null
+          ).lastInsertRowid
       )
   );
 
@@ -187,10 +207,12 @@ export async function startApp(port: number): Promise<TestApp> {
 
 export async function api(
   app: TestApp,
-  pathname: string
+  pathname: string,
+  init: RequestInit = {}
 ): Promise<{ status: number; body: unknown }> {
   const response = await fetch(app.baseUrl + pathname, {
-    headers: { cookie: app.cookie },
+    ...init,
+    headers: { cookie: app.cookie, ...(init.headers ?? {}) },
   });
   const text = await response.text();
   return {

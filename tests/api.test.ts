@@ -34,6 +34,230 @@ async function sources(query: string): Promise<SourceRow[]> {
   return body as SourceRow[];
 }
 
+// The promise the city digest makes: a local publication is fetched and kept,
+// and appears in none of the places built out of what you subscribe to. One
+// case per surface, because this is the kind of thing that is true on the day
+// it is written and quietly stops being true later.
+describe("city publications stay out of everything", () => {
+  const CITY_TITLE = "Мост развели раньше срока";
+
+  async function titles(path: string): Promise<string[]> {
+    const { body } = await api(app, path);
+    const rows = Array.isArray(body) ? body : [];
+    return (rows as Array<{ title: string }>).map((row) => row.title);
+  }
+
+  it("is not in the home grid", async () => {
+    assert.ok(!(await titles("/api/articles?limit=100")).includes(CITY_TITLE));
+  });
+
+  it("is not in For you", async () => {
+    assert.ok(
+      !(await titles("/api/recommendations?limit=100")).includes(CITY_TITLE)
+    );
+  });
+
+  it("is not in Shorts", async () => {
+    assert.ok(!(await titles("/api/shorts?limit=100")).includes(CITY_TITLE));
+  });
+
+  it("is not in search, even on a word it contains", async () => {
+    // Its summary says "Kubernetes" precisely so this test fails loudly if the
+    // scope clause is ever dropped.
+    assert.ok(!(await titles("/api/search?q=kubernetes")).includes(CITY_TITLE));
+    assert.ok(
+      !(await titles("/api/search?q=" + encodeURIComponent("мост"))).includes(
+        CITY_TITLE
+      )
+    );
+  });
+
+  it("is not among the tags on offer", async () => {
+    const { body } = await api(app, "/api/tags");
+    const tags = (body as Array<{ topic: string }>).map((row) => row.topic);
+    assert.ok(!tags.includes("Город"));
+  });
+
+  it("is not in the Discover catalogue", async () => {
+    // The one surface that shares `subscribed = 0` with it, and so the one
+    // that had to be taught. These two routes answer with an object rather
+    // than a bare array.
+    const { body } = await api(app, "/api/discover/publications");
+    const page = body as {
+      publications: Array<{ title: string }>;
+      catalog_size: number;
+      topics: Array<{ topic: string }>;
+    };
+    assert.ok(!page.publications.some((row) => row.title === "Fontanka"));
+    // The catalogue's own size drives the autofill ceiling, so a city feed
+    // counted here would quietly stop Discover growing.
+    assert.equal(page.catalog_size, 1, "the one real catalogue publication");
+    assert.ok(!page.topics.some((row) => row.topic === "Город"));
+
+    const feed = await api(app, "/api/discover/articles?limit=100");
+    const articles = (feed.body as { articles: Array<{ title: string }> })
+      .articles;
+    assert.ok(!articles.some((row) => row.title === CITY_TITLE));
+  });
+
+  it("cannot be dismissed through the Discover endpoint", async () => {
+    // It shares `subscribed = 0` with the catalogue, so without its own guard
+    // this would delete the feed and blacklist its host from Discover too.
+    const feed = app.db
+      .prepare("SELECT id FROM feeds WHERE city IS NOT NULL")
+      .get() as { id: number };
+    const { status } = await api(app, `/api/discover/publications/${feed.id}`, {
+      method: "DELETE",
+    });
+    assert.equal(status, 404);
+    const still = app.db
+      .prepare("SELECT COUNT(*) AS n FROM feeds WHERE id = ?")
+      .get(feed.id) as { n: number };
+    assert.equal(still.n, 1, "the city publication survives");
+  });
+
+  it("is not offered as Up next beside a subscription", async () => {
+    const seed = app.articles.find((a) => a.title === "How to scale Kubernetes")!;
+    assert.ok(
+      !(await titles(`/api/articles/${seed.id}/related`)).includes(CITY_TITLE)
+    );
+  });
+
+  it("teaches the taste profile nothing", async () => {
+    // The isolation runs both ways. /api/events snapshots an article's
+    // embedding onto the event whatever feed it came from, so without the
+    // exclusion, saving one card about a bridge closure would shape For you,
+    // Shorts, the digest's rerank sample and Discover's suggestions.
+    //
+    // The fixtures carry no embeddings — the scheduler is off, so nothing ever
+    // backfills them — and buildProfile skips a row that has none. So the
+    // event rows here bring their own vector, and a subscription is saved the
+    // same way as a control: without it this test would pass on a codebase
+    // with no exclusion at all.
+    const { getDb } = await import("../src/lib/db");
+    const { buildProfile, feedWeights } = await import("../src/lib/recommend");
+    const { EMBEDDING_DIM } = await import("../src/lib/embeddings");
+
+    const vector = new Float32Array(EMBEDDING_DIM);
+    vector[0] = 1;
+    const embedding = Buffer.from(vector.buffer);
+
+    const save = getDb().prepare(
+      `INSERT INTO user_events (user_id, article_id, link, title, feed_id, action, embedding)
+       SELECT 1, a.id, a.link, a.title, a.feed_id, 'save', ?
+         FROM articles a WHERE a.title = ?`
+    );
+    const drop = getDb().prepare(
+      "DELETE FROM user_events WHERE link = (SELECT link FROM articles WHERE title = ?)"
+    );
+
+    const before = buildProfile(1).positiveSignals;
+
+    save.run(embedding, CITY_TITLE);
+    assert.equal(
+      buildProfile(1).positiveSignals,
+      before,
+      "saving a local article says nothing about what you like to read"
+    );
+    const cityFeed = app.db
+      .prepare("SELECT id FROM feeds WHERE city IS NOT NULL")
+      .get() as { id: number };
+    assert.ok(
+      !feedWeights(1).has(cityFeed.id),
+      "and its publication earns no weight"
+    );
+
+    // The control: the identical insert against a subscription does count.
+    save.run(embedding, "How to scale Kubernetes");
+    assert.equal(buildProfile(1).positiveSignals, before + 1);
+
+    drop.run(CITY_TITLE);
+    drop.run("How to scale Kubernetes");
+  });
+
+  it("stops being local news the moment you subscribe to it", async () => {
+    // subscribed = 1 with a city set reads as an ordinary subscription to
+    // every query in the app and as local news to the digest. Made impossible
+    // rather than handled.
+    const feed = app.db
+      .prepare("SELECT id FROM feeds WHERE city IS NOT NULL")
+      .get() as { id: number };
+    await api(app, `/api/feeds/${feed.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ subscribed: true }),
+    });
+    const after = app.db
+      .prepare("SELECT subscribed, city FROM feeds WHERE id = ?")
+      .get(feed.id) as { subscribed: number; city: string | null };
+    assert.equal(after.subscribed, 1);
+    assert.equal(after.city, null);
+
+    // Put it back, since the rest of this suite depends on it.
+    app.db
+      .prepare("UPDATE feeds SET subscribed = 0, city = ? WHERE id = ?")
+      .run("санкт-петербург", feed.id);
+  });
+
+  it("is still reachable by id, because the reader needs it", async () => {
+    const city = app.articles.find((a) => a.title === CITY_TITLE)!;
+    const { status, body } = await api(app, `/api/articles/${city.id}`);
+    assert.equal(status, 200);
+    assert.equal((body as { title: string }).title, CITY_TITLE);
+  });
+});
+
+describe("the city digest kind", () => {
+  it("is a kind of its own, not silently the daily one", async () => {
+    // Every route used to coerce an unknown kind with
+    // `x === "weekly" ? "weekly" : "daily"`, which would have answered a
+    // request for the city digest with the morning one.
+    const { body } = await api(app, "/api/digest?kind=city");
+    assert.equal((body as { kind: string }).kind, "city");
+  });
+
+  it("keys its period apart from the daily digest", async () => {
+    const { duePeriodKey } = await import("../src/lib/digest");
+    const daily = duePeriodKey("daily");
+    const city = duePeriodKey("city");
+    assert.match(city, /^c\d{4}-\d{2}-\d{2}$/);
+    assert.notEqual(city, daily);
+    // Not the weekly branch, which is where "city" fell through before the
+    // union was widened — the compiler flagged one of the five sites.
+    assert.notEqual(city, duePeriodKey("weekly"));
+  });
+
+  it("switches a city off rather than deleting it", async () => {
+    // A changed city is a reader who moved or one who mistyped, and the two
+    // are indistinguishable. Deleting a publication and its archive because a
+    // settings field was edited is not something a settings field should do.
+    const { switchCity } = await import("../src/lib/city");
+    const feed = app.db
+      .prepare("SELECT id, city FROM feeds WHERE city IS NOT NULL")
+      .get() as { id: number; city: string };
+    const normalised = feed.city;
+
+    switchCity(normalised, "пермь");
+    let row = app.db
+      .prepare("SELECT enabled FROM feeds WHERE id = ?")
+      .get(feed.id) as { enabled: number };
+    assert.equal(row.enabled, 0, "off, but still here");
+
+    // Correcting the spelling brings them back.
+    switchCity("пермь", normalised);
+    row = app.db
+      .prepare("SELECT enabled FROM feeds WHERE id = ?")
+      .get(feed.id) as { enabled: number };
+    assert.equal(row.enabled, 1);
+  });
+
+  it("builds nothing when no city is named", async () => {
+    const { buildDigest } = await import("../src/lib/digest");
+    const result = await buildDigest(1, "city", { force: true });
+    assert.equal(result, null);
+  });
+});
+
 describe("search", () => {
   it("finds a word in a title", async () => {
     const titles = await search("kubernetes");

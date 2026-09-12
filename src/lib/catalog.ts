@@ -63,7 +63,15 @@ type CatalogRow = Article & {
 };
 
 function fetchCatalogArticles(filter: CatalogFilter): CatalogRow[] {
-  const where: string[] = ["f.subscribed = 0", "f.enabled = 1"];
+  // `subscribed = 0` is shared with the city-digest publications, which are
+  // not part of the catalog: nobody is being offered them, they were fetched
+  // because a city was named. Hence the second half of the clause, here and in
+  // the two queries below.
+  const where: string[] = [
+    "f.subscribed = 0",
+    "f.enabled = 1",
+    "f.city IS NULL",
+  ];
   const params: unknown[] = [];
   if (filter.feedId !== undefined) {
     where.push("f.id = ?");
@@ -283,7 +291,8 @@ export function catalogTopics(): Array<{ topic: string; count: number }> {
       // removed, came back as a chip reading "Discover 1392".
       `SELECT a.topic AS topic, COUNT(*) AS count
        FROM articles a JOIN feeds f ON f.id = a.feed_id
-       WHERE f.subscribed = 0 AND f.enabled = 1 AND a.topic IS NOT NULL
+       WHERE f.subscribed = 0 AND f.enabled = 1 AND f.city IS NULL
+         AND a.topic IS NOT NULL
          AND a.topic NOT IN (SELECT name FROM folders)
        GROUP BY a.topic
        HAVING count >= 2 AND COUNT(DISTINCT a.feed_id) < ${TOPIC_MAX_PUBLICATIONS}
@@ -300,7 +309,9 @@ export function catalogTopics(): Array<{ topic: string; count: number }> {
 
 export function catalogSize(): number {
   const row = getDb()
-    .prepare("SELECT COUNT(*) AS n FROM feeds WHERE subscribed = 0 AND enabled = 1")
+    .prepare(
+      "SELECT COUNT(*) AS n FROM feeds WHERE subscribed = 0 AND enabled = 1 AND city IS NULL"
+    )
     .get() as { n: number };
   return row.n;
 }

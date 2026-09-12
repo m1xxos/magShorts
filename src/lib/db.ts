@@ -13,6 +13,10 @@ export interface Feed {
   folder_id: number | null;
   // 0 = a Discover catalog publication rather than a subscription.
   subscribed: number;
+  // Set only on a local-news publication, to the city it reports on. Always
+  // stored with subscribed = 0, so it is invisible everywhere but the city
+  // digest.
+  city: string | null;
   description: string | null;
   // Consecutive failed refreshes; any success sets it back to 0.
   failures: number;
@@ -325,6 +329,15 @@ export function getDb(): Database.Database {
   // down otherwise stays on the refresh list forever, quietly failing.
   if (!feedColumns.some((column) => column.name === "failures")) {
     db.exec("ALTER TABLE feeds ADD COLUMN failures INTEGER NOT NULL DEFAULT 0");
+  }
+  // The city this publication reports on, for the city digest. A third kind of
+  // feed beside subscriptions and the catalog, and the quietest: it is stored
+  // unsubscribed, so every query in the app that asks for `subscribed = 1`
+  // already refuses it, and local news cannot leak into a feed built by
+  // subject. Only the catalog, which is the other half of `subscribed = 0`,
+  // has to be told about it.
+  if (!feedColumns.some((column) => column.name === "city")) {
+    db.exec("ALTER TABLE feeds ADD COLUMN city TEXT");
   }
 
   // Ingest looks an article up by (feed_id, link) on every item of every feed,

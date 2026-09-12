@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { buildDigest, duePeriodKey } from "@/lib/digest";
-import { type DigestKind } from "@/lib/types";
+import { toDigestKind, type DigestKind } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
     kind?: string;
     force?: boolean;
   };
-  const kind: DigestKind = body.kind === "weekly" ? "weekly" : "daily";
+  const kind: DigestKind = toDigestKind(body.kind);
   const periodKey = duePeriodKey(kind);
 
   const result = await buildDigest(user.id, kind, {
