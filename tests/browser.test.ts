@@ -396,7 +396,11 @@ describe("keeping a passage with a finger", () => {
     "and the scheduler is the part nobody reads about until it goes wrong.</p>" +
     "<p>A second paragraph, so the body is not one node.</p>";
 
-  async function readerOnAnIpad(): Promise<Page> {
+  // Its own body text, written before each case rather than once: these run
+  // in the same database as everything else, and a test that leans on a
+  // fixture another test happened to write is a test that passes in order and
+  // fails alone.
+  async function reader(width: number, height: number): Promise<Page> {
     const article = app.articles[0];
     app.db
       .prepare(
@@ -405,15 +409,25 @@ describe("keeping a passage with a finger", () => {
          ON CONFLICT(article_id) DO UPDATE SET html = excluded.html, status = 'ok'`
       )
       .run(article.id, PROSE, PROSE.replace(/<[^>]+>/g, " "));
-    const page = await open(834, 1112);
+    const page = await open(width, height);
     await go(page, `/?view=all&article=${article.id}`);
     await page.locator(".reader-body p").first().waitFor();
+    return page;
+  }
+
+  async function readerOnAnIpad(): Promise<Page> {
+    const page = await reader(834, 1112);
     assert.ok(
       await page.evaluate(() => matchMedia("(pointer: coarse)").matches),
       "the context really is a touch screen"
     );
     return page;
   }
+
+  // Everything actually kept, as opposed to the shade the reader paints over
+  // a passage it is only offering to keep.
+  const kept = (page: Page) =>
+    page.locator('.reader-body mark[data-hl]:not([data-hl="-1"])');
 
   // The finger is gone by the time iOS has made the selection, so the reader
   // has only selectionchange and touchend to go on. Both are exercised.
@@ -464,10 +478,7 @@ describe("keeping a passage with a finger", () => {
       .prepare("SELECT quote FROM highlights ORDER BY id DESC LIMIT 1")
       .get() as { quote: string } | undefined;
     assert.equal(quote?.quote, "Kubernetes schedules", "kept what was selected");
-    assert.equal(
-      await page.locator(".reader-body mark[data-hl]").first().innerText(),
-      "Kubernetes schedules"
-    );
+    assert.equal(await kept(page).first().innerText(), "Kubernetes schedules");
     app.db.exec("DELETE FROM highlights");
     await page.close();
   });
@@ -475,10 +486,7 @@ describe("keeping a passage with a finger", () => {
   it("still works the way a mouse expects", async () => {
     // The finger fix moved when the passage gets painted and when the bar is
     // allowed to close. Both of those are shared with the mouse.
-    const page = await open(1440, 900);
-    const article = app.articles[0];
-    await go(page, `/?view=all&article=${article.id}`);
-    await page.locator(".reader-body p").first().waitFor();
+    const page = await reader(1440, 900);
 
     await page.evaluate(() => {
       const node = document.querySelector(".reader-body p")!.firstChild!;
@@ -505,7 +513,7 @@ describe("keeping a passage with a finger", () => {
     assert.equal(quote?.quote, "Kubernetes");
 
     // And clicking the passage again offers to take it back.
-    await page.locator(".reader-body mark[data-hl]").first().click();
+    await kept(page).first().click();
     await page.waitForTimeout(400);
     assert.equal(await page.getByRole("button", { name: "Remove" }).count(), 1);
     // A click anywhere else puts the bar away.
@@ -513,6 +521,150 @@ describe("keeping a passage with a finger", () => {
     await page.waitForTimeout(400);
     assert.equal(await page.getByRole("button", { name: "Remove" }).count(), 0);
 
+    app.db.exec("DELETE FROM highlights");
+    await page.close();
+  });
+
+  it("lets a mouse dismiss a bar over a selection that did not start a node", async () => {
+    // Marking a passage splits the text nodes under it, and what that leaves
+    // of the selection depends on where it began: a selection starting at
+    // offset 0 collapses, one starting mid-node does not, and one spanning two
+    // paragraphs comes through with text still in it. A dismissal rule that
+    // asked "is anything selected?" therefore worked for the first and left
+    // the bar unclosable for the other two.
+    const page = await reader(1440, 900);
+    await page.evaluate(() => {
+      const node = document.querySelector(".reader-body p")!.firstChild!;
+      const range = document.createRange();
+      range.setStart(node, 11);
+      range.setEnd(node, 31);
+      const selection = getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+      document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    });
+    await page.getByRole("button", { name: "Highlight" }).waitFor();
+    assert.equal(
+      await page.locator('.reader-body mark[data-hl="-1"]').innerText(),
+      "schedules containers"
+    );
+
+    await page.locator(".reader-body p").last().click();
+    await page.waitForTimeout(500);
+    assert.equal(await page.getByRole("button", { name: "Highlight" }).count(), 0);
+    assert.equal(
+      await page.locator('.reader-body mark[data-hl="-1"]').count(),
+      0,
+      "and the shade went with it"
+    );
+    await page.close();
+  });
+
+  it("keeps the bar through a handle passing over the other one", async () => {
+    // Dragging one handle onto the other collapses the selection for an
+    // instant on the way. That instant is not the end of the drag, and a bar
+    // that took it for one would disappear in the middle of being aimed.
+    const page = await readerOnAnIpad();
+    await select(page, 0, 10);
+    await page.getByRole("button", { name: "Highlight" }).waitFor();
+
+    // Watched while it happens, not after: the bar losing its nerve and
+    // coming back is invisible to anything that only looks at the end.
+    const seen: boolean[] = await page.evaluate(async () => {
+      const node = document.querySelector(".reader-body p")!.firstChild!;
+      const samples: boolean[] = [];
+      getSelection()!.collapseToStart();
+      await new Promise((done) => setTimeout(done, 120));
+      getSelection()!.extend(node, 20);
+      for (let at = 0; at < 14; at++) {
+        await new Promise((done) => setTimeout(done, 50));
+        samples.push(
+          [...document.querySelectorAll("button")].some(
+            (button) => button.textContent === "Highlight"
+          )
+        );
+      }
+      return samples;
+    });
+    assert.ok(
+      seen.every(Boolean),
+      `the bar stayed up for the whole drag, saw ${JSON.stringify(seen)}`
+    );
+    assert.equal(await selected(page), "Kubernetes schedules");
+    await page.close();
+  });
+
+  it("waits for a slow tap on its own button", async () => {
+    // iOS takes the selection away on the touchstart of the tap and dispatches
+    // the click afterwards. A press held a beat too long used to outlast the
+    // bar, and the button it was pressing went with it.
+    const page = await readerOnAnIpad();
+    await select(page, 0, 10);
+    await page.getByRole("button", { name: "Highlight" }).waitFor();
+
+    await page.evaluate(() => {
+      document.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      getSelection()!.removeAllRanges();
+    });
+    await page.waitForTimeout(800);
+    assert.equal(
+      await page.getByRole("button", { name: "Highlight" }).count(),
+      1,
+      "the bar is still under the finger that is pressing it"
+    );
+
+    await page.evaluate(() =>
+      document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }))
+    );
+    await page.getByRole("button", { name: "Highlight" }).click();
+    await page.waitForTimeout(900);
+    const quote = app.db
+      .prepare("SELECT quote FROM highlights ORDER BY id DESC LIMIT 1")
+      .get() as { quote: string } | undefined;
+    assert.equal(quote?.quote, "Kubernetes");
+    app.db.exec("DELETE FROM highlights");
+    await page.close();
+  });
+
+  it("moves the shade to the passage actually chosen", async () => {
+    // A second selection supersedes the first. The shade used to be painted
+    // only when there was none on the page at all, so the first passage went
+    // on looking chosen and Highlight would save the second one under it.
+    const page = await reader(1440, 900);
+    const choose = (at: number, from: number, to: number) =>
+      page.evaluate(
+        ([at_, from_, to_]) => {
+          const node =
+            document.querySelectorAll(".reader-body p")[at_].firstChild!;
+          const range = document.createRange();
+          range.setStart(node, from_);
+          range.setEnd(node, to_);
+          const selection = getSelection()!;
+          selection.removeAllRanges();
+          selection.addRange(range);
+          document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+        },
+        [at, from, to]
+      );
+
+    await choose(0, 0, 10);
+    await page.getByRole("button", { name: "Highlight" }).waitFor();
+    // In the other paragraph: marking the first passage split the text node
+    // the first one was made from, and offsets into it no longer mean
+    // anything.
+    await choose(1, 2, 8);
+    await page.waitForTimeout(400);
+
+    const shade = page.locator('.reader-body mark[data-hl="-1"]');
+    assert.equal(await shade.count(), 1, "one passage is offered, not two");
+    assert.equal(await shade.innerText(), "second");
+
+    await page.getByRole("button", { name: "Highlight" }).click();
+    await page.waitForTimeout(900);
+    const quote = app.db
+      .prepare("SELECT quote FROM highlights ORDER BY id DESC LIMIT 1")
+      .get() as { quote: string } | undefined;
+    assert.equal(quote?.quote, "second", "and that is what was kept");
     app.db.exec("DELETE FROM highlights");
     await page.close();
   });

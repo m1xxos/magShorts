@@ -285,6 +285,10 @@ export function Reader({
     pending: typeof pending_;
     draft: string | null;
   }>({ pending: null, draft: null });
+  // The passage currently wearing the pending shade, by identity. Which
+  // passage it is matters: a second selection supersedes the first, and a
+  // failed save must only take back its own mark.
+  const painted = useRef<Anchor | null>(null);
   // Articles about the same thing as this one. Empty is a normal answer.
   const [related, setRelated] = useState<ArticleDto[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -595,6 +599,8 @@ export function Reader({
       mark.replaceWith(...mark.childNodes);
       parent?.normalize();
     }
+    // This took the pending shade with it, whoever put it there.
+    painted.current = null;
 
     const frame = buildFrame(body);
     frameRef.current = frame;
@@ -727,13 +733,31 @@ export function Reader({
   // with it. See the selection effect below.
   const paintPending = useCallback((anchor: Anchor) => {
     const body = bodyRef.current;
+    if (!body) return;
+    // Whatever was shaded before was a different passage: two selections in a
+    // row must not leave the first one looking chosen, and `keep` must not
+    // save B while A is the thing lit up on the page.
+    if (painted.current) {
+      unwrapHighlight(body, PENDING);
+      frameRef.current = buildFrame(body);
+      painted.current = null;
+    }
     const frame = frameRef.current;
-    if (!body || !frame) return;
-    if (body.querySelector(`mark[data-hl="${PENDING}"]`)) return;
+    if (!frame) return;
     const span = resolveAnchor(frame, anchor, true);
     if (!span) return;
     applySpan(frame, span, PENDING, false);
     frameRef.current = buildFrame(body);
+    painted.current = anchor;
+  }, []);
+
+  // Take the shade back off, if it is still the one this caller put on.
+  const unpaintPending = useCallback((anchor: Anchor) => {
+    const body = bodyRef.current;
+    if (!body || painted.current !== anchor) return;
+    unwrapHighlight(body, PENDING);
+    frameRef.current = buildFrame(body);
+    painted.current = null;
   }, []);
 
   // A selection inside the article, offered as a highlight.
@@ -756,6 +780,8 @@ export function Reader({
 
     let timer: number | null = null;
     let leaving: number | null = null;
+    // A finger still on the glass has not finished doing whatever it is doing.
+    let down = false;
 
     function offer() {
       // A cached frame is only good while its nodes are the ones on screen.
@@ -777,10 +803,7 @@ export function Reader({
       if (!described) return;
       const box = range.getBoundingClientRect();
       liveRange.current = range;
-      if (leaving !== null) {
-        window.clearTimeout(leaving);
-        leaving = null;
-      }
+      stopLeaving();
       // On a mouse the gesture is over, so the passage is painted at once: the
       // browser drops its own selection the moment focus moves to the bar, and
       // a bar hovering over text that no longer looks selected is a bar about
@@ -799,18 +822,36 @@ export function Reader({
     // been painted — that is what "this selection has been used up" looks
     // like, and on a mouse it happens the instant the bar appears.
     //
-    // Delayed, because the tap that takes the selection away is very often the
-    // tap on the bar's own button: the bar has to outlive it long enough for
-    // the click to land on something still mounted.
+    // Not immediate, for two reasons. iOS takes the selection away on the
+    // *touchstart* of the tap on the bar's own button and only dispatches the
+    // click afterwards, so a bar that left at once would unmount out from
+    // under its own button and the tap would do nothing. And a press held
+    // through the grace period is not a slow dismissal — it is a press still
+    // happening, so the wait starts again when the pointer lifts.
+    function stopLeaving() {
+      if (leaving !== null) {
+        window.clearTimeout(leaving);
+        leaving = null;
+      }
+    }
+
     function leave() {
-      if (leaving !== null) window.clearTimeout(leaving);
+      stopLeaving();
       leaving = window.setTimeout(() => {
         leaving = null;
+        if (down) return leave();
         const bar = barRef.current;
         if (!bar.pending?.anchor || bar.draft !== null) return;
         if (article_.querySelector(`mark[data-hl="${PENDING}"]`)) return;
         clearPending();
       }, 300);
+    }
+
+    function onPointerDown() {
+      down = true;
+    }
+    function onPointerUp() {
+      down = false;
     }
 
     function onMouseUp() {
@@ -822,15 +863,21 @@ export function Reader({
     }
     function onSelectionChange() {
       const selection = window.getSelection();
+      if (timer !== null) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
       if (!selection || selection.isCollapsed) {
-        if (timer !== null) window.clearTimeout(timer);
         leave();
         return;
       }
+      // The selection is back. Dragging one handle onto the other passes
+      // through collapsed on the way, and that momentary nothing must not be
+      // read as the drag having ended.
+      stopLeaving();
       // Dragging a handle fires this continuously; only the pause at the end
       // of the drag is worth measuring a bar against.
       if (!touch) return;
-      if (timer !== null) window.clearTimeout(timer);
       timer = window.setTimeout(offer, 350);
     }
     // A finger lifting off is a far better signal than a timer, and a right
@@ -846,17 +893,23 @@ export function Reader({
     // The range is checked instead, which is the thing that actually matters.
     document.addEventListener("mouseup", onMouseUp);
     document.addEventListener("keyup", onKeyUp);
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("pointerup", onPointerUp, true);
+    document.addEventListener("pointercancel", onPointerUp, true);
     document.addEventListener("touchend", onTouchEnd);
     document.addEventListener("contextmenu", onMouseUp);
     document.addEventListener("selectionchange", onSelectionChange);
     return () => {
       document.removeEventListener("mouseup", onMouseUp);
       document.removeEventListener("keyup", onKeyUp);
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("pointerup", onPointerUp, true);
+      document.removeEventListener("pointercancel", onPointerUp, true);
       document.removeEventListener("touchend", onTouchEnd);
       document.removeEventListener("contextmenu", onMouseUp);
       document.removeEventListener("selectionchange", onSelectionChange);
       if (timer !== null) window.clearTimeout(timer);
-      if (leaving !== null) window.clearTimeout(leaving);
+      stopLeaving();
     };
   }, [content, touch, paintPending]);
 
@@ -869,6 +922,7 @@ export function Reader({
     if (bodyRef.current) {
       unwrapHighlight(bodyRef.current, PENDING);
       frameRef.current = buildFrame(bodyRef.current);
+      painted.current = null;
     }
     liveRange.current = null;
     setPending(null);
@@ -894,11 +948,9 @@ export function Reader({
       content?.body_hash ?? null,
       note
     );
-    if (!created && bodyRef.current) {
-      // Nothing was kept, so nothing should look kept.
-      unwrapHighlight(bodyRef.current, PENDING);
-      frameRef.current = buildFrame(bodyRef.current);
-    }
+    // Nothing was kept, so nothing should look kept — but only this passage:
+    // a slow failure must not strip the shade off a selection made since.
+    if (!created) unpaintPending(anchor);
     if (created) {
       // In reading order from the moment it exists: the rail's list is headed
       // "In reading order", and appending would make that heading a lie until
@@ -1558,6 +1610,7 @@ export function Reader({
           existing={pending_.highlight !== null}
           hasNote={Boolean(pending_.highlight?.note)}
           below={touch}
+          adjustable={touch && pending_.anchor !== null}
           onHighlight={() => keep(null)}
           onNote={() => {
             // The editor is a sheet on a finger and takes the selection with

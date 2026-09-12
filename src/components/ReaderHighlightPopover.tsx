@@ -36,6 +36,9 @@ export function ReaderHighlightPopover({
   // Below the selection on a touch screen: iOS puts its own callout above it,
   // and two bars stacked on one edge is a fight nobody wins.
   below,
+  // True while the selection this bar is about is still the reader's to
+  // adjust — a finger, before the passage has been marked.
+  adjustable,
 }: {
   at: PopoverAt;
   // True when a saved highlight was clicked rather than text selected.
@@ -46,6 +49,7 @@ export function ReaderHighlightPopover({
   onDelete?: () => void;
   onClose: () => void;
   below: boolean;
+  adjustable: boolean;
 }) {
   const box = useRef<HTMLDivElement>(null);
 
@@ -57,12 +61,18 @@ export function ReaderHighlightPopover({
     }
     function onPointerDown(event: PointerEvent) {
       if (box.current?.contains(event.target as Node)) return;
-      // A pointer going down while text is still selected is a selection
-      // handle being dragged, or a new selection starting — never a request to
-      // dismiss this. On an iPad it is the usual way the bar was killed
-      // mid-adjustment. The reader watches the selection itself and takes the
-      // bar away when it actually goes.
-      if (window.getSelection()?.isCollapsed === false) return;
+      // While the passage is still being chosen, a pointer going down outside
+      // the bar is a handle being dragged or a new selection starting — never
+      // a request to dismiss this. On an iPad that pointerdown was the usual
+      // way the bar got killed mid-adjustment. The reader watches the
+      // selection itself and takes the bar away when it actually goes.
+      //
+      // Only then: once the passage is marked, the selection left behind is
+      // an artefact of marking it, not a choice anyone is still making, and
+      // that artefact is not reliably collapsed — a selection spanning two
+      // paragraphs survives the marking with text still in it. A bar that
+      // consulted it would be a bar nothing could close.
+      if (adjustable && !(window.getSelection()?.isCollapsed ?? true)) return;
       onClose();
     }
     document.addEventListener("keydown", onKey, true);
@@ -71,7 +81,7 @@ export function ReaderHighlightPopover({
       document.removeEventListener("keydown", onKey, true);
       document.removeEventListener("pointerdown", onPointerDown, true);
     };
-  }, [onClose]);
+  }, [onClose, adjustable]);
 
   const left = Math.max(
     12,
