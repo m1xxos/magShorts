@@ -3,6 +3,7 @@ import { bufferToVector, EMBEDDING_DIM } from "./embeddings";
 import {
   isCommerceRoundup,
   rankForDigest,
+  NOT_LOCAL_NEWS,
   type DigestCandidate,
 } from "./recommend";
 import { extractArticle, readContentText } from "./extract";
@@ -241,6 +242,7 @@ function tasteTitles(userId: number, limit = 15): string[] {
       `SELECT DISTINCT e.title FROM user_events e
        WHERE e.user_id = ? AND e.title IS NOT NULL AND e.title != ''
          AND e.action IN ('save','like')
+         ${NOT_LOCAL_NEWS}
        ORDER BY e.id DESC LIMIT ?`
     )
     .all(userId, limit) as Array<{ title: string }>;

@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { NOT_LOCAL_NEWS } from "./recommend";
 import { complete, llmConfigured, llmProviders } from "./llm";
 import { catalogSize } from "./catalog";
 import { discoverFeedUrl, parseFeedMeta, refreshStaleFeeds } from "./rss";
@@ -226,6 +227,7 @@ function tasteSample(userId: number, offset: number): string[] {
       `SELECT DISTINCT e.title FROM user_events e
        WHERE e.user_id = ? AND e.title IS NOT NULL AND e.title != ''
          AND e.action IN ('save','like')
+         ${NOT_LOCAL_NEWS}
        ORDER BY e.id DESC`
     )
     .all(userId) as Array<{ title: string }>;

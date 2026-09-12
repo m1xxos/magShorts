@@ -123,6 +123,58 @@ describe("city publications stay out of everything", () => {
     );
   });
 
+  it("teaches the taste profile nothing", async () => {
+    // The isolation runs both ways. /api/events snapshots an article's
+    // embedding onto the event whatever feed it came from, so without the
+    // exclusion, saving one card about a bridge closure would shape For you,
+    // Shorts, the digest's rerank sample and Discover's suggestions.
+    //
+    // The fixtures carry no embeddings — the scheduler is off, so nothing ever
+    // backfills them — and buildProfile skips a row that has none. So the
+    // event rows here bring their own vector, and a subscription is saved the
+    // same way as a control: without it this test would pass on a codebase
+    // with no exclusion at all.
+    const { getDb } = await import("../src/lib/db");
+    const { buildProfile, feedWeights } = await import("../src/lib/recommend");
+    const { EMBEDDING_DIM } = await import("../src/lib/embeddings");
+
+    const vector = new Float32Array(EMBEDDING_DIM);
+    vector[0] = 1;
+    const embedding = Buffer.from(vector.buffer);
+
+    const save = getDb().prepare(
+      `INSERT INTO user_events (user_id, article_id, link, title, feed_id, action, embedding)
+       SELECT 1, a.id, a.link, a.title, a.feed_id, 'save', ?
+         FROM articles a WHERE a.title = ?`
+    );
+    const drop = getDb().prepare(
+      "DELETE FROM user_events WHERE link = (SELECT link FROM articles WHERE title = ?)"
+    );
+
+    const before = buildProfile(1).positiveSignals;
+
+    save.run(embedding, CITY_TITLE);
+    assert.equal(
+      buildProfile(1).positiveSignals,
+      before,
+      "saving a local article says nothing about what you like to read"
+    );
+    const cityFeed = app.db
+      .prepare("SELECT id FROM feeds WHERE city IS NOT NULL")
+      .get() as { id: number };
+    assert.ok(
+      !feedWeights(1).has(cityFeed.id),
+      "and its publication earns no weight"
+    );
+
+    // The control: the identical insert against a subscription does count.
+    save.run(embedding, "How to scale Kubernetes");
+    assert.equal(buildProfile(1).positiveSignals, before + 1);
+
+    drop.run(CITY_TITLE);
+    drop.run("How to scale Kubernetes");
+  });
+
   it("is still reachable by id, because the reader needs it", async () => {
     const city = app.articles.find((a) => a.title === CITY_TITLE)!;
     const { status, body } = await api(app, `/api/articles/${city.id}`);

@@ -27,6 +27,23 @@ const ACTION_WEIGHTS: Record<string, number> = {
 // about which events are bookkeeping and which are opinions.
 const WEIGHTLESS = "('view', 'read')";
 
+// Reading the city digest must not teach For you about local news.
+//
+// The whole reason city publications are kept out of the grid is that a local
+// wire would drown a feed built by subject — but the taste profile learns from
+// events, not from feeds, and /api/events snapshots an article's embedding
+// onto its event whatever it came from. So opening one card about a bridge
+// closure would put that vector in the profile at full weight and shape For
+// you, Shorts, the digest's rerank sample and Discover's suggestions with it.
+//
+// Written as SQL against feeds rather than as a flag on the event, because the
+// event tables are already written and a row's meaning should not depend on
+// which version of the app inserted it.
+export const NOT_LOCAL_NEWS = `
+  AND NOT EXISTS (
+    SELECT 1 FROM feeds cf WHERE cf.id = e.feed_id AND cf.city IS NOT NULL
+  )`;
+
 const DECAY_DAYS = 30;
 const COLD_START_MIN_POSITIVE = 5;
 const FEED_REPEAT_PENALTY = 0.03;
@@ -57,6 +74,7 @@ export function buildProfile(userId: number): ProfileResult {
        LEFT JOIN articles a ON a.link = e.link
        WHERE e.user_id = ?
          AND e.action NOT IN ${WEIGHTLESS}
+         ${NOT_LOCAL_NEWS}
          AND e.id = (
            SELECT MAX(e2.id) FROM user_events e2
            WHERE e2.user_id = e.user_id AND e2.link = e.link
@@ -350,6 +368,10 @@ export function feedWeights(userId: number): Map<number, number> {
        FROM user_events e
        WHERE e.user_id = ? AND e.feed_id IS NOT NULL
          AND e.action NOT IN ${WEIGHTLESS}
+         -- Not only so a city feed gets no weight of its own, which nothing
+         -- reads: its plus and minus counts would otherwise move the global
+         -- rate that every national feed is smoothed toward.
+         ${NOT_LOCAL_NEWS}
          AND e.id = (
            SELECT MAX(e2.id) FROM user_events e2
            WHERE e2.user_id = e.user_id AND e2.link = e.link

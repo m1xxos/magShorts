@@ -65,9 +65,20 @@ export function relatedArticles(
   limit: number
 ): Article[] {
   const db = getDb();
+  // The seed's city comes along, because what reads on from an article has to
+  // be the same kind of thing. A local story's next read is the rest of the
+  // city's news, and a subscription's is never local news — the reader places
+  // these ahead of the list the page handed it (Reader.tsx), so without this
+  // the city digest's own running order is buried under two national articles.
   const seed = db
-    .prepare("SELECT embedding, feed_id FROM articles WHERE id = ?")
-    .get(articleId) as { embedding: Buffer | null; feed_id: number } | undefined;
+    .prepare(
+      `SELECT a.embedding, a.feed_id, f.city
+         FROM articles a JOIN feeds f ON f.id = a.feed_id
+        WHERE a.id = ?`
+    )
+    .get(articleId) as
+    | { embedding: Buffer | null; feed_id: number; city: string | null }
+    | undefined;
   if (!seed?.embedding) return [];
   const seedVector = bufferToVector(seed.embedding);
 
@@ -78,19 +89,31 @@ export function relatedArticles(
       `SELECT ${ARTICLE_COLUMNS}, a.embedding, f.title AS feed_title
        FROM articles a
        JOIN feeds f ON f.id = a.feed_id
-       WHERE f.enabled = 1 AND f.subscribed = 1
+       WHERE f.enabled = 1
+         -- Like reads on from like: a subscription's next read is another
+         -- subscription, a city story's is the rest of that city's news.
+         AND (
+           (@city IS NULL AND f.subscribed = 1 AND f.city IS NULL)
+           OR f.city = @city
+         )
          AND a.embedding IS NOT NULL
-         AND a.id != ?
-         AND a.published_at > datetime('now', ?)
+         AND a.id != @articleId
+         AND a.published_at > datetime('now', @window)
          AND NOT EXISTS (
            SELECT 1 FROM user_events e
-           WHERE e.user_id = ? AND e.link = a.link
+           WHERE e.user_id = @userId AND e.link = a.link
              AND e.action IN ('open', 'dwell', 'save', 'skip', 'dislike')
          )
        ORDER BY a.published_at DESC
-       LIMIT ?`
+       LIMIT @pool`
     )
-    .all(articleId, `-${WINDOW_DAYS} days`, userId, POOL) as Candidate[];
+    .all({
+      city: seed.city,
+      articleId,
+      window: `-${WINDOW_DAYS} days`,
+      userId,
+      pool: POOL,
+    }) as Candidate[];
   if (rows.length === 0) return [];
 
   const { vector: profile } = buildProfile(userId);
