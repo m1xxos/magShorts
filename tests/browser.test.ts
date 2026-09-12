@@ -384,6 +384,159 @@ describe("the reader", () => {
   });
 });
 
+describe("keeping a passage with a finger", () => {
+  // An iPad selects by long-press and is then adjusted by dragging the two
+  // handles. The reader used to wrap the passage in a <mark> the instant it
+  // saw a selection, and splitting the text nodes under a live selection makes
+  // WebKit drop it — handles and all. Every long-press gave you one word and
+  // no way to grow it, which is what "selecting text on an iPad is horrible"
+  // actually was.
+  const PROSE =
+    "<p>Kubernetes schedules containers across a fleet of machines, " +
+    "and the scheduler is the part nobody reads about until it goes wrong.</p>" +
+    "<p>A second paragraph, so the body is not one node.</p>";
+
+  async function readerOnAnIpad(): Promise<Page> {
+    const article = app.articles[0];
+    app.db
+      .prepare(
+        `INSERT INTO article_content (article_id, html, text, headings, reading_minutes, status, source)
+         VALUES (?, ?, ?, '[]', 2, 'ok', 'direct')
+         ON CONFLICT(article_id) DO UPDATE SET html = excluded.html, status = 'ok'`
+      )
+      .run(article.id, PROSE, PROSE.replace(/<[^>]+>/g, " "));
+    const page = await open(834, 1112);
+    await go(page, `/?view=all&article=${article.id}`);
+    await page.locator(".reader-body p").first().waitFor();
+    assert.ok(
+      await page.evaluate(() => matchMedia("(pointer: coarse)").matches),
+      "the context really is a touch screen"
+    );
+    return page;
+  }
+
+  // The finger is gone by the time iOS has made the selection, so the reader
+  // has only selectionchange and touchend to go on. Both are exercised.
+  const select = (page: Page, from: number, to: number) =>
+    page.evaluate(
+      ([from_, to_]) => {
+        const node = document.querySelector(".reader-body p")!.firstChild!;
+        const range = document.createRange();
+        range.setStart(node, from_);
+        range.setEnd(node, to_);
+        const selection = getSelection()!;
+        selection.removeAllRanges();
+        selection.addRange(range);
+        document.dispatchEvent(new Event("touchend"));
+      },
+      [from, to]
+    );
+
+  const selected = (page: Page) =>
+    page.evaluate(() => getSelection()?.toString() ?? "");
+
+  it("leaves the selection alone so its handles can still be dragged", async () => {
+    const page = await readerOnAnIpad();
+    await select(page, 0, 10);
+    await page.getByRole("button", { name: "Highlight" }).waitFor();
+
+    // The whole bug in one assertion: the bar is up and the selection is
+    // still there to adjust.
+    assert.equal(await selected(page), "Kubernetes");
+
+    // Dragging a handle out to the end of the clause. No touchend: iOS ends a
+    // handle drag without one, and selectionchange is the only signal.
+    await page.evaluate(() => {
+      const node = document.querySelector(".reader-body p")!.firstChild!;
+      getSelection()!.extend(node, 20);
+    });
+    await page.waitForTimeout(700);
+    assert.equal(await selected(page), "Kubernetes schedules");
+    assert.equal(
+      await page.getByRole("button", { name: "Highlight" }).count(),
+      1,
+      "the bar followed the selection rather than dying with it"
+    );
+
+    await page.getByRole("button", { name: "Highlight" }).click();
+    await page.waitForTimeout(900);
+    const quote = app.db
+      .prepare("SELECT quote FROM highlights ORDER BY id DESC LIMIT 1")
+      .get() as { quote: string } | undefined;
+    assert.equal(quote?.quote, "Kubernetes schedules", "kept what was selected");
+    assert.equal(
+      await page.locator(".reader-body mark[data-hl]").first().innerText(),
+      "Kubernetes schedules"
+    );
+    app.db.exec("DELETE FROM highlights");
+    await page.close();
+  });
+
+  it("still works the way a mouse expects", async () => {
+    // The finger fix moved when the passage gets painted and when the bar is
+    // allowed to close. Both of those are shared with the mouse.
+    const page = await open(1440, 900);
+    const article = app.articles[0];
+    await go(page, `/?view=all&article=${article.id}`);
+    await page.locator(".reader-body p").first().waitFor();
+
+    await page.evaluate(() => {
+      const node = document.querySelector(".reader-body p")!.firstChild!;
+      const range = document.createRange();
+      range.setStart(node, 0);
+      range.setEnd(node, 10);
+      const selection = getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+      document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    });
+    await page.getByRole("button", { name: "Highlight" }).waitFor();
+    // On a mouse the gesture is over, so the passage is marked at once.
+    assert.equal(
+      await page.locator('.reader-body mark[data-hl="-1"]').innerText(),
+      "Kubernetes"
+    );
+
+    await page.getByRole("button", { name: "Highlight" }).click();
+    await page.waitForTimeout(900);
+    const quote = app.db
+      .prepare("SELECT quote FROM highlights ORDER BY id DESC LIMIT 1")
+      .get() as { quote: string } | undefined;
+    assert.equal(quote?.quote, "Kubernetes");
+
+    // And clicking the passage again offers to take it back.
+    await page.locator(".reader-body mark[data-hl]").first().click();
+    await page.waitForTimeout(400);
+    assert.equal(await page.getByRole("button", { name: "Remove" }).count(), 1);
+    // A click anywhere else puts the bar away.
+    await page.locator(".reader-body p").last().click();
+    await page.waitForTimeout(400);
+    assert.equal(await page.getByRole("button", { name: "Remove" }).count(), 0);
+
+    app.db.exec("DELETE FROM highlights");
+    await page.close();
+  });
+
+  it("takes the bar away when the selection is tapped away", async () => {
+    const page = await readerOnAnIpad();
+    await select(page, 0, 10);
+    await page.getByRole("button", { name: "Highlight" }).waitFor();
+
+    // A tap somewhere else in the prose: the selection collapses and nothing
+    // else happens. Nothing is left pointing at a passage that is no longer
+    // chosen.
+    await page.evaluate(() => getSelection()!.collapseToEnd());
+    await page.waitForTimeout(700);
+    assert.equal(await page.getByRole("button", { name: "Highlight" }).count(), 0);
+    assert.equal(
+      await page.locator(".reader-body mark[data-hl]").count(),
+      0,
+      "and no half-drawn highlight left behind"
+    );
+    await page.close();
+  });
+});
+
 describe("the menu on a narrow screen", () => {
   it("reaches every destination and closes on a tap that does not navigate", async () => {
     // Below lg the rail is not rendered, and for a long time nothing replaced

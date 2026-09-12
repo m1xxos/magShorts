@@ -56,7 +56,14 @@ export function ReaderHighlightPopover({
       onClose();
     }
     function onPointerDown(event: PointerEvent) {
-      if (!box.current?.contains(event.target as Node)) onClose();
+      if (box.current?.contains(event.target as Node)) return;
+      // A pointer going down while text is still selected is a selection
+      // handle being dragged, or a new selection starting — never a request to
+      // dismiss this. On an iPad it is the usual way the bar was killed
+      // mid-adjustment. The reader watches the selection itself and takes the
+      // bar away when it actually goes.
+      if (window.getSelection()?.isCollapsed === false) return;
+      onClose();
     }
     document.addEventListener("keydown", onKey, true);
     document.addEventListener("pointerdown", onPointerDown, true);
