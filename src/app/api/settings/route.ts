@@ -1,6 +1,8 @@
+import { switchCity } from "@/lib/city";
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import {
+  currentCity,
   getAllSettings,
   setSetting,
   SETTING_KEYS,
@@ -27,10 +29,17 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
+  // Read before the write, because switching cities has to know which one it
+  // is switching away from.
+  const cityBefore = currentCity();
+
   for (const key of SETTING_KEYS) {
     if (typeof body[key] === "string") {
       setSetting(key as SettingKey, body[key] as string);
     }
   }
+
+  if (typeof body.city === "string") switchCity(cityBefore, currentCity());
+
   return NextResponse.json(getAllSettings());
 }

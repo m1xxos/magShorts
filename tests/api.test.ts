@@ -196,7 +196,7 @@ describe("city publications stay out of everything", () => {
     // Put it back, since the rest of this suite depends on it.
     app.db
       .prepare("UPDATE feeds SET subscribed = 0, city = ? WHERE id = ?")
-      .run("Санкт-Петербург", feed.id);
+      .run("санкт-петербург", feed.id);
   });
 
   it("is still reachable by id, because the reader needs it", async () => {
@@ -225,6 +225,30 @@ describe("the city digest kind", () => {
     // Not the weekly branch, which is where "city" fell through before the
     // union was widened — the compiler flagged one of the five sites.
     assert.notEqual(city, duePeriodKey("weekly"));
+  });
+
+  it("switches a city off rather than deleting it", async () => {
+    // A changed city is a reader who moved or one who mistyped, and the two
+    // are indistinguishable. Deleting a publication and its archive because a
+    // settings field was edited is not something a settings field should do.
+    const { switchCity } = await import("../src/lib/city");
+    const feed = app.db
+      .prepare("SELECT id, city FROM feeds WHERE city IS NOT NULL")
+      .get() as { id: number; city: string };
+    const normalised = feed.city;
+
+    switchCity(normalised, "пермь");
+    let row = app.db
+      .prepare("SELECT enabled FROM feeds WHERE id = ?")
+      .get(feed.id) as { enabled: number };
+    assert.equal(row.enabled, 0, "off, but still here");
+
+    // Correcting the spelling brings them back.
+    switchCity("пермь", normalised);
+    row = app.db
+      .prepare("SELECT enabled FROM feeds WHERE id = ?")
+      .get(feed.id) as { enabled: number };
+    assert.equal(row.enabled, 1);
   });
 
   it("builds nothing when no city is named", async () => {

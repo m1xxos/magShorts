@@ -94,6 +94,66 @@ function alreadyFound(city: string): string[] {
   ).map((row) => row.title);
 }
 
+// Once a day, so a city that had three publications on the day it was named
+// can grow. The stamp is written before the run, not after: a run that throws
+// waits for tomorrow rather than retrying on every tick for the rest of the
+// day. Same shape as the catalog's own autofill, and behind it in the tick for
+// the same reason — its failure costs nothing.
+const DISCOVER_EVERY_MS = 24 * 60 * 60 * 1000;
+const DISCOVERED_AT = "city_discovered_at";
+let running = false;
+
+export async function maybeDiscoverCitySources(): Promise<void> {
+  if (running || !currentCity() || !llmConfigured()) return;
+
+  const db = getDb();
+  const row = db
+    .prepare("SELECT value FROM settings WHERE key = ?")
+    .get(DISCOVERED_AT) as { value: string } | undefined;
+  const last = row ? Number(row.value) : 0;
+  if (Date.now() - last < DISCOVER_EVERY_MS) return;
+  db.prepare(
+    "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+  ).run(DISCOVERED_AT, String(Date.now()));
+
+  running = true;
+  try {
+    await discoverCitySources();
+  } catch (error) {
+    console.error("[city] daily discovery failed:", error);
+  } finally {
+    running = false;
+  }
+}
+
+// A city that changes is a reader who moved, or one who mistyped. Either way
+// the old city's publications are switched off rather than deleted: they stop
+// refreshing every fifteen minutes for a digest nothing reads, and they are
+// still there to be turned back on by correcting the spelling, or removed by
+// hand. Deleting a publication and its archive because a settings field was
+// edited is not something a settings field should do.
+export function switchCity(previous: string, next: string): void {
+  if (previous === next) return;
+  const db = getDb();
+  if (previous) {
+    const off = db
+      .prepare("UPDATE feeds SET enabled = 0 WHERE city = ? AND enabled = 1")
+      .run(previous);
+    if (off.changes > 0) {
+      console.log(
+        `[city] switched off ${off.changes} publication(s) from ${previous}`
+      );
+    }
+  }
+  if (next) {
+    db.prepare("UPDATE feeds SET enabled = 1 WHERE city = ? AND enabled = 0").run(
+      next
+    );
+    // A new city is discovered on demand, so let the daily run happen too.
+    db.prepare("DELETE FROM settings WHERE key = ?").run(DISCOVERED_AT);
+  }
+}
+
 export async function discoverCitySources(): Promise<CityDiscovery> {
   const city = currentCity();
   const spelling = getSetting("city").trim();

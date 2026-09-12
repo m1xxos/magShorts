@@ -40,7 +40,10 @@ const FEEDS = [
     title: "Fontanka",
     url: "https://fontanka.test/rss",
     subscribed: 0,
-    city: "Санкт-Петербург",
+    // Stored normalised, the way every insert path in the app writes it:
+    // feeds.city is matched with `=`, so the match key and the spelling shown
+    // on screen are deliberately different things.
+    city: "санкт-петербург",
   },
 ];
 
