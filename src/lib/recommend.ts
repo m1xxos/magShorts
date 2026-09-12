@@ -46,7 +46,7 @@ export const NOT_LOCAL_NEWS = `
 
 const DECAY_DAYS = 30;
 const COLD_START_MIN_POSITIVE = 5;
-const FEED_REPEAT_PENALTY = 0.03;
+export const FEED_REPEAT_PENALTY = 0.03;
 const RECENCY_BONUS = 0.1;
 const EXPLORATION_EVERY = 10;
 
@@ -345,7 +345,7 @@ export function isCommerceRoundup(title: string): boolean {
 
 // Twice the per-feed repeat penalty: enough to lose to any comparable article,
 // not enough to bury a roundup the user actually keeps opening.
-const COMMERCE_PENALTY = 0.06;
+export const COMMERCE_PENALTY = 0.06;
 
 // How a source's own track record shifts its articles. Smoothed toward the
 // global rate with a prior worth this many articles, so a couple of skips

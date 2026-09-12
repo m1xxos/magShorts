@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { digestSchedule, readDigest } from "@/lib/digest";
-import { type DigestKind } from "@/lib/types";
+import { toDigestKind, type DigestKind } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   }
 
   const kind: DigestKind =
-    request.nextUrl.searchParams.get("kind") === "weekly" ? "weekly" : "daily";
+    toDigestKind(request.nextUrl.searchParams.get("kind"));
 
   return NextResponse.json({
     kind,

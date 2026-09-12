@@ -87,7 +87,14 @@ export interface ArticleDto {
   reading_minutes?: number | null;
 }
 
-export type DigestKind = "daily" | "weekly";
+export type DigestKind = "daily" | "weekly" | "city";
+
+// Kinds arrive as strings from URLs and request bodies, where the old
+// `x === "weekly" ? "weekly" : "daily"` quietly answered a request for one
+// kind with another.
+export function toDigestKind(value: unknown): DigestKind {
+  return value === "weekly" || value === "city" ? value : "daily";
+}
 
 // "rest" is everything the digest ranked but did not lay out — it backs the
 // "Show all N remaining" expansion, and storing it keeps that list part of the
