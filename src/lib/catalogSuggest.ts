@@ -48,6 +48,11 @@ export interface CatalogAddition {
   status: "added" | "duplicate" | "unreachable" | "mismatch";
 }
 
+// A title that is really just the domain it came from.
+function looksLikeHost(title: string): boolean {
+  return /^(www\.)?[a-z0-9-]+(\.[a-z0-9-]+)+\/?$/i.test(title.trim());
+}
+
 function normalizeHost(url: string): string | null {
   try {
     return new URL(url).hostname.toLowerCase().replace(/^www\./, "");
@@ -81,7 +86,11 @@ function knownHosts(): Set<string> {
 // Verify one candidate and, if it holds up, add it as a catalog publication.
 async function addCandidate(
   candidate: { name: string; url: string },
-  hosts: Set<string>
+  hosts: Set<string>,
+  // Set only by the city digest's discovery. Same verification, same table,
+  // same unsubscribed row — the city is what tells the catalog queries to
+  // leave it alone.
+  city: string | null = null
 ): Promise<CatalogAddition> {
   const host = normalizeHost(candidate.url);
   if (!host || hosts.has(host)) {
@@ -108,18 +117,22 @@ async function addCandidate(
     return { ...candidate, status: "duplicate" };
   }
   // The feed's own title wins over the suggested name — the model's idea of
-  // what a publication is called is not authoritative, the feed is.
+  // what a publication is called is not authoritative, the feed is. Unless the
+  // feed has no idea either: Delovoy Peterburg's RSS calls itself "www.dp.ru",
+  // and a hostname is not a name.
+  const named = looksLikeHost(meta.title) ? candidate.name : meta.title;
   db.prepare(
-    "INSERT INTO feeds (title, url, site_url, subscribed) VALUES (?, ?, ?, 0)"
-  ).run(meta.title || candidate.name, feedUrl, meta.site_url);
+    "INSERT INTO feeds (title, url, site_url, subscribed, city) VALUES (?, ?, ?, 0, ?)"
+  ).run(named || candidate.name, feedUrl, meta.site_url, city);
   hosts.add(host);
   if (feedHost) hosts.add(feedHost);
   return { ...candidate, feedUrl, status: "added" };
 }
 
-async function addAll(
+export async function addAll(
   candidates: Array<{ name: string; url: string }>,
-  skip: Set<string> = new Set()
+  skip: Set<string> = new Set(),
+  city: string | null = null
 ): Promise<CatalogAddition[]> {
   const hosts = knownHosts();
   // Small models loop: one run answered with the same publication thirteen
@@ -138,7 +151,7 @@ async function addAll(
     while (queue.length > 0) {
       const candidate = queue.shift()!;
       try {
-        results.push(await addCandidate(candidate, hosts));
+        results.push(await addCandidate(candidate, hosts, city));
       } catch {
         results.push({ ...candidate, status: "unreachable" });
       }
@@ -152,7 +165,7 @@ async function addAll(
 
 // Pull articles for whatever was just added, so a new publication has its
 // three tiles immediately instead of after the next scheduler tick.
-async function warmUp(additions: CatalogAddition[]): Promise<void> {
+export async function warmUp(additions: CatalogAddition[]): Promise<void> {
   const db = getDb();
   for (const addition of additions) {
     if (addition.status !== "added" || !addition.feedUrl) continue;
