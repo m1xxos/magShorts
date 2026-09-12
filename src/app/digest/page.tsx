@@ -126,6 +126,7 @@ export default function DigestPage() {
   const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [skipped, setSkipped] = useState<string[]>([]);
   const [showAll, setShowAll] = useState(false);
+  const [city, setCity] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   // The digest is a reading page and keeps its centred column — no rail down
   // the side. But below lg there is no rail anywhere, and this was the one
@@ -186,6 +187,16 @@ export default function DigestPage() {
       cancelled = true;
     };
   }, [user, kind, loaded]);
+
+  // The city's name, which is both whether the third pill exists and what it
+  // says on it.
+  useEffect(() => {
+    if (!user) return;
+    fetch("/api/settings")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { city?: string } | null) => setCity(data?.city?.trim() ?? ""))
+      .catch(() => {});
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;
@@ -324,7 +335,7 @@ export default function DigestPage() {
           <div>
             <p className={`${SECTION_LABEL} mb-1.5`}>{eyebrow}</p>
             <h1 className="font-serif text-[38px] leading-[1.1] text-ink">
-              Your digest
+              {kind === "city" ? city : "Your digest"}
             </h1>
             <p className="mt-2.5 max-w-xl text-sm text-ink-soft">
               {digest
@@ -332,15 +343,25 @@ export default function DigestPage() {
                     digest.total_articles === 1 ? "" : "s"
                   } across ${digest.total_publications} publication${
                     digest.total_publications === 1 ? "" : "s"
-                  }. Here ${highlightCount === 1 ? "is" : "are"} the ${highlightCount} worth your ${
-                    kind === "daily" ? "morning" : "week"
+                  }. Here ${highlightCount === 1 ? "is" : "are"} the ${highlightCount} ${
+                    kind === "city"
+                      ? "the city was talking about"
+                      : `worth your ${kind === "daily" ? "morning" : "week"}`
                   }, then everything else.`
+                : kind === "city"
+                ? "What happened where you live, in one short read."
                 : "A short, finite read of what arrived while you were away."}
             </p>
           </div>
           <div className="flex items-center gap-3">
             <div className="flex gap-1.5 rounded-full border border-line p-[3px]">
-              {KINDS.map((option) => (
+              {/* The third pill carries the city's own name rather than the
+                  word "City": it is a place, and naming it is the whole point
+                  of having set it. Absent entirely until one is named. */}
+              {(city
+                ? [...KINDS, { value: "city" as DigestKind, label: city }]
+                : KINDS
+              ).map((option) => (
                 <button
                   key={option.value}
                   onClick={() => {
@@ -367,14 +388,31 @@ export default function DigestPage() {
           <p className="py-24 text-center text-ink-faint">Loading…</p>
         ) : !digest || items.length === 0 ? (
           <div className="mt-7 flex flex-col items-center gap-3 rounded-2xl border border-dashed border-line py-20 text-center">
-            <p className="font-serif text-xl text-ink">No {kind} digest yet</p>
+            <p className="font-serif text-xl text-ink">
+              {kind === "city" ? `Nothing from ${city} yet` : `No ${kind} digest yet`}
+            </p>
             <p className="max-w-md text-sm text-ink-faint">
-              {schedule
-                ? `The ${kind} digest is built at ${
-                    kind === "daily" ? schedule.daily : schedule.weekly
-                  } (${schedule.timeZone}) from the folders that feed For you. ` +
-                  "If nothing new arrived in the period, there is nothing to digest."
-                : "Nothing to digest for this period yet."}
+              {kind === "city" ? (
+                <>
+                  {schedule
+                    ? `Local news is digested at ${schedule.daily} (${schedule.timeZone}), ` +
+                      "from publications found for your city. "
+                    : ""}
+                  If none have been found yet, look for them in{" "}
+                  <Link href="/sources" className="text-clay hover:underline">
+                    Manage sources
+                  </Link>
+                  {" — or add one yourself, which is also the answer if no "}
+                  language model is configured.
+                </>
+              ) : schedule ? (
+                `The ${kind} digest is built at ${
+                  kind === "daily" ? schedule.daily : schedule.weekly
+                } (${schedule.timeZone}) from the folders that feed For you. ` +
+                "If nothing new arrived in the period, there is nothing to digest."
+              ) : (
+                "Nothing to digest for this period yet."
+              )}
             </p>
             {/* The schedule is most worth changing on the day nothing arrived,
                 which was the one day this button could not be reached: it
@@ -565,9 +603,11 @@ export default function DigestPage() {
                   Digest settings
                 </p>
                 <p className="text-[12.5px] leading-[1.5] text-ink-faint">
-                  {schedule
-                    ? `Built at ${schedule.daily}, weekly on ${schedule.weekly} (${schedule.timeZone}), from the folders you picked as sources.`
-                    : "Built from the folders you picked as sources."}
+                  {!schedule
+                    ? "Built from the folders you picked as sources."
+                    : kind === "city"
+                    ? `Built at ${schedule.daily} (${schedule.timeZone}) from the publications found for ${city}.`
+                    : `Built at ${schedule.daily}, weekly on ${schedule.weekly} (${schedule.timeZone}), from the folders you picked as sources.`}
                   {digest.llm_provider
                     ? ` Annotations by ${digest.llm_model}.`
                     : " No model configured — annotations are the articles' own opening lines."}

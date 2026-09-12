@@ -207,6 +207,33 @@ describe("city publications stay out of everything", () => {
   });
 });
 
+describe("the city digest kind", () => {
+  it("is a kind of its own, not silently the daily one", async () => {
+    // Every route used to coerce an unknown kind with
+    // `x === "weekly" ? "weekly" : "daily"`, which would have answered a
+    // request for the city digest with the morning one.
+    const { body } = await api(app, "/api/digest?kind=city");
+    assert.equal((body as { kind: string }).kind, "city");
+  });
+
+  it("keys its period apart from the daily digest", async () => {
+    const { duePeriodKey } = await import("../src/lib/digest");
+    const daily = duePeriodKey("daily");
+    const city = duePeriodKey("city");
+    assert.match(city, /^c\d{4}-\d{2}-\d{2}$/);
+    assert.notEqual(city, daily);
+    // Not the weekly branch, which is where "city" fell through before the
+    // union was widened — the compiler flagged one of the five sites.
+    assert.notEqual(city, duePeriodKey("weekly"));
+  });
+
+  it("builds nothing when no city is named", async () => {
+    const { buildDigest } = await import("../src/lib/digest");
+    const result = await buildDigest(1, "city", { force: true });
+    assert.equal(result, null);
+  });
+});
+
 describe("search", () => {
   it("finds a word in a title", async () => {
     const titles = await search("kubernetes");

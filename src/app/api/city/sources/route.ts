@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { discoverFeedUrl, parseFeedMeta, refreshStaleFeeds } from "@/lib/rss";
-import { currentCity } from "@/lib/settings";
+import { currentCity, getSetting } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +21,9 @@ export async function GET(request: NextRequest) {
   }
   const city = currentCity();
   if (!city) return NextResponse.json({ city: "", sources: [] });
+  // Matched normalised, shown as the reader spelled it. Returning the match
+  // key put "санкт-петербург" in a heading.
+  const spelling = getSetting("city").trim();
 
   const sources = getDb()
     .prepare(
@@ -32,7 +35,7 @@ export async function GET(request: NextRequest) {
         ORDER BY f.title COLLATE NOCASE`
     )
     .all(city);
-  return NextResponse.json({ city, sources });
+  return NextResponse.json({ city: spelling, sources });
 }
 
 export async function POST(request: NextRequest) {
