@@ -34,6 +34,103 @@ async function sources(query: string): Promise<SourceRow[]> {
   return body as SourceRow[];
 }
 
+// The promise the city digest makes: a local publication is fetched and kept,
+// and appears in none of the places built out of what you subscribe to. One
+// case per surface, because this is the kind of thing that is true on the day
+// it is written and quietly stops being true later.
+describe("city publications stay out of everything", () => {
+  const CITY_TITLE = "Мост развели раньше срока";
+
+  async function titles(path: string): Promise<string[]> {
+    const { body } = await api(app, path);
+    const rows = Array.isArray(body) ? body : [];
+    return (rows as Array<{ title: string }>).map((row) => row.title);
+  }
+
+  it("is not in the home grid", async () => {
+    assert.ok(!(await titles("/api/articles?limit=100")).includes(CITY_TITLE));
+  });
+
+  it("is not in For you", async () => {
+    assert.ok(
+      !(await titles("/api/recommendations?limit=100")).includes(CITY_TITLE)
+    );
+  });
+
+  it("is not in Shorts", async () => {
+    assert.ok(!(await titles("/api/shorts?limit=100")).includes(CITY_TITLE));
+  });
+
+  it("is not in search, even on a word it contains", async () => {
+    // Its summary says "Kubernetes" precisely so this test fails loudly if the
+    // scope clause is ever dropped.
+    assert.ok(!(await titles("/api/search?q=kubernetes")).includes(CITY_TITLE));
+    assert.ok(
+      !(await titles("/api/search?q=" + encodeURIComponent("мост"))).includes(
+        CITY_TITLE
+      )
+    );
+  });
+
+  it("is not among the tags on offer", async () => {
+    const { body } = await api(app, "/api/tags");
+    const tags = (body as Array<{ topic: string }>).map((row) => row.topic);
+    assert.ok(!tags.includes("Город"));
+  });
+
+  it("is not in the Discover catalogue", async () => {
+    // The one surface that shares `subscribed = 0` with it, and so the one
+    // that had to be taught. These two routes answer with an object rather
+    // than a bare array.
+    const { body } = await api(app, "/api/discover/publications");
+    const page = body as {
+      publications: Array<{ title: string }>;
+      catalog_size: number;
+      topics: Array<{ topic: string }>;
+    };
+    assert.ok(!page.publications.some((row) => row.title === "Fontanka"));
+    // The catalogue's own size drives the autofill ceiling, so a city feed
+    // counted here would quietly stop Discover growing.
+    assert.equal(page.catalog_size, 1, "the one real catalogue publication");
+    assert.ok(!page.topics.some((row) => row.topic === "Город"));
+
+    const feed = await api(app, "/api/discover/articles?limit=100");
+    const articles = (feed.body as { articles: Array<{ title: string }> })
+      .articles;
+    assert.ok(!articles.some((row) => row.title === CITY_TITLE));
+  });
+
+  it("cannot be dismissed through the Discover endpoint", async () => {
+    // It shares `subscribed = 0` with the catalogue, so without its own guard
+    // this would delete the feed and blacklist its host from Discover too.
+    const feed = app.db
+      .prepare("SELECT id FROM feeds WHERE city IS NOT NULL")
+      .get() as { id: number };
+    const { status } = await api(app, `/api/discover/publications/${feed.id}`, {
+      method: "DELETE",
+    });
+    assert.equal(status, 404);
+    const still = app.db
+      .prepare("SELECT COUNT(*) AS n FROM feeds WHERE id = ?")
+      .get(feed.id) as { n: number };
+    assert.equal(still.n, 1, "the city publication survives");
+  });
+
+  it("is not offered as Up next beside a subscription", async () => {
+    const seed = app.articles.find((a) => a.title === "How to scale Kubernetes")!;
+    assert.ok(
+      !(await titles(`/api/articles/${seed.id}/related`)).includes(CITY_TITLE)
+    );
+  });
+
+  it("is still reachable by id, because the reader needs it", async () => {
+    const city = app.articles.find((a) => a.title === CITY_TITLE)!;
+    const { status, body } = await api(app, `/api/articles/${city.id}`);
+    assert.equal(status, 200);
+    assert.equal((body as { title: string }).title, CITY_TITLE);
+  });
+});
+
 describe("search", () => {
   it("finds a word in a title", async () => {
     const titles = await search("kubernetes");

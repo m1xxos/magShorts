@@ -292,11 +292,21 @@ function dismissedHosts(): Set<string> {
 export function dismissPublication(feedId: number): boolean {
   const db = getDb();
   const feed = db
-    .prepare("SELECT url, site_url, subscribed FROM feeds WHERE id = ?")
+    .prepare("SELECT url, site_url, subscribed, city FROM feeds WHERE id = ?")
     .get(feedId) as
-    | { url: string; site_url: string | null; subscribed: number }
+    | {
+        url: string;
+        site_url: string | null;
+        subscribed: number;
+        city: string | null;
+      }
     | undefined;
-  if (!feed || feed.subscribed === 1) return false;
+  // A subscription is not the catalog's to throw away, and neither is a city
+  // publication: it shares `subscribed = 0` but was never offered to anyone,
+  // and dismissing it here would delete it *and* blacklist its host from
+  // Discover for good. The route is reachable by any signed-in caller, so the
+  // guard lives here rather than in the query that hides it.
+  if (!feed || feed.subscribed === 1 || feed.city) return false;
 
   const hosts = dismissedHosts();
   for (const value of [feed.url, feed.site_url]) {
