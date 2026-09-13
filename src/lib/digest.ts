@@ -340,7 +340,7 @@ async function rerankCityClusters(
     CITY_RERANK_SYSTEM,
     `City: ${city}\n\nToday in ${city}:\n${listing}\n\n` +
       `Answer with the ${need} best, best first.`,
-    120,
+    RANK_TOKENS,
     providers
   );
   if (!result) return clusters;
@@ -393,6 +393,18 @@ const CITY_THREE_LINES_SYSTEM = `${THREE_LINES_BODY} Write in the same language 
 // one-line summaries is about 3 000 tokens — a quarter of a minute's budget,
 // where the whole day's pool with summaries would be 11 600 and a week's
 // 43 000.
+// Budgets for the two calls that answer in a few words.
+//
+// They were 120 and 260, which is generous for the answer and not for how it
+// is arrived at: a reasoning model spends the same budget thinking first, and
+// gpt-oss-120b returned "empty completion" for both on a real digest — the
+// whole allowance went on reasoning that stripReasoning then removed, leaving
+// nothing and dropping the summary panel to its English template. Tripled,
+// which costs nothing when the answer is three lines long and the tokens are
+// only spent if they are used.
+const RANK_TOKENS = 400;
+const THREE_LINES_TOKENS = 800;
+
 const SHORTLIST_SIZE = 30;
 
 const RERANK_SYSTEM =
@@ -458,7 +470,7 @@ async function rerankClusters(
     `Pick ${need} of these ${shortlist.length} candidates:\n` +
     shortlist.map(shortlistLine).join("\n");
 
-  const result = await complete(RERANK_SYSTEM, prompt, 120, providers);
+  const result = await complete(RERANK_SYSTEM, prompt, RANK_TOKENS, providers);
   if (!result) return clusters;
 
   const picked: Cluster[] = [];
@@ -605,7 +617,7 @@ async function buildThreeLines(
   const result = await complete(
     kind === "city" ? CITY_THREE_LINES_SYSTEM : THREE_LINES_SYSTEM,
     `${articleCount} articles from ${publicationCount} publications.\n\n${lines}`,
-    260
+    THREE_LINES_TOKENS
   );
   if (!result) return { lines: fallback, wrote: null };
 
@@ -613,8 +625,18 @@ async function buildThreeLines(
     .split("\n")
     .map((line) => line.replace(/^\s*[-*\d.)\s]+/, "").trim())
     .filter(Boolean);
+  if (parsed.length < 3) {
+    // The panel silently becomes its English template when this happens, which
+    // is indistinguishable on screen from having no model at all. Say which it
+    // was, and say what came back instead of three lines.
+    console.warn(
+      `[digest] three-lines answer was ${parsed.length} line(s), using the template: ` +
+        JSON.stringify(result.text.slice(0, 200))
+    );
+    return { lines: fallback, wrote: null };
+  }
   return {
-    lines: parsed.length >= 3 ? parsed.slice(0, 3) : fallback,
+    lines: parsed.slice(0, 3),
     wrote: { provider: result.provider, model: result.model },
   };
 }
