@@ -14,6 +14,21 @@ const MAX_ITEMS_PER_FEED = 200;
 // link and embedding, so trimming loses nothing the user has touched.
 const CATALOG_KEEP_ARTICLES = 10;
 
+// A city publication is trimmed by age instead of by count, because it is news:
+// a local outlet can file twenty items in a day, and keeping ten of them would
+// throw away the morning before the digest had read it. Fourteen days is well
+// past the digest's 24-hour window and keeps the table from growing forever on
+// a publication nobody browses.
+const CITY_KEEP_DAYS = 14;
+
+// How long a city publication may go without a successful refresh before it is
+// retired. A duration rather than a count of failures, because city feeds are
+// attempted every fifteen minutes: the catalog's ten strikes would be two and
+// a half hours here, and a local paper that is down for an afternoon is not a
+// local paper that has shut down. last_fetched_at is only written on success,
+// so the gap since it *is* the length of the failing streak.
+const CITY_RETIRE_DAYS = 3;
+
 // The folder name rides along with the feed so an article whose categories are
 // unusable can still fall back to it without a second query per item.
 type FeedWithFolder = Feed & { folder_name: string | null };
@@ -359,7 +374,8 @@ export function refreshFeedArticles(feed: FeedWithFolder): Promise<void> {
         });
       }
       db.prepare("UPDATE feeds SET last_fetched_at = datetime('now') WHERE id = ?").run(feed.id);
-      if (!feed.subscribed) trimCatalogFeed(db, feed.id);
+      if (feed.city) trimCityFeed(db, feed.id);
+      else if (!feed.subscribed) trimCatalogFeed(db, feed.id);
     });
     insertAll();
   });
@@ -376,6 +392,31 @@ function trimCatalogFeed(db: ReturnType<typeof getDb>, feedId: number): void {
   ).run(feedId, feedId, CATALOG_KEEP_ARTICLES);
 }
 
+// Has an unsubscribed publication stopped answering for good?
+//
+// The catalog counts strikes, which works because it only tries every six
+// hours. A city feed is tried every fifteen minutes, so it counts days of
+// silence instead — except when it has never answered at all, where there is
+// no last success to measure from and a handful of failures is already proof.
+function retired(
+  feed: { city: string | null; last_fetched_at: string | null },
+  failures: number
+): boolean {
+  if (!feed.city) return failures >= CATALOG_MAX_FAILURES;
+  if (!feed.last_fetched_at) return failures >= CATALOG_MAX_FAILURES;
+  const silentFor = Date.now() - new Date(feed.last_fetched_at + "Z").getTime();
+  return silentFor > CITY_RETIRE_DAYS * 24 * 60 * 60 * 1000;
+}
+
+// Keep only the recent articles of a city publication. By age, not by count —
+// see CITY_KEEP_DAYS.
+function trimCityFeed(db: ReturnType<typeof getDb>, feedId: number): void {
+  db.prepare(
+    `DELETE FROM articles
+      WHERE feed_id = ? AND published_at < datetime('now', ?)`
+  ).run(feedId, `-${CITY_KEEP_DAYS} days`);
+}
+
 // Trim every catalog publication — used right after a batch of feeds moves
 // into the catalog, where waiting for each one's next refresh would leave the
 // database carrying an archive nobody can see.
@@ -385,7 +426,7 @@ export function trimAllCatalogFeeds(): number {
     n: number;
   };
   const feeds = db
-    .prepare("SELECT id FROM feeds WHERE subscribed = 0")
+    .prepare("SELECT id FROM feeds WHERE subscribed = 0 AND city IS NULL")
     .all() as Array<{ id: number }>;
   const trim = db.transaction(() => {
     for (const feed of feeds) trimCatalogFeed(db, feed.id);
@@ -437,8 +478,11 @@ async function doRefreshStaleFeeds(
   const stale = force ? feeds : feeds.filter((feed) => {
     if (!feed.last_fetched_at) return true;
     // Catalog publications refresh far less often: nobody is reading them yet,
-    // and there are more of them than there are subscriptions.
-    const after = feed.subscribed ? STALE_AFTER_MS : CATALOG_STALE_AFTER_MS;
+    // and there are more of them than there are subscriptions. City feeds are
+    // unsubscribed too but are read every morning, and six-hour-old local news
+    // is not local news, so they keep the subscription cadence.
+    const after =
+      feed.subscribed || feed.city ? STALE_AFTER_MS : CATALOG_STALE_AFTER_MS;
     return now - new Date(feed.last_fetched_at + "Z").getTime() > after;
   });
 
@@ -465,15 +509,17 @@ async function doRefreshStaleFeeds(
       failures,
       feed.id
     );
-    // Retire a catalog publication that has stopped answering. Only a catalog
-    // one: a subscription is the reader's own choice and disabling it behind
+    // Retire a publication that has stopped answering, if nobody chose it by
+    // hand. A subscription is the reader's own choice and disabling it behind
     // their back would look like the app losing their feed, so those keep
-    // failing loudly instead. At six hours between attempts this is two and a
-    // half days of silence, long enough to outlast an outage.
-    if (feed.subscribed === 0 && failures >= CATALOG_MAX_FAILURES) {
+    // failing loudly instead. A city publication was found by the app, so it
+    // retires like a catalog one — though it is attempted every fifteen
+    // minutes rather than every six hours, so ten failures is a couple of
+    // hours of silence rather than two days.
+    if (feed.subscribed === 0 && retired(feed, failures)) {
       db.prepare("UPDATE feeds SET enabled = 0 WHERE id = ?").run(feed.id);
       console.warn(
-        `[rss] retired ${feed.title} from the catalog after ${failures} failed refreshes`
+        `[rss] retired ${feed.title} from ${feed.city ?? "the catalog"} after ${failures} failed refreshes`
       );
     }
   });

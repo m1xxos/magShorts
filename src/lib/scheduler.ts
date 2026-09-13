@@ -3,6 +3,7 @@ import { backfillArticleImages } from "./articleImages";
 import { prefetchImages } from "./imageCache";
 import { runDueDigests } from "./digest";
 import { maybeSuggestCatalog } from "./catalogSuggest";
+import { maybeDiscoverCitySources } from "./city";
 
 const TICK_MS = 10 * 60 * 1000;
 const STARTUP_DELAY_MS = 5_000;
@@ -26,6 +27,9 @@ async function tick(): Promise<void> {
     // up. Behind the digest deliberately — this is the only piece of the tick
     // whose failure costs nothing, so it goes after everything that matters.
     await maybeSuggestCatalog();
+    // And the city's local press topping itself up, on the same once-a-day
+    // footing and behind everything for the same reason.
+    await maybeDiscoverCitySources();
   } catch (error) {
     console.error("[scheduler] tick failed:", error);
   }

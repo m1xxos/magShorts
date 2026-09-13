@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { NOT_LOCAL_NEWS } from "./recommend";
 import { complete, llmConfigured, llmProviders } from "./llm";
 import { catalogSize } from "./catalog";
 import { discoverFeedUrl, parseFeedMeta, refreshStaleFeeds } from "./rss";
@@ -44,7 +45,15 @@ export interface CatalogAddition {
   name: string;
   url: string;
   feedUrl?: string;
-  status: "added" | "duplicate" | "unreachable" | "mismatch";
+  // "empty" is the city digest's alone: a feed that answered and had nothing
+  // in it. The catalog never sees it, because it judges on three headlines and
+  // a publication with none is already handled there.
+  status: "added" | "duplicate" | "unreachable" | "mismatch" | "empty";
+}
+
+// A title that is really just the domain it came from.
+function looksLikeHost(title: string): boolean {
+  return /^(www\.)?[a-z0-9-]+(\.[a-z0-9-]+)+\/?$/i.test(title.trim());
 }
 
 function normalizeHost(url: string): string | null {
@@ -80,7 +89,11 @@ function knownHosts(): Set<string> {
 // Verify one candidate and, if it holds up, add it as a catalog publication.
 async function addCandidate(
   candidate: { name: string; url: string },
-  hosts: Set<string>
+  hosts: Set<string>,
+  // Set only by the city digest's discovery. Same verification, same table,
+  // same unsubscribed row — the city is what tells the catalog queries to
+  // leave it alone.
+  city: string | null = null
 ): Promise<CatalogAddition> {
   const host = normalizeHost(candidate.url);
   if (!host || hosts.has(host)) {
@@ -107,18 +120,22 @@ async function addCandidate(
     return { ...candidate, status: "duplicate" };
   }
   // The feed's own title wins over the suggested name — the model's idea of
-  // what a publication is called is not authoritative, the feed is.
+  // what a publication is called is not authoritative, the feed is. Unless the
+  // feed has no idea either: Delovoy Peterburg's RSS calls itself "www.dp.ru",
+  // and a hostname is not a name.
+  const named = looksLikeHost(meta.title) ? candidate.name : meta.title;
   db.prepare(
-    "INSERT INTO feeds (title, url, site_url, subscribed) VALUES (?, ?, ?, 0)"
-  ).run(meta.title || candidate.name, feedUrl, meta.site_url);
+    "INSERT INTO feeds (title, url, site_url, subscribed, city) VALUES (?, ?, ?, 0, ?)"
+  ).run(named || candidate.name, feedUrl, meta.site_url, city);
   hosts.add(host);
   if (feedHost) hosts.add(feedHost);
   return { ...candidate, feedUrl, status: "added" };
 }
 
-async function addAll(
+export async function addAll(
   candidates: Array<{ name: string; url: string }>,
-  skip: Set<string> = new Set()
+  skip: Set<string> = new Set(),
+  city: string | null = null
 ): Promise<CatalogAddition[]> {
   const hosts = knownHosts();
   // Small models loop: one run answered with the same publication thirteen
@@ -137,7 +154,7 @@ async function addAll(
     while (queue.length > 0) {
       const candidate = queue.shift()!;
       try {
-        results.push(await addCandidate(candidate, hosts));
+        results.push(await addCandidate(candidate, hosts, city));
       } catch {
         results.push({ ...candidate, status: "unreachable" });
       }
@@ -151,7 +168,7 @@ async function addAll(
 
 // Pull articles for whatever was just added, so a new publication has its
 // three tiles immediately instead of after the next scheduler tick.
-async function warmUp(additions: CatalogAddition[]): Promise<void> {
+export async function warmUp(additions: CatalogAddition[]): Promise<void> {
   const db = getDb();
   for (const addition of additions) {
     if (addition.status !== "added" || !addition.feedUrl) continue;
@@ -226,6 +243,7 @@ function tasteSample(userId: number, offset: number): string[] {
       `SELECT DISTINCT e.title FROM user_events e
        WHERE e.user_id = ? AND e.title IS NOT NULL AND e.title != ''
          AND e.action IN ('save','like')
+         ${NOT_LOCAL_NEWS}
        ORDER BY e.id DESC`
     )
     .all(userId) as Array<{ title: string }>;
@@ -292,11 +310,21 @@ function dismissedHosts(): Set<string> {
 export function dismissPublication(feedId: number): boolean {
   const db = getDb();
   const feed = db
-    .prepare("SELECT url, site_url, subscribed FROM feeds WHERE id = ?")
+    .prepare("SELECT url, site_url, subscribed, city FROM feeds WHERE id = ?")
     .get(feedId) as
-    | { url: string; site_url: string | null; subscribed: number }
+    | {
+        url: string;
+        site_url: string | null;
+        subscribed: number;
+        city: string | null;
+      }
     | undefined;
-  if (!feed || feed.subscribed === 1) return false;
+  // A subscription is not the catalog's to throw away, and neither is a city
+  // publication: it shares `subscribed = 0` but was never offered to anyone,
+  // and dismissing it here would delete it *and* blacklist its host from
+  // Discover for good. The route is reachable by any signed-in caller, so the
+  // guard lives here rather than in the query that hides it.
+  if (!feed || feed.subscribed === 1 || feed.city) return false;
 
   const hosts = dismissedHosts();
   for (const value of [feed.url, feed.site_url]) {

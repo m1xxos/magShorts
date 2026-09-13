@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { type ApiTokenDto, type FolderDto, type SettingsForm } from "@/lib/types";
+import { CityField } from "./CityField";
 import { Switch } from "./ui/Switch";
 import { Segmented } from "./ui/Segmented";
 import { ChipRow, Chip } from "./ui/ChipRow";
@@ -22,6 +23,7 @@ const EDITABLE: Array<keyof SettingsForm> = [
   "digest_weekly_at",
   "digest_tz",
   "digest_rerank",
+  "city",
 ];
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -369,6 +371,20 @@ export function SettingsDialog({
 
   const digest = (
     <div className="space-y-5">
+      <div>
+        <CityField
+          label="Your city"
+          value={form?.city ?? ""}
+          onChange={(value) => setField("city", value)}
+          hint={
+            "Local news gets a digest of its own, from publications found for " +
+            "this city. They never appear in your feed, For you or search. " +
+            "Suggestions come from OpenStreetMap — only what you type here is " +
+            "sent, and typing the name works without them."
+          }
+        />
+      </div>
+
       <div>
         <span className="text-[13px] font-medium text-ink-soft">Sources</span>
         <span className="mt-1 mb-2 block text-[12px] text-ink-faint pointer-coarse:text-[13.5px]">

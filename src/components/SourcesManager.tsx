@@ -15,6 +15,7 @@ import { CreateFolderDialog } from "./CreateFolderDialog";
 import { Menu, separator, type MenuNode } from "./ui/Menu";
 import { Segmented } from "./ui/Segmented";
 import { Switch } from "./ui/Switch";
+import { CitySources } from "./CitySources";
 import { SettingsDialog } from "./SettingsDialog";
 import { Toast, useToast } from "./Toast";
 import { TopBar } from "./TopBar";
@@ -705,6 +706,9 @@ export function SourcesManager() {
               {folderGroup(null, rootFeeds.filter(matching))}
             </>
           )}
+
+          {/* Renders nothing until a city is named in Settings. */}
+          <CitySources onToast={showToast} />
         </main>
       </div>
 

@@ -40,6 +40,12 @@ export async function PATCH(
   if (typeof body.subscribed === "boolean") {
     updates.push("subscribed = ?");
     values.push(body.subscribed ? 1 : 0);
+    // Subscribing to a local publication makes it an ordinary subscription.
+    // `subscribed = 1` with a city set is a row every query in the app reads
+    // as a subscription while the city digest reads it as local news, so the
+    // state is made impossible rather than handled: you can have the
+    // publication in your feed or in the city digest, not in both.
+    if (body.subscribed) updates.push("city = NULL");
   }
   if (body.folder_id !== undefined) {
     if (body.folder_id === null) {
