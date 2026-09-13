@@ -278,6 +278,17 @@ export function Reader({
   const frameRef = useRef<Frame | null>(null);
   // The live range, so the bar can follow the selection while the page scrolls.
   const liveRange = useRef<Range | null>(null);
+  // What the bar is showing right now, readable from listeners that were
+  // installed on an older render. They are keyed on the article, not on the
+  // selection, so the state they close over is stale by the time they fire.
+  const barRef = useRef<{
+    pending: typeof pending_;
+    draft: string | null;
+  }>({ pending: null, draft: null });
+  // The passage currently wearing the pending shade, by identity. Which
+  // passage it is matters: a second selection supersedes the first, and a
+  // failed save must only take back its own mark.
+  const painted = useRef<Anchor | null>(null);
   // Articles about the same thing as this one. Empty is a normal answer.
   const [related, setRelated] = useState<ArticleDto[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -588,6 +599,8 @@ export function Reader({
       mark.replaceWith(...mark.childNodes);
       parent?.normalize();
     }
+    // This took the pending shade with it, whoever put it there.
+    painted.current = null;
 
     const frame = buildFrame(body);
     frameRef.current = frame;
@@ -711,18 +724,64 @@ export function Reader({
     return () => body.removeEventListener("click", onClick);
   }, [content, highlights]);
 
+  // Paint the passage in the pending shade, so there is something on the page
+  // saying which words the bar is about.
+  //
+  // Deliberately not called while a selection is still live on a finger:
+  // marking the passage means splitting the text nodes it is made of, and
+  // WebKit drops the selection when that happens — taking iOS's own handles
+  // with it. See the selection effect below.
+  const paintPending = useCallback((anchor: Anchor) => {
+    const body = bodyRef.current;
+    if (!body) return;
+    // Whatever was shaded before was a different passage: two selections in a
+    // row must not leave the first one looking chosen, and `keep` must not
+    // save B while A is the thing lit up on the page.
+    if (painted.current) {
+      unwrapHighlight(body, PENDING);
+      frameRef.current = buildFrame(body);
+      painted.current = null;
+    }
+    const frame = frameRef.current;
+    if (!frame) return;
+    const span = resolveAnchor(frame, anchor, true);
+    if (!span) return;
+    applySpan(frame, span, PENDING, false);
+    frameRef.current = buildFrame(body);
+    painted.current = anchor;
+  }, []);
+
+  // Take the shade back off, if it is still the one this caller put on.
+  const unpaintPending = useCallback((anchor: Anchor) => {
+    const body = bodyRef.current;
+    if (!body || painted.current !== anchor) return;
+    unwrapHighlight(body, PENDING);
+    frameRef.current = buildFrame(body);
+    painted.current = null;
+  }, []);
+
   // A selection inside the article, offered as a highlight.
   //
   // Mouse: the gesture ends on mouseup, or on keyup for a shift-arrow
   // selection. Touch: iOS finishes a long-press selection without any event of
   // ours firing, so selectionchange is the only signal — debounced, because it
   // fires continuously while the handles are being dragged.
+  //
+  // On a finger the selection is then left exactly as the browser made it. It
+  // used to be wrapped in a <mark> the moment it was seen, which collapsed it
+  // on WebKit: the handles vanished, every long-press gave you the one word it
+  // happened to catch, and there was no way to grow it. The passage is painted
+  // later instead — when the bar is actually used, which is the first moment
+  // the selection is genuinely finished with.
   useEffect(() => {
     const body = bodyRef.current;
     if (!body || !content?.html) return;
     const article_ = body;
 
     let timer: number | null = null;
+    let leaving: number | null = null;
+    // A finger still on the glass has not finished doing whatever it is doing.
+    let down = false;
 
     function offer() {
       // A cached frame is only good while its nodes are the ones on screen.
@@ -744,20 +803,55 @@ export function Reader({
       if (!described) return;
       const box = range.getBoundingClientRect();
       liveRange.current = range;
-      // Draw the passage as a highlight straight away, in the pending shade.
-      // The browser drops its own selection the moment focus moves — to the
-      // bar, to a tap, to iOS dismissing its callout — and a bar hovering over
-      // text that no longer looks selected is a bar about nothing.
-      const span = resolveAnchor(frame, described, true);
-      if (span) {
-        applySpan(frame, span, PENDING, false);
-        frameRef.current = buildFrame(article_);
-      }
+      stopLeaving();
+      // On a mouse the gesture is over, so the passage is painted at once: the
+      // browser drops its own selection the moment focus moves to the bar, and
+      // a bar hovering over text that no longer looks selected is a bar about
+      // nothing. On a finger the selection is still the user's to adjust, and
+      // the browser is already drawing it.
+      if (!touch) paintPending(described);
       setPending({
         at: { top: box.top, bottom: box.bottom, left: box.left + box.width / 2 },
         anchor: described,
         highlight: null,
       });
+    }
+
+    // The bar for a fresh selection belongs to that selection: when the
+    // selection goes, the bar goes with it. Unless the passage has already
+    // been painted — that is what "this selection has been used up" looks
+    // like, and on a mouse it happens the instant the bar appears.
+    //
+    // Not immediate, for two reasons. iOS takes the selection away on the
+    // *touchstart* of the tap on the bar's own button and only dispatches the
+    // click afterwards, so a bar that left at once would unmount out from
+    // under its own button and the tap would do nothing. And a press held
+    // through the grace period is not a slow dismissal — it is a press still
+    // happening, so the wait starts again when the pointer lifts.
+    function stopLeaving() {
+      if (leaving !== null) {
+        window.clearTimeout(leaving);
+        leaving = null;
+      }
+    }
+
+    function leave() {
+      stopLeaving();
+      leaving = window.setTimeout(() => {
+        leaving = null;
+        if (down) return leave();
+        const bar = barRef.current;
+        if (!bar.pending?.anchor || bar.draft !== null) return;
+        if (article_.querySelector(`mark[data-hl="${PENDING}"]`)) return;
+        clearPending();
+      }, 300);
+    }
+
+    function onPointerDown() {
+      down = true;
+    }
+    function onPointerUp() {
+      down = false;
     }
 
     function onMouseUp() {
@@ -768,8 +862,22 @@ export function Reader({
       if (event.shiftKey) offer();
     }
     function onSelectionChange() {
+      const selection = window.getSelection();
+      if (timer !== null) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
+      if (!selection || selection.isCollapsed) {
+        leave();
+        return;
+      }
+      // The selection is back. Dragging one handle onto the other passes
+      // through collapsed on the way, and that momentary nothing must not be
+      // read as the drag having ended.
+      stopLeaving();
+      // Dragging a handle fires this continuously; only the pause at the end
+      // of the drag is worth measuring a bar against.
       if (!touch) return;
-      if (timer !== null) window.clearTimeout(timer);
       timer = window.setTimeout(offer, 350);
     }
     // A finger lifting off is a far better signal than a timer, and a right
@@ -785,41 +893,64 @@ export function Reader({
     // The range is checked instead, which is the thing that actually matters.
     document.addEventListener("mouseup", onMouseUp);
     document.addEventListener("keyup", onKeyUp);
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("pointerup", onPointerUp, true);
+    document.addEventListener("pointercancel", onPointerUp, true);
     document.addEventListener("touchend", onTouchEnd);
     document.addEventListener("contextmenu", onMouseUp);
     document.addEventListener("selectionchange", onSelectionChange);
     return () => {
       document.removeEventListener("mouseup", onMouseUp);
       document.removeEventListener("keyup", onKeyUp);
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("pointerup", onPointerUp, true);
+      document.removeEventListener("pointercancel", onPointerUp, true);
       document.removeEventListener("touchend", onTouchEnd);
       document.removeEventListener("contextmenu", onMouseUp);
       document.removeEventListener("selectionchange", onSelectionChange);
       if (timer !== null) window.clearTimeout(timer);
+      stopLeaving();
     };
-  }, [content, touch]);
+  }, [content, touch, paintPending]);
+
+  useEffect(() => {
+    barRef.current = { pending: pending_, draft };
+  }, [pending_, draft]);
 
   function clearPending() {
     setDraft(null);
     if (bodyRef.current) {
       unwrapHighlight(bodyRef.current, PENDING);
       frameRef.current = buildFrame(bodyRef.current);
+      painted.current = null;
     }
     liveRange.current = null;
     setPending(null);
   }
 
   async function keep(note: string | null) {
-    if (!pending_?.anchor) return;
-    clearPending();
+    const anchor = pending_?.anchor;
+    if (!anchor) return;
+    // Painted now rather than unpainted: on a finger nothing has marked the
+    // passage yet, and the gap between the tap and the row coming back is a
+    // gap where the reader has no idea anything happened. The draw effect
+    // replaces this with the real highlight when the list changes.
+    paintPending(anchor);
+    setDraft(null);
+    liveRange.current = null;
+    setPending(null);
     // Wrapping a live selection collapses it on WebKit anyway; clearing it
     // deliberately means the same thing happens everywhere.
     window.getSelection()?.removeAllRanges();
     const created = await createHighlight(
       article,
-      pending_.anchor,
+      anchor,
       content?.body_hash ?? null,
       note
     );
+    // Nothing was kept, so nothing should look kept — but only this passage:
+    // a slow failure must not strip the shade off a selection made since.
+    if (!created) unpaintPending(anchor);
     if (created) {
       // In reading order from the moment it exists: the rail's list is headed
       // "In reading order", and appending would make that heading a lie until
@@ -1479,8 +1610,19 @@ export function Reader({
           existing={pending_.highlight !== null}
           hasNote={Boolean(pending_.highlight?.note)}
           below={touch}
+          adjustable={touch && pending_.anchor !== null}
           onHighlight={() => keep(null)}
-          onNote={() => setDraft(pending_.highlight?.note ?? "")}
+          onNote={() => {
+            // The editor is a sheet on a finger and takes the selection with
+            // it when it opens, so the passage has to be marked before it
+            // does — a note written against text you can no longer see
+            // highlighted is a note about nothing.
+            if (pending_.anchor) {
+              paintPending(pending_.anchor);
+              window.getSelection()?.removeAllRanges();
+            }
+            setDraft(pending_.highlight?.note ?? "");
+          }}
           onDelete={
             pending_.highlight ? () => forget(pending_.highlight!) : undefined
           }

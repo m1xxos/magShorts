@@ -175,6 +175,11 @@ the rail beside the article, and **Copy all** takes the lot as text or Markdown.
 - **Anchored to the words, not to a number.** A highlight stores the quote plus
   a little of the text either side. Offsets are a cache: when a publisher edits
   the page, the passage is found again by its own words.
+- **The selection stays yours.** On a touch screen the passage is not marked
+  until you actually keep it: marking it means splitting the text under the
+  selection, and WebKit drops the selection when that happens — handles and
+  all. The bar sits below the passage, under iOS's own menu, and follows the
+  handles while you drag them.
 - **Nothing is thrown away.** A passage that can no longer be found is kept and
   marked *not in this version of the article* rather than deleted — an
   extraction that broke today is exactly when a note must not vanish.
