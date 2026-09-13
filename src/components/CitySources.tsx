@@ -16,6 +16,8 @@ interface Discovery {
   added: number;
   unreachable: number;
   mismatch: number;
+  empty: number;
+  named: number;
   additions: unknown[] | null;
 }
 
@@ -77,8 +79,12 @@ export function CitySources({
         );
         return;
       }
-      const parts = [`${data.added} added`];
+      // The numbers, not just the good one: "2 added" alone reads like the
+      // city has two papers, when it means the model named nine and seven of
+      // them publish nothing you can subscribe to.
+      const parts = [`${data.added} added of ${data.named} named`];
       if (data.unreachable > 0) parts.push(`${data.unreachable} with no feed`);
+      if (data.empty > 0) parts.push(`${data.empty} empty`);
       if (data.mismatch > 0) parts.push(`${data.mismatch} not about the city`);
       onToast(parts.join(", "), data.added === 0);
       await load();

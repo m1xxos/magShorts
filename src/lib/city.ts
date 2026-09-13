@@ -36,7 +36,9 @@ Local means the publication's own subject is that city and the area around it: i
 
 Answer in the language that city's press actually publishes in, and name each publication the way its own readers name it. Give the home page of the publication itself: not a section, not a feed URL, not an article.
 
-Accuracy over quantity. If you are not certain a publication exists under that exact domain, leave it out. Four real ones are worth more than twelve you are guessing at, and a city with only two is an ordinary answer, not a failure.
+Start with the best known: the titles anyone living there would name first, the ones with the largest readership. Work down from there. A well-known city paper is not a guess and leaving it out is the worse mistake.
+
+Below that, accuracy over quantity: if you are not certain a publication exists under that exact domain, leave it out. A small city with only two is an ordinary answer, not a failure.
 
 Answer with one publication per line, as \`Name | https://homepage\`, and nothing else: no numbering, no commentary, no markdown.`;
 
@@ -67,9 +69,16 @@ export interface CityDiscovery {
   unreachable: number;
   mismatch: number;
   duplicate: number;
+  empty: number;
+  /** How many publications the model named, over every round. */
+  named: number;
 }
 
-function summarise(city: string, additions: CatalogAddition[]): CityDiscovery {
+function summarise(
+  city: string,
+  additions: CatalogAddition[],
+  named = 0
+): CityDiscovery {
   const count = (status: CatalogAddition["status"]) =>
     additions.filter((entry) => entry.status === status).length;
   return {
@@ -79,6 +88,8 @@ function summarise(city: string, additions: CatalogAddition[]): CityDiscovery {
     unreachable: count("unreachable"),
     mismatch: count("mismatch"),
     duplicate: count("duplicate"),
+    empty: count("empty"),
+    named,
   };
 }
 
@@ -154,6 +165,40 @@ export function switchCity(previous: string, next: string): void {
   }
 }
 
+async function askForPublications(
+  spelling: string,
+  already: string[]
+): Promise<Array<{ name: string; url: string }>> {
+  const answer = await complete(
+    SUGGEST_SYSTEM,
+    `City: ${spelling}\n\n` +
+      `Name up to ${MAX_CITY_SOURCES} news publications based in this city ` +
+      `and covering it: the city's own newspaper, the local broadcaster's ` +
+      `news site, and the online-only city outlets.` +
+      (already.length > 0
+        ? `\n\nAlready found — do not repeat these, name others:\n` +
+          already.join(", ")
+        : ""),
+    600,
+    llmProviders()
+  );
+  if (!answer) return [];
+  const candidates = parseSuggestions(answer.text).slice(0, MAX_CITY_SOURCES);
+  if (candidates.length === 0) {
+    console.warn(
+      `[city] ${answer.model} answered with no usable publication lines`
+    );
+  }
+  return candidates;
+}
+
+// How many times to ask. The model is not deterministic and its first answer
+// is not its best: asked for Санкт-Петербург on two consecutive days it named
+// Fontanka once and not the other time — the biggest paper in the city, missed
+// by chance. Each round is told what the last one found and asked for others,
+// and rounds stop early when one adds nothing.
+const ROUNDS = 3;
+
 export async function discoverCitySources(): Promise<CityDiscovery> {
   const city = currentCity();
   const spelling = getSetting("city").trim();
@@ -162,40 +207,64 @@ export async function discoverCitySources(): Promise<CityDiscovery> {
     return { ...summarise(spelling, []), additions: null };
   }
 
-  const already = alreadyFound(city);
-  const answer = await complete(
-    SUGGEST_SYSTEM,
-    `City: ${spelling}\n\n` +
-      `Name up to ${MAX_CITY_SOURCES} news publications based in this city ` +
-      `and covering it: the city's own newspaper, the local broadcaster's ` +
-      `news site, and the online-only city outlets.` +
-      (already.length > 0
-        ? `\n\nAlready found (do not repeat these):\n${already.join(", ")}`
-        : ""),
-    600,
-    llmProviders()
-  );
-  if (!answer) return { ...summarise(spelling, []), additions: null };
+  const additions: CatalogAddition[] = [];
+  let named = 0;
+  let asked = false;
 
-  const candidates = parseSuggestions(answer.text).slice(0, MAX_CITY_SOURCES);
-  if (candidates.length === 0) {
-    console.warn(
-      `[city] ${answer.model} answered with no usable publication lines`
-    );
-    return summarise(spelling, []);
+  for (let round = 0; round < ROUNDS; round++) {
+    const candidates = await askForPublications(spelling, alreadyFound(city));
+    if (candidates.length === 0) break;
+    asked = true;
+    named += candidates.length;
+
+    const round_additions = await addAll(candidates, new Set(), city);
+    await warmUp(round_additions);
+    dropEmpty(round_additions);
+    await vet(spelling, round_additions);
+    additions.push(...round_additions);
+
+    // Nothing survived this round, so another is unlikely to do better — the
+    // model is repeating itself or naming things that do not exist.
+    if (!round_additions.some((entry) => entry.status === "added")) break;
   }
 
-  const additions = await addAll(candidates, new Set(), city);
-  await warmUp(additions);
-  await vet(spelling, additions);
+  if (!asked) return { ...summarise(spelling, additions, named), additions: null };
 
+  const result = summarise(spelling, additions, named);
   console.log(
-    `[city] ${spelling}: ${candidates.length} named, ` +
-      `${additions.filter((a) => a.status === "added").length} added, ` +
-      `${additions.filter((a) => a.status === "unreachable").length} did not resolve, ` +
-      `${additions.filter((a) => a.status === "mismatch").length} not about the city`
+    `[city] ${spelling}: ${named} named over ${ROUNDS} rounds, ` +
+      `${result.added} added, ${result.unreachable} did not resolve, ` +
+      `${result.empty} empty, ${result.mismatch} not about the city`
   );
-  return summarise(spelling, additions);
+  return result;
+}
+
+// A feed that answered and had nothing in it is not a publication.
+//
+// This is separate from the vet on purpose. The vet judges headlines, and a
+// publication with no headlines gives it nothing to judge — so it is excluded
+// from that question, which is right for a feed that was merely slow and wrong
+// for one that is simply empty. The two are distinguishable: warmUp writes
+// last_fetched_at only on a successful fetch, so a row with a timestamp and no
+// articles was read and found empty. kultura.spb.ru — a cultural union's
+// WordPress with a live but empty /feed/ — is what this catches.
+function dropEmpty(additions: CatalogAddition[]): void {
+  const db = getDb();
+  for (const entry of additions) {
+    if (entry.status !== "added" || !entry.feedUrl) continue;
+    const feed = db
+      .prepare(
+        `SELECT f.id, f.last_fetched_at,
+                (SELECT COUNT(*) FROM articles a WHERE a.feed_id = f.id) AS n
+           FROM feeds f WHERE f.url = ?`
+      )
+      .get(entry.feedUrl) as
+      | { id: number; last_fetched_at: string | null; n: number }
+      | undefined;
+    if (!feed || feed.n > 0 || !feed.last_fetched_at) continue;
+    db.prepare("DELETE FROM feeds WHERE id = ?").run(feed.id);
+    entry.status = "empty";
+  }
 }
 
 // The third gate. Load-bearing in a way it is not for the catalog: a made-up

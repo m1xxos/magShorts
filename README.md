@@ -266,8 +266,12 @@ side, one column per model, so quality is judged by eye.
 
 ## Your city
 
-Name your city in Settings and local news gets a digest of its own, beside
-Daily and Weekly, carrying the city's own name.
+Name your city in Settings — the field suggests places as you type, from
+OpenStreetMap, so Казань and Казанка are told apart and the spelling stored is
+the canonical one. It is the only thing in magShorts that asks a service it
+does not run; only what you type in that box is sent, and typing the name
+works without the suggestions. Local news then gets a digest of its own,
+beside Daily and Weekly, carrying the city's own name.
 
 The publications are found for you: the model is asked to name the city's
 press, and every candidate goes through the same three gates the Discover
@@ -295,11 +299,14 @@ already a real answer.
 
 **Expect a short list, and check it.** Manage sources gains a *Local news*
 section: what was found, how many articles each has filed, and a × on each.
-Plenty of local publications have no feed at all — asked for Санкт-Петербург
-the model named six, three of which publish nothing to subscribe to — so the
-same section takes a URL you paste in. That door is also the whole feature
-when no model is configured, because there is no way to work out the papers of
-a city without one.
+The model is asked more than once, because its first answer is not its best —
+asked for Санкт-Петербург on two consecutive days it named Fontanka, the
+biggest paper in the city, once and not the other time. Over three rounds it
+named 28 publications and 4 survived: **21 of them have no feed to subscribe
+to at all**, which is ordinary for regional media and not a failure of the
+gates. The section takes a URL you paste in for the rest, and that door is
+also the whole feature when no model is configured, because there is no way to
+work out the papers of a city without one.
 
 Changing your city switches the old city's publications off rather than
 deleting them; correcting a typo switches them back on.

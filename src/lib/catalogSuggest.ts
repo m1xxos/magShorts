@@ -45,7 +45,10 @@ export interface CatalogAddition {
   name: string;
   url: string;
   feedUrl?: string;
-  status: "added" | "duplicate" | "unreachable" | "mismatch";
+  // "empty" is the city digest's alone: a feed that answered and had nothing
+  // in it. The catalog never sees it, because it judges on three headlines and
+  // a publication with none is already handled there.
+  status: "added" | "duplicate" | "unreachable" | "mismatch" | "empty";
 }
 
 // A title that is really just the domain it came from.

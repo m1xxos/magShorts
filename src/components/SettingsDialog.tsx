@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { type ApiTokenDto, type FolderDto, type SettingsForm } from "@/lib/types";
+import { CityField } from "./CityField";
 import { Switch } from "./ui/Switch";
 import { Segmented } from "./ui/Segmented";
 import { ChipRow, Chip } from "./ui/ChipRow";
@@ -371,13 +372,17 @@ export function SettingsDialog({
   const digest = (
     <div className="space-y-5">
       <div>
-        {field(
-          "Your city",
-          "city",
-          "Санкт-Петербург",
-          "Local news gets a digest of its own, from publications found for " +
-            "this city. They never appear in your feed, For you or search."
-        )}
+        <CityField
+          label="Your city"
+          value={form?.city ?? ""}
+          onChange={(value) => setField("city", value)}
+          hint={
+            "Local news gets a digest of its own, from publications found for " +
+            "this city. They never appear in your feed, For you or search. " +
+            "Suggestions come from OpenStreetMap — only what you type here is " +
+            "sent, and typing the name works without them."
+          }
+        />
       </div>
 
       <div>
