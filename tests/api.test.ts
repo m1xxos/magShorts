@@ -207,6 +207,53 @@ describe("city publications stay out of everything", () => {
   });
 });
 
+describe("what the city digest refuses to carry", () => {
+  it("drops war, violence, crime and disaster", async () => {
+    const { isGrim } = await import("../src/lib/cityFilter");
+    for (const title of [
+      "За ночь над Россией сбили 389 украинских дронов",
+      "Мужчина ударил женщину ножом у метро «Проспект Просвещения»",
+      "Петербурженку задержали за кражу из ювелирного салона",
+      "Мужчина погиб при пожаре в квартире на улице Юных Пионеров",
+      "В Кремле отреагировали на слова Зеленского",
+      "Two killed in a collision on the ring road",
+    ]) {
+      assert.ok(isGrim(title, null), title);
+    }
+  });
+
+  it("matches next to Cyrillic, where \\b does not", async () => {
+    // JavaScript's \b is ASCII-only: /\bдтп\b/ never fires on "после ДТП",
+    // and the whole list silently did nothing for those patterns. Two stories
+    // about a bus crash reached a digest that had just been told to leave
+    // crashes out. Python's \b *is* Unicode-aware, which is why the prototype
+    // of this list looked right.
+    const { isGrim } = await import("../src/lib/cityFilter");
+    assert.ok(isGrim("Один юноша госпитализирован после ДТП с автобусом", null));
+    assert.ok(isGrim("Потери ВСУ за сутки", null));
+    // And still not inside a word.
+    assert.ok(!isGrim("Всубботу в парке пройдёт ярмарка", null));
+  });
+
+  it("keeps what the city is actually doing", async () => {
+    const { isGrim, isEvent } = await import("../src/lib/cityFilter");
+    for (const title of [
+      "Фортепианный концерт в Шереметевском дворце открыл фестиваль",
+      "В Озерках открылся Центр финно-угорских народов",
+      "Около двух тысяч человек вышли на старт «Кросса нации»",
+      "Главный синоптик Петербурга рассказал, когда дожди сменит солнце",
+    ]) {
+      assert.ok(!isGrim(title, null), title);
+    }
+    // One concert is never carried by three papers at once, so an event can
+    // never earn the corroboration a road closure does; the bonus is what
+    // stops it sitting below one forever.
+    assert.ok(isEvent("В Озерках открылся Центр финно-угорских народов", null));
+    assert.ok(!isEvent("Главный синоптик рассказал про дожди", null));
+  });
+
+});
+
 describe("the city digest kind", () => {
   it("is a kind of its own, not silently the daily one", async () => {
     // Every route used to coerce an unknown kind with

@@ -289,6 +289,15 @@ A local wire files dozens of items a day and would drown a feed built by
 subject. The exception is deliberate: saving one puts it in Read later like
 anything else, and syncs to Obsidian like anything else.
 
+**No war, no police log.** A local paper is a general paper: the same three
+publications that report a new park report a stabbing, a fire, a court case and
+the war. Those are dropped — not demoted, dropped, so they are absent from the
+quick hits and from behind *Show all* as well as from the cards. Over two days
+of Санкт-Петербург that was 100 articles of 300. The digest leans the other
+way too: something opening, on, or about to happen outranks a story of the same
+weight that is not. This is not a setting; it is what the page is for, and the
+publications themselves are one click away on every card.
+
 **Ranked by what happened, not by what you like.** The taste profile is built
 from what you read and knows nothing about a road closure, so the city digest
 asks a different question: how many of the city's own publications thought a

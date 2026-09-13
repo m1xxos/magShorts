@@ -11,6 +11,7 @@ import {
 import { extractArticle, readContentText } from "./extract";
 import { readingMinutes } from "./readingTime";
 import { complete, llmConfigured, rankProviders } from "./llm";
+import { isEvent, isGrim } from "./cityFilter";
 import { currentCity, getCountSetting, getSetting } from "./settings";
 import { shiftDate, WEEKDAYS, zonedNow } from "./zoned";
 import {
@@ -218,6 +219,10 @@ function clusterStories(ranked: DigestCandidate[]): Cluster[] {
 // so the significance signal is free; recency is the tiebreak underneath it.
 const CORROBORATION_WEIGHT = 0.5;
 const RECENCY_WEIGHT = 0.4;
+// One concert is never carried by three papers at once, so an event can never
+// earn the corroboration a road closure does and would sit below it forever.
+// Worth about the same as two publications agreeing.
+const EVENT_BONUS = 0.5;
 // Three outlets twenty hours ago: 1.00 + 0.4 x 0.17 = 1.07. One outlet an hour
 // ago: 0.50 + 0.4 x 0.96 = 0.88. Corroboration wins, which is what "rank by
 // what happened" has to mean — at a recency weight of 1.0 it does not, so this
@@ -233,7 +238,7 @@ function fetchCityCandidates(city: string, hours: number): DigestCandidate[] {
   // `embedding IS NOT NULL` is load-bearing: clusterStories reads the buffer
   // with no null check, and a publication found this morning has articles
   // before it has vectors.
-  return getDb()
+  const rows = getDb()
     .prepare(
       `SELECT a.*, f.title AS feed_title
          FROM articles a JOIN feeds f ON f.id = a.feed_id
@@ -243,6 +248,12 @@ function fetchCityCandidates(city: string, hours: number): DigestCandidate[] {
         ORDER BY a.published_at DESC`
     )
     .all(city, `-${hours} hours`) as DigestCandidate[];
+
+  // Filtered here rather than while laying out the cards, so that what is
+  // dropped is dropped from the quick hits and from behind "Show all N" too.
+  // There is no point refusing to lead with a stabbing and then listing it
+  // four rows further down.
+  return rows.filter((article) => !isGrim(article.title, article.summary));
 }
 
 function rankCityStories(city: string, hours: number): Cluster[] {
@@ -262,7 +273,8 @@ function rankCityStories(city: string, hours: number): Cluster[] {
       cluster,
       score:
         CORROBORATION_WEIGHT * Math.log2(cluster.size + 1) +
-        RECENCY_WEIGHT * recency -
+        RECENCY_WEIGHT * recency +
+        (isEvent(cluster.lead.title, cluster.lead.summary) ? EVENT_BONUS : 0) -
         (isCommerceRoundup(cluster.lead.title) ? COMMERCE_PENALTY : 0),
     };
   });
@@ -295,16 +307,18 @@ function rankCityStories(city: string, hours: number): Cluster[] {
 }
 
 const CITY_RERANK_SYSTEM =
-  "You are choosing which of a city's news stories matter most to someone " +
-  "who lives there, out of everything its local publications filed.\n" +
-  "Position 1 is the lead: the single most consequential thing that happened " +
-  "in this city — something that changes how people live, get about, are " +
-  "governed or make a living. A story several of the city's outlets ran at " +
-  "once is usually that story.\n" +
-  "Prefer what happened over what someone said about it, and the city's own " +
-  "affairs over a national story with a local angle. Never pick advertising, " +
-  "listings, contests or promotional content. Prefer variety of subject and " +
-  "of publication.\n" +
+  "You are choosing what to put in front of someone who wants to know what is " +
+  "going on in the city they live in — what is on, what has opened, what has " +
+  "been built or restored, what people there did well at.\n" +
+  "Position 1 is the lead: the thing most worth knowing about or going to.\n" +
+  "Prefer what is happening or about to happen over what someone said about " +
+  "it, and the city's own life over national news carried by a local paper.\n" +
+  "Never pick a story about war, fighting, weapons, a killing, an assault, a " +
+  "crime, a court case, a crash, a fire or anyone's death. Not as the lead, " +
+  "not anywhere. If a story is mostly one of those, leave its number out " +
+  "entirely even if nothing else is left to pick.\n" +
+  "Never pick advertising, listings or promotional content. Prefer variety of " +
+  "subject and of publication.\n" +
   "Answer with the numbers only, separated by commas, best first. No words, " +
   "no explanation, no formatting.";
 
@@ -621,10 +635,23 @@ async function buildThreeLines(
   );
   if (!result) return { lines: fallback, wrote: null };
 
-  const parsed = result.text
+  // Asked for three lines, the model sometimes answers with three sentences on
+  // one line. That is the answer, written slightly wrong, and throwing it away
+  // for a template that says "208 articles from 3 publications" is the worse
+  // reading of it — so a single line is split on sentence endings before
+  // giving up.
+  const byLine = result.text
     .split("\n")
     .map((line) => line.replace(/^\s*[-*\d.)\s]+/, "").trim())
     .filter(Boolean);
+  const parsed =
+    byLine.length >= 3
+      ? byLine
+      : byLine
+          .join(" ")
+          .split(/(?<=[.!?])\s+(?=[«"'"'(\p{Lu}])/u)
+          .map((sentence) => sentence.trim())
+          .filter(Boolean);
   if (parsed.length < 3) {
     // The panel silently becomes its English template when this happens, which
     // is indistinguishable on screen from having no model at all. Say which it
