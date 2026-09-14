@@ -346,7 +346,10 @@ function spreadByFeed(
 // of its stories matters most survives intact — and when only one publication
 // has anything left, it fills the page rather than leaving it short.
 export function capPerFeed(clusters: Cluster[], need: number): Cluster[] {
-  const outlets = new Set(clusters.slice(0, need * 3).map((c) => c.lead.feed_id));
+  // Every publication with a story to offer, not a prefix of them: counting
+  // only the first so many would read a run of one outlet at the top as
+  // "there is only one outlet" and lift the cap exactly where it is needed.
+  const outlets = new Set(clusters.map((cluster) => cluster.lead.feed_id));
   const cap = Math.max(1, Math.ceil(need / Math.max(1, outlets.size)));
 
   const kept: Cluster[] = [];

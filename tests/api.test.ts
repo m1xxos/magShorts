@@ -341,6 +341,15 @@ describe("one publication cannot own the city digest", () => {
     assert.ok(top.includes(2) && top.includes(3));
   });
 
+  it("counts every publication with something to offer, not just the top", async () => {
+    // Counting a prefix would read a run of one outlet at the top as "there
+    // is only one outlet here" and lift the cap exactly where it is needed.
+    const { capPerFeed } = await import("../src/lib/digest");
+    const stacked = [...Array(20).fill(1), 2, 3, 2, 3];
+    const top = feedsOf(capPerFeed(ordered(stacked), 7)).slice(0, 7);
+    assert.equal(top.filter((f) => f === 1).length, 3, `got ${top}`);
+  });
+
   it("leaves an order that is already varied alone", async () => {
     const { capPerFeed } = await import("../src/lib/digest");
     const varied = [1, 2, 3, 1, 2, 3];
