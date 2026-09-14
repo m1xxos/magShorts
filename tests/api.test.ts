@@ -305,6 +305,67 @@ describe("the city digest kind", () => {
   });
 });
 
+describe("one publication cannot own the city digest", () => {
+  // Reported from production: every card in the Petersburg digest came from
+  // one broadcaster. The scored order handed to the model was well mixed, and
+  // the model reordered it freely — "prefer variety of publication" in a
+  // prompt is a request, not a constraint.
+  function ordered(feeds: number[]) {
+    return feeds.map((feed_id, index) => ({
+      lead: { feed_id, title: `story ${index}` },
+    })) as never[];
+  }
+  const feedsOf = (clusters: unknown[]) =>
+    (clusters as Array<{ lead: { feed_id: number } }>).map(
+      (c) => c.lead.feed_id
+    );
+
+  it("caps an order that stacks one publication", async () => {
+    const { capPerFeed } = await import("../src/lib/digest");
+    // Six from one broadcaster at the top, with plenty from the other two
+    // further down — the shape production actually produced, where the three
+    // publications had 59, 62 and 74 clusters between them.
+    const capped = capPerFeed(
+      ordered([1, 1, 1, 1, 1, 1, 2, 3, 2, 3, 1, 2, 3]),
+      7
+    );
+    const top = feedsOf(capped).slice(0, 7);
+    // Its first pick is still its first pick: the model's judgement of what
+    // leads is kept, only the share is enforced.
+    assert.equal(top[0], 1);
+    assert.equal(
+      top.filter((f) => f === 1).length,
+      3,
+      `seven cards over three publications is three each at most, got ${top}`
+    );
+    assert.ok(top.includes(2) && top.includes(3));
+  });
+
+  it("counts every publication with something to offer, not just the top", async () => {
+    // Counting a prefix would read a run of one outlet at the top as "there
+    // is only one outlet here" and lift the cap exactly where it is needed.
+    const { capPerFeed } = await import("../src/lib/digest");
+    const stacked = [...Array(20).fill(1), 2, 3, 2, 3];
+    const top = feedsOf(capPerFeed(ordered(stacked), 7)).slice(0, 7);
+    assert.equal(top.filter((f) => f === 1).length, 3, `got ${top}`);
+  });
+
+  it("leaves an order that is already varied alone", async () => {
+    const { capPerFeed } = await import("../src/lib/digest");
+    const varied = [1, 2, 3, 1, 2, 3];
+    assert.deepEqual(feedsOf(capPerFeed(ordered(varied), 6)), varied);
+  });
+
+  it("fills the page when only one publication has anything", async () => {
+    // A cap that left the digest short would be a worse bug than the one it
+    // fixes: on a day when two of the three outlets filed nothing, the page
+    // is still a page.
+    const { capPerFeed } = await import("../src/lib/digest");
+    const only = [1, 1, 1, 1, 1];
+    assert.deepEqual(feedsOf(capPerFeed(ordered(only), 5)), only);
+  });
+});
+
 describe("search", () => {
   it("finds a word in a title", async () => {
     const titles = await search("kubernetes");

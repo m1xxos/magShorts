@@ -186,7 +186,11 @@ function firstSentences(text: string, count: number): string {
 interface Cluster {
   lead: DigestCandidate;
   vector: Float32Array;
+  /** How many articles fell into this cluster. */
   size: number;
+  /** How many *distinct publications* they came from, which is not the same
+   *  number and is the one that means anything. */
+  outlets: Set<number>;
 }
 
 function cosine(a: Float32Array, b: Float32Array): number {
@@ -204,8 +208,17 @@ function clusterStories(ranked: DigestCandidate[]): Cluster[] {
     const existing = clusters.find(
       (cluster) => cosine(vector, cluster.vector) >= CLUSTER_THRESHOLD
     );
-    if (existing) existing.size++;
-    else clusters.push({ lead: article, vector, size: 1 });
+    if (existing) {
+      existing.size++;
+      existing.outlets.add(article.feed_id);
+    } else {
+      clusters.push({
+        lead: article,
+        vector,
+        size: 1,
+        outlets: new Set([article.feed_id]),
+      });
+    }
   }
   return clusters;
 }
@@ -215,8 +228,14 @@ function clusterStories(ranked: DigestCandidate[]): Cluster[] {
 // What makes a local story the day's news is not how well it matches your
 // taste — there is no taste to match, the profile is built from technology
 // writing and knows nothing about a bridge. It is how many of the city's own
-// publications thought it worth filing. clusterStories already counts that,
-// so the significance signal is free; recency is the tiebreak underneath it.
+// publications thought it worth filing; recency is the tiebreak underneath it.
+//
+// *Publications*, not articles. A cluster's size counts what fell into it, and
+// a rolling bulletin falls into itself: "Новости Петербурга к 11:00", "…к
+// 12:00", "…к 13:00" is one outlet talking to itself seven times, which the
+// first version of this read as seven outlets agreeing and led the digest
+// with. Measured on the live Petersburg corpus, 22 of the 47 clusters bigger
+// than one article were a single outlet repeating.
 const CORROBORATION_WEIGHT = 0.5;
 const RECENCY_WEIGHT = 0.4;
 // One concert is never carried by three papers at once, so an event can never
@@ -272,16 +291,24 @@ function rankCityStories(city: string, hours: number): Cluster[] {
     return {
       cluster,
       score:
-        CORROBORATION_WEIGHT * Math.log2(cluster.size + 1) +
+        CORROBORATION_WEIGHT * Math.log2(cluster.outlets.size + 1) +
         RECENCY_WEIGHT * recency +
         (isEvent(cluster.lead.title, cluster.lead.summary) ? EVENT_BONUS : 0) -
         (isCommerceRoundup(cluster.lead.title) ? COMMERCE_PENALTY : 0),
     };
   });
 
-  // The same greedy pass the grid uses, so one outlet that files constantly
-  // cannot own the page.
   scored.sort((a, b) => b.score - a.score);
+  return spreadByFeed(scored);
+}
+
+// The greedy pass the grid uses: take the best, then dock every later story
+// from that publication a little, so one outlet that files constantly cannot
+// own the page.
+function spreadByFeed(
+  scored: Array<{ cluster: Cluster; score: number }>,
+  penalty = FEED_REPEAT_PENALTY
+): Cluster[] {
   const picked: Cluster[] = [];
   const perFeed = new Map<number, number>();
   const pool = [...scored];
@@ -290,7 +317,7 @@ function rankCityStories(city: string, hours: number): Cluster[] {
     let bestScore = -Infinity;
     for (let i = 0; i < pool.length; i++) {
       const seen = perFeed.get(pool[i].cluster.lead.feed_id) ?? 0;
-      const adjusted = pool[i].score - seen * FEED_REPEAT_PENALTY;
+      const adjusted = pool[i].score - seen * penalty;
       if (adjusted > bestScore) {
         bestScore = adjusted;
         bestIndex = i;
@@ -304,6 +331,41 @@ function rankCityStories(city: string, hours: number): Cluster[] {
     picked.push(chosen.cluster);
   }
   return picked;
+}
+
+// No publication may take more than its share of the cards on the page.
+//
+// A per-repeat penalty is the wrong tool here and was tried first: positions
+// on a seven-card page are worth about .14 of each other, so breaking a stack
+// six deep needs a penalty big enough to override the model everywhere else
+// too. A share is the thing actually being asked for, so it is what is
+// written: with seven cards and three publications nobody takes more than
+// three, and the rest wait their turn behind the cards that fit.
+//
+// Order within a publication is untouched, so the model's judgement of which
+// of its stories matters most survives intact — and when only one publication
+// has anything left, it fills the page rather than leaving it short.
+export function capPerFeed(clusters: Cluster[], need: number): Cluster[] {
+  // Every publication with a story to offer, not a prefix of them: counting
+  // only the first so many would read a run of one outlet at the top as
+  // "there is only one outlet" and lift the cap exactly where it is needed.
+  const outlets = new Set(clusters.map((cluster) => cluster.lead.feed_id));
+  const cap = Math.max(1, Math.ceil(need / Math.max(1, outlets.size)));
+
+  const kept: Cluster[] = [];
+  const deferred: Cluster[] = [];
+  const used = new Map<number, number>();
+  for (const cluster of clusters) {
+    const feed = cluster.lead.feed_id;
+    const taken = used.get(feed) ?? 0;
+    if (kept.length < need && taken < cap) {
+      used.set(feed, taken + 1);
+      kept.push(cluster);
+    } else {
+      deferred.push(cluster);
+    }
+  }
+  return [...kept, ...deferred];
 }
 
 const CITY_RERANK_SYSTEM =
@@ -370,7 +432,17 @@ async function rerankCityClusters(
     picked.push(shortlist[index]);
   }
   if (picked.length === 0) return clusters;
-  return [...picked, ...clusters.filter((_, i) => !seen.has(i))];
+
+  // The diversity pass has to run again here, and this is the whole reason
+  // the city digest went out with all seven cards from one broadcaster. The
+  // scored order handed to the model was well mixed — Телеканал, Фонтанка,
+  // Телеканал, ДП, Фонтанка… — and the model reordered it freely, stacking
+  // one outlet, because "prefer variety of publication" in a prompt is a
+  // request and not a constraint. Its judgement of what matters is kept: the
+  // position it gave a story is the score, and only the tie between outlets
+  // is broken.
+  const capped = capPerFeed(picked, need);
+  return [...capped, ...clusters.filter((_, i) => !seen.has(i))];
 }
 
 // ------------------------------------------------------------------ prompts
