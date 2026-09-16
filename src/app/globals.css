@@ -124,6 +124,17 @@ body {
   box-shadow: inset 0 -2px 0 var(--clay);
 }
 
+/* The sentence being read aloud.
+   An ink wash rather than clay: clay-soft is already a kept highlight and
+   clay-soft at 60% is already the passage under the selection bar, and a third
+   shade of the same colour would make "being read to you" look like "kept".
+   Registered by Reader.tsx through CSS.highlights, so it wraps nothing and
+   splits no text node — which is the only reason it can change twice a
+   sentence without disturbing the highlights underneath it. */
+::highlight(ms-speaking) {
+  background-color: color-mix(in srgb, var(--ink) 9%, transparent);
+}
+
 .reader-body a {
   color: var(--clay);
   text-decoration: underline;

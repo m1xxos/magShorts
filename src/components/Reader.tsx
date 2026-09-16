@@ -26,6 +26,7 @@ import {
   applySpan,
   buildFrame,
   describeRange,
+  rangeOf,
   resolveAnchor,
   unwrapHighlight,
   type Anchor,
@@ -41,6 +42,9 @@ import {
   type Reanchored,
 } from "@/lib/highlights";
 import { useMediaQuery } from "@/lib/useMediaQuery";
+import { detectLanguage, formatLeft, splitSentences } from "@/lib/speech";
+import { blockBreaks, useSpeech, type SpeechSentence } from "@/lib/useSpeech";
+import { ListenIcon, ReaderListen } from "./ReaderListen";
 
 // The in-app reader: an article opened over the grid instead of in a new tab.
 //
@@ -79,6 +83,13 @@ export const UP_NEXT = 4;
 const MIN_READ_SECONDS = 5;
 const MAX_READ_SECONDS = 3600;
 const TYPE_KEY = "ms_reader_type";
+// The name the spoken sentence is registered under with the browser's own
+// highlight registry, and the one globals.css styles.
+const SPEAKING = "ms-speaking";
+// How long the article stops following the voice after you scroll it yourself.
+// Long enough to read the paragraph you went looking for, short enough that
+// you do not have to remember you did it.
+const FOLLOW_PAUSE = 6000;
 // Clears the sticky top bar (64px) and the progress rule (3px), plus a little
 // air. Used by both rails and by the outline's own scroll box.
 const RAIL_TOP = 83;
@@ -239,6 +250,7 @@ export function Reader({
     serif: true,
   });
   const [typeOpen, setTypeOpen] = useState(false);
+  const [listenOpen, setListenOpen] = useState(false);
   const [outlineOpen, setOutlineOpen] = useState(false);
   // A popover on a mouse, a sheet on a finger: in a 176px panel each of the
   // five text sizes gets about 30px of tap area.
@@ -303,6 +315,18 @@ export function Reader({
   const ticking = useRef(false);
   const pending = useRef(0);
   const persistTimer = useRef<number | null>(null);
+  // The sentences of this body, cut once. Keyed on the body they were cut
+  // from, so a re-extraction gets a fresh set rather than offsets into text
+  // that is no longer there.
+  const cut = useRef<{ hash: string; sentences: SpeechSentence[] } | null>(null);
+  // Set while the reader is scrolling itself, so onScroll can tell its own
+  // work from a finger, and until when the voice has to stop pulling the page
+  // around after the reader has moved it by hand.
+  const selfScroll = useRef(false);
+  const followAgainAt = useRef(0);
+  // The keyboard handler is installed long before the speech hook exists in
+  // this render, so it reaches its action through here.
+  const speechToggle = useRef<() => void>(() => {});
 
   useEffect(() => {
     const saved = window.localStorage.getItem(TYPE_KEY);
@@ -484,6 +508,21 @@ export function Reader({
         return;
       }
       if (event.key === "Escape") close();
+      // Read by position, not by character: on a Russian layout this key types
+      // "д", and a shortcut that only works in one layout is not a shortcut.
+      // Space is not available — it scrolls the article, and Shorts spends it.
+      if (
+        event.code === "KeyL" &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !(event.target as HTMLElement | null)?.closest?.(
+          "input, textarea, [contenteditable]"
+        )
+      ) {
+        event.preventDefault();
+        speechToggle.current();
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -510,6 +549,10 @@ export function Reader({
   // rounded percentage does (so React bails out of most renders), and the
   // saved position is written after scrolling stops.
   function onScroll() {
+    // A scroll the reader did themselves. The voice stops dragging the page
+    // around for a while — going to look at something else is a decision, and
+    // the article must not argue with it.
+    if (!selfScroll.current) followAgainAt.current = Date.now() + FOLLOW_PAUSE;
     if (ticking.current) return;
     ticking.current = true;
     requestAnimationFrame(() => {
@@ -1013,6 +1056,118 @@ export function Reader({
       ? article.summary
       : null;
 
+  // Reading it out loud.
+  //
+  // The language only decides which voice to offer first, and the headline
+  // plus the standfirst is the shortest sample of it that is always there —
+  // the body may still be loading, and the panel should not wait for it.
+  const lang = useMemo(
+    () => detectLanguage(`${article.title} ${article.summary ?? ""}`),
+    [article.title, article.summary]
+  );
+
+  // The frame, rebuilt if the body has been replaced underneath it.
+  //
+  // The same staleness check the selection path makes: React owns the
+  // container and not its children, but a re-extraction swaps them, and a
+  // frame whose nodes have left the document resolves every offset to nothing.
+  const currentFrame = useCallback((): Frame | null => {
+    const body = bodyRef.current;
+    if (!body) return null;
+    if (!frameRef.current || !frameRef.current.nodes[0]?.isConnected) {
+      frameRef.current = buildFrame(body);
+    }
+    return frameRef.current;
+  }, []);
+
+  // Keep the sentence being spoken on screen — but never at the cost of a
+  // page the reader has just moved themselves.
+  const follow = useCallback((range: Range) => {
+    const container = scrollRef.current;
+    if (!container || Date.now() < followAgainAt.current) return;
+    const box = range.getBoundingClientRect();
+    const view = container.getBoundingClientRect();
+    // Only when it has left the comfortable band: scrolling on every sentence
+    // would mean the article twitching once every few seconds.
+    if (box.top >= view.top + RAIL_TOP && box.bottom <= view.top + view.height * 0.75) {
+      return;
+    }
+    selfScroll.current = true;
+    window.setTimeout(() => {
+      selfScroll.current = false;
+    }, 800);
+    container.scrollTo({
+      top: container.scrollTop + box.top - view.top - RAIL_TOP - 40,
+      behavior: "smooth",
+    });
+  }, []);
+
+  // Where the voice has got to.
+  //
+  // Through the browser's own highlight registry rather than a <mark>, because
+  // this changes several times a minute: wrapping would split text nodes under
+  // the kept highlights and invalidate every offset in the frame, twice a
+  // sentence. A registry entry touches no DOM at all. Where it is missing
+  // (Safari before 17.2) the article still reads aloud, untinted.
+  const paint = useCallback(
+    (sentence: SpeechSentence | null) => {
+      if (typeof CSS === "undefined" || !("highlights" in CSS)) return;
+      const frame = sentence?.span ? currentFrame() : null;
+      const range = frame && sentence?.span ? rangeOf(frame, sentence.span) : null;
+      if (!range) {
+        CSS.highlights.delete(SPEAKING);
+        return;
+      }
+      CSS.highlights.set(SPEAKING, new Highlight(range));
+      follow(range);
+    },
+    [currentFrame, follow]
+  );
+
+  // The headline first, then the deck, then the body — which is the order a
+  // person would read it in, and the body alone starts mid-thought.
+  const speakable = useCallback((): SpeechSentence[] => {
+    const queue: SpeechSentence[] = [{ text: article.title, span: null }];
+    if (standfirst) queue.push({ text: standfirst, span: null });
+    const hash = content?.body_hash ?? "";
+    const frame = currentFrame();
+    if (frame) {
+      if (cut.current?.hash !== hash) {
+        cut.current = {
+          hash,
+          sentences: splitSentences(frame.text, blockBreaks(frame)).map((span) => ({
+            text: frame.text.slice(span.start, span.end),
+            span,
+          })),
+        };
+      }
+      queue.push(...cut.current.sentences);
+    }
+    return queue;
+  }, [article.title, content?.body_hash, currentFrame, standfirst]);
+
+  const speech = useSpeech({ build: speakable, lang, onSentence: paint });
+
+  useEffect(() => {
+    speechToggle.current = speech.toggle;
+  }, [speech.toggle]);
+
+  // Silence when the reader moves on.
+  //
+  // The reader is an overlay, so closing it, pressing Back and following Up
+  // next all leave the rest of the app mounted. An article that carries on
+  // talking after you have left it is the worst thing this feature could do.
+  const quiet = speech.stop;
+  useEffect(() => {
+    return () => {
+      quiet();
+      cut.current = null;
+      if (typeof CSS !== "undefined" && "highlights" in CSS) {
+        CSS.highlights.delete(SPEAKING);
+      }
+    };
+  }, [article.id, quiet]);
+
   // Related first, then the list, never the article being read, never twice.
   const nextUp = [...related, ...upNext]
     .filter(
@@ -1271,7 +1426,38 @@ export function Reader({
             </Pill>
 
             <div className="relative">
-              <Pill onClick={() => setTypeOpen((open) => !open)} pressed={typeOpen}>
+              <Pill
+                onClick={() => {
+                  setTypeOpen(false);
+                  setListenOpen((open) => !open);
+                }}
+                pressed={listenOpen || speech.status !== "idle"}
+                title="Read the article aloud (L)"
+              >
+                <ListenIcon size={13} />
+                {/* Speaking with the panel shut, the pill is the only thing
+                    that can say so — and how much of it is left. */}
+                <span className="hidden sm:inline">
+                  {speech.status !== "idle" && speech.secondsLeft !== null
+                    ? formatLeft(speech.secondsLeft).replace(" left", "")
+                    : "Listen"}
+                </span>
+              </Pill>
+              {listenOpen && !touch && (
+                <div className="absolute right-0 z-20 mt-2 w-64 rounded-2xl border border-line bg-paper-raised p-3 shadow-[0_12px_32px_-16px_rgba(31,30,27,0.35)]">
+                  <ReaderListen speech={speech} lang={lang} />
+                </div>
+              )}
+            </div>
+
+            <div className="relative">
+              <Pill
+                onClick={() => {
+                  setListenOpen(false);
+                  setTypeOpen((open) => !open);
+                }}
+                pressed={typeOpen}
+              >
                 Aa
               </Pill>
               {typeOpen && !touch && (
@@ -1567,6 +1753,18 @@ export function Reader({
           )}
           <div className="mt-8 flex gap-2.5 xl:hidden">
             <button
+              onClick={() => setListenOpen(true)}
+              aria-label="Read the article aloud"
+              className={`flex h-[52px] flex-1 items-center justify-center gap-2 rounded-full border text-[15px] transition ${
+                speech.status !== "idle"
+                  ? "border-ink bg-ink text-paper"
+                  : "border-line bg-paper-raised text-ink-soft"
+              }`}
+            >
+              <ListenIcon size={15} />
+              Listen
+            </button>
+            <button
               onClick={onToggleSave}
               className={`flex h-[52px] flex-1 items-center justify-center gap-2 rounded-full border text-[15px] transition ${
                 saved
@@ -1602,6 +1800,16 @@ export function Reader({
 
       <Sheet open={typeOpen && touch} onClose={() => setTypeOpen(false)} title="Text">
         <div className="pb-4">{typeControls}</div>
+      </Sheet>
+
+      <Sheet
+        open={listenOpen && touch}
+        onClose={() => setListenOpen(false)}
+        title="Listen"
+      >
+        <div className="pb-4">
+          <ReaderListen speech={speech} lang={lang} />
+        </div>
       </Sheet>
 
       {pending_ && draft === null && (
