@@ -120,6 +120,13 @@ point of that page.
   a progress rule and "N min left" counting down. Where you stopped is
   remembered per article. **Aa** sets text size, column width and serif or
   sans, all three persisted.
+- **Listen** reads the article aloud, using the voices already on your device —
+  no key, no account, nothing sent anywhere, and it works with the network off.
+  A voice per language, remembered separately, so a Russian article is not read
+  in an English one; five speeds from 0.75× to 2×. It speaks a sentence at a
+  time, tints the one it is on and keeps it on screen, and stops following the
+  moment you scroll somewhere yourself. **L** plays and pauses. Note that iOS
+  stops speech when the screen locks — that is the platform, not the reader.
 - **Up next is about what you are reading**, not where you opened it from:
   ranked by cosine against the current article, taste as a tie-breaker, a
   per-publication penalty so the rail isn't three cards from one source. The

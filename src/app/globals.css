@@ -14,6 +14,10 @@
      attention, ink carries everything neutral, and neither can say a number
      moved in the right direction. */
   --sage: #7d9a6d;
+  /* The sentence a voice is reading right now. Warm grey rather than another
+     clay, and dark enough to find at a glance on a page you are not looking
+     at — this is a position indicator for someone whose eyes are elsewhere. */
+  --speaking: #dedcd4;
 }
 
 @theme inline {
@@ -27,6 +31,7 @@
   --color-clay: var(--clay);
   --color-clay-soft: var(--clay-soft);
   --color-sage: var(--sage);
+  --color-speaking: var(--speaking);
   --font-sans: var(--font-geist-sans), var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --font-serif: var(--font-lora), "Iowan Old Style", Georgia, serif;
 }
@@ -122,6 +127,23 @@ body {
 }
 .reader-body mark[data-note] {
   box-shadow: inset 0 -2px 0 var(--clay);
+}
+
+/* The sentence being read aloud.
+   An ink wash rather than clay: clay-soft is already a kept highlight and
+   clay-soft at 60% is already the passage under the selection bar, and a third
+   shade of the same colour would make "being read to you" look like "kept".
+   Registered by Reader.tsx through CSS.highlights, so it wraps nothing and
+   splits no text node — which is the only reason it can change twice a
+   sentence without disturbing the highlights underneath it.
+
+   A flat colour, not color-mix over a token. Lightning CSS cannot evaluate
+   color-mix with a var() operand, so it emitted the bare var as the pre-
+   @supports fallback — which made the fallback solid --ink, a black bar across
+   the sentence, and left the real rule a 9% wash that was indistinguishable
+   from --line. Both problems go away once there is nothing to downlevel. */
+::highlight(ms-speaking) {
+  background-color: var(--speaking);
 }
 
 .reader-body a {

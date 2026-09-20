@@ -22,6 +22,10 @@ jobs:
       - run: npx tsc --noEmit
       - run: npm run lint
 
+      # No server and no browser between them, so they answer before the build
+      # has finished deciding whether anything else can run at all.
+      - run: npm run test:unit
+
       # The browser suite drives the built app, so the build has to come first
       # — a stale one silently tests the previous commit, which is how the
       # search bug got past a local run.

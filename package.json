@@ -9,9 +9,10 @@
     "lint": "eslint",
     "llm-bench": "tsx scripts/llm-bench.ts",
     "extract-bench": "tsx scripts/extract-bench.ts",
-    "test": "next build && tsx --test tests/api.test.ts tests/browser.test.ts",
+    "test": "next build && tsx --test tests/speech.test.ts tests/api.test.ts tests/browser.test.ts",
     "test:e2e": "tsx --test tests/browser.test.ts",
-    "test:api": "tsx --test tests/api.test.ts"
+    "test:api": "tsx --test tests/api.test.ts",
+    "test:unit": "tsx --test tests/speech.test.ts"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
