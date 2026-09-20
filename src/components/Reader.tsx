@@ -536,8 +536,15 @@ export function Reader({
     const stored = readProgress()[String(article.id)];
     if (!stored || stored <= 0.02 || stored >= 0.98) return;
     const frame = requestAnimationFrame(() => {
+      // Ours, not a finger: without this the restore counts as the reader
+      // scrolling away and suppresses follow for the first six seconds of a
+      // reading that has only just started.
+      selfScroll.current = true;
       container.scrollTop =
         stored * (container.scrollHeight - container.clientHeight);
+      window.setTimeout(() => {
+        selfScroll.current = false;
+      }, 100);
     });
     return () => cancelAnimationFrame(frame);
   }, [content, article.id]);
@@ -1092,10 +1099,21 @@ export function Reader({
     if (box.top >= view.top + RAIL_TOP && box.bottom <= view.top + view.height * 0.75) {
       return;
     }
+    // Held until the scroll actually lands, not for a fixed 800ms: a smooth
+    // scroll in Chrome takes longer the further it goes, and starting playback
+    // from the middle of a long article is a jump of thousands of pixels. The
+    // tail of that animation arrived after the flag had cleared, so the reader
+    // mistook its own scrolling for a finger and stopped following for six
+    // seconds — every time you pressed play.
     selfScroll.current = true;
-    window.setTimeout(() => {
+    const settled = () => {
       selfScroll.current = false;
-    }, 800);
+      container.removeEventListener("scrollend", settled);
+    };
+    container.addEventListener("scrollend", settled);
+    // scrollend is missing on Safari before 18; there the timer is all there
+    // is, and it is generous rather than tight.
+    window.setTimeout(settled, 3000);
     container.scrollTo({
       top: container.scrollTop + box.top - view.top - RAIL_TOP - 40,
       behavior: "smooth",
@@ -1146,7 +1164,14 @@ export function Reader({
     return queue;
   }, [article.title, content?.body_hash, currentFrame, standfirst]);
 
-  const speech = useSpeech({ build: speakable, lang, onSentence: paint });
+  const speech = useSpeech({
+    // The article and the exact extraction of it. Retry re-extracts into a new
+    // body without changing the article, so the id alone would not notice.
+    source: `${article.id}:${content?.body_hash ?? ""}`,
+    build: speakable,
+    lang,
+    onSentence: paint,
+  });
 
   useEffect(() => {
     speechToggle.current = speech.toggle;
@@ -1157,16 +1182,16 @@ export function Reader({
   // The reader is an overlay, so closing it, pressing Back and following Up
   // next all leave the rest of the app mounted. An article that carries on
   // talking after you have left it is the worst thing this feature could do.
-  const quiet = speech.stop;
+  // useSpeech stops itself when `source` changes; this is the unmount, and the
+  // tint, which is ours to take back.
   useEffect(() => {
     return () => {
-      quiet();
       cut.current = null;
       if (typeof CSS !== "undefined" && "highlights" in CSS) {
         CSS.highlights.delete(SPEAKING);
       }
     };
-  }, [article.id, quiet]);
+  }, [article.id]);
 
   // Related first, then the list, never the article being read, never twice.
   const nextUp = [...related, ...upNext]
