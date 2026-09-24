@@ -752,9 +752,18 @@ export async function extractArticle(
 async function run(articleId: number): Promise<ArticleContentDto> {
   const db = getDb();
   const article = db
-    .prepare("SELECT id, link, content, summary FROM articles WHERE id = ?")
+    .prepare(
+      "SELECT id, title, link, content, content_html, summary FROM articles WHERE id = ?"
+    )
     .get(articleId) as
-    | { id: number; link: string; content: string | null; summary: string | null }
+    | {
+        id: number;
+        title: string;
+        link: string;
+        content: string | null;
+        content_html: string | null;
+        summary: string | null;
+      }
     | undefined;
   if (!article) {
     return {
@@ -809,9 +818,26 @@ async function run(articleId: number): Promise<ArticleContentDto> {
     }
   }
 
-  // 3–5. The page's own full-text renderings, then the two unlock services.
-  // Only reached when the direct read failed or came back a teaser, so an
-  // ordinary article never pays for them.
+  // 3. What the feed itself published. Many feeds ship the whole article with
+  // its markup, and when they do it is the article: The Atlantic's pages
+  // answer every request with a Cloudflare 403 — from any address, under any
+  // user agent, and Marreta fares no better — while its feed carries the full
+  // body, paragraphs, headings and pictures. A complete body here ends the
+  // chain before thirty seconds of unlock hops that cannot succeed.
+  // The plain-text copy never ends it: ingest cut it at 6 000 characters, so
+  // looking complete says nothing about whether it is.
+  const fromFeed = feedBody(article);
+  if (fromFeed && better(fromFeed.clean, best)) {
+    best = { clean: fromFeed.clean, source: "feed" };
+    if (fromFeed.markup && !truncated(best.clean)) {
+      best.clean.html = await measureImages(best.clean.html);
+      return store(articleId, best);
+    }
+  }
+
+  // 4–6. The page's own full-text renderings, then the two unlock services.
+  // Only reached when neither the page nor the feed held the whole article,
+  // so an ordinary article never pays for them.
   const deadline = Date.now() + CHAIN_BUDGET_MS;
   for (const hop of hops(article.link, page?.html ?? null)) {
     const left = deadline - Date.now();
@@ -826,20 +852,6 @@ async function run(articleId: number): Promise<ArticleContentDto> {
     const clean = parseArticle(fetched.html, fetched.url);
     if (clean && better(clean, best)) best = { clean, source: hop.source };
     if (best && !truncated(best.clean)) break;
-  }
-
-  // Last: what the feed itself published. Plain text, capped at 6 000
-  // characters by ingest (CONTENT_MAX_LENGTH in rss.ts) and sometimes only the
-  // summary — a poor article, and an honest one. It competes with the hops
-  // rather than waiting for all of them to fail, because a page that renders
-  // its body in JavaScript hands the parser eighty characters, and eighty
-  // characters lose to the feed's six thousand.
-  const excerpt = article.content?.trim() || article.summary?.trim() || "";
-  if (excerpt.length > 0) {
-    const clean = fromFeedExcerpt(excerpt);
-    if (clean.text.length > 0 && better(clean, best)) {
-      best = { clean, source: "feed" };
-    }
   }
 
   if (!best || best.clean.text.length < MIN_USEFUL) return storeFailure(articleId);
@@ -873,6 +885,31 @@ function truncated(clean: Sanitised): boolean {
   if (clean.text.length < ENOUGH) return true;
   const lower = clean.text.toLowerCase();
   return PAYWALL_MARKERS.some((marker) => lower.includes(marker));
+}
+
+// The feed's copy of the article. The HTML when ingest kept it — sanitised
+// like any fetched page, so it gets the same allowlist, image proxy and
+// outline. Otherwise the plain text: capped at 6 000 characters by ingest
+// (CONTENT_MAX_LENGTH in rss.ts) and sometimes only the summary — a poor
+// article, and an honest one. It is tried before the hops rather than after
+// them all fail, because a page that renders its body in JavaScript hands the
+// parser eighty characters, and eighty characters lose to the feed's six
+// thousand.
+function feedBody(article: {
+  title: string;
+  link: string;
+  content: string | null;
+  content_html: string | null;
+  summary: string | null;
+}): { clean: Sanitised; markup: boolean } | null {
+  if (article.content_html) {
+    const clean = sanitizeArticleHtml(article.content_html, article.link, article.title);
+    if (clean.text.length > 0) return { clean, markup: true };
+  }
+  const excerpt = article.content?.trim() || article.summary?.trim() || "";
+  if (excerpt.length === 0) return null;
+  const clean = fromFeedExcerpt(excerpt);
+  return clean.text.length > 0 ? { clean, markup: false } : null;
 }
 
 // The stored excerpt has had its markup stripped by ingest, so rebuild

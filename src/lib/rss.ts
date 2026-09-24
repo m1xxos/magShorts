@@ -141,6 +141,19 @@ function extractContent(item: Parser.Item & CustomItem): string | null {
   return text.slice(0, CONTENT_MAX_LENGTH);
 }
 
+// The same body with its markup, for the reader to fall back on when the page
+// itself cannot be fetched. Kept raw — the reader sanitises it the same way it
+// sanitises a fetched page — and capped at the reader's own stored-body limit.
+const CONTENT_HTML_MAX_LENGTH = 200_000;
+
+function extractContentHtml(item: Parser.Item & CustomItem): string | null {
+  const raw = item["content:encoded"] ?? item.content;
+  if (!raw) return null;
+  const html = String(raw);
+  if (stripHtml(html).length < 400) return null;
+  return html.slice(0, CONTENT_HTML_MAX_LENGTH);
+}
+
 // Some feeds publish item links as site-relative paths — Harper's does. Stored
 // raw they are unusable: nothing can fetch them and the card opens nowhere.
 // Resolve against the publication's own site, falling back to the feed URL's
@@ -330,14 +343,15 @@ export function refreshFeedArticles(feed: FeedWithFolder): Promise<void> {
   return parseFeed(feed.url).then((parsed) => {
     const db = getDb();
     const upsert = db.prepare(`
-      INSERT INTO articles (feed_id, guid, title, link, summary, image_url, published_at, topic, content)
-      VALUES (@feed_id, @guid, @title, @link, @summary, @image_url, @published_at, @topic, @content)
+      INSERT INTO articles (feed_id, guid, title, link, summary, image_url, published_at, topic, content, content_html)
+      VALUES (@feed_id, @guid, @title, @link, @summary, @image_url, @published_at, @topic, @content, @content_html)
       ON CONFLICT(feed_id, guid) DO UPDATE SET
         title = excluded.title,
         summary = excluded.summary,
         image_url = COALESCE(excluded.image_url, articles.image_url),
         topic = COALESCE(excluded.topic, articles.topic),
-        content = COALESCE(excluded.content, articles.content)
+        content = COALESCE(excluded.content, articles.content),
+        content_html = COALESCE(excluded.content_html, articles.content_html)
     `);
 
     // The identity of an article is its link, not its guid. Publishers change
@@ -371,6 +385,7 @@ export function refreshFeedArticles(feed: FeedWithFolder): Promise<void> {
           published_at: publishedAt,
           topic: extractTopic(item, feed),
           content: extractContent(item),
+          content_html: extractContentHtml(item),
         });
       }
       db.prepare("UPDATE feeds SET last_fetched_at = datetime('now') WHERE id = ?").run(feed.id);
