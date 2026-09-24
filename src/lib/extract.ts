@@ -753,7 +753,7 @@ async function run(articleId: number): Promise<ArticleContentDto> {
   const db = getDb();
   const article = db
     .prepare(
-      "SELECT id, title, link, content, content_html, summary FROM articles WHERE id = ?"
+      "SELECT id, title, link, content, content_html, summary, image_url FROM articles WHERE id = ?"
     )
     .get(articleId) as
     | {
@@ -763,6 +763,7 @@ async function run(articleId: number): Promise<ArticleContentDto> {
         content: string | null;
         content_html: string | null;
         summary: string | null;
+        image_url: string | null;
       }
     | undefined;
   if (!article) {
@@ -901,15 +902,32 @@ function feedBody(article: {
   content: string | null;
   content_html: string | null;
   summary: string | null;
+  image_url: string | null;
 }): { clean: Sanitised; markup: boolean } | null {
   if (article.content_html) {
-    const clean = sanitizeArticleHtml(article.content_html, article.link, article.title);
+    const clean = sanitizeArticleHtml(
+      withLeadPicture(article.content_html, article.image_url),
+      article.link,
+      article.title
+    );
     if (clean.text.length > 0) return { clean, markup: true };
   }
   const excerpt = article.content?.trim() || article.summary?.trim() || "";
   if (excerpt.length === 0) return null;
   const clean = fromFeedExcerpt(excerpt);
   return clean.text.length > 0 ? { clean, markup: false } : null;
+}
+
+// A feed carries the body, not the page around it: the lead picture lives in
+// <media:content>, which ingest already keeps as the card's cover. On the
+// direct path Readability usually brings that picture along with the text, so
+// a feed body without it reads as the article with its pictures missing. Only
+// added when the body has none of its own — a photo essay already opens with
+// its first plate.
+function withLeadPicture(html: string, imageUrl: string | null): string {
+  if (!imageUrl || !/^https?:\/\//i.test(imageUrl) || /<img\b/i.test(html)) return html;
+  const src = imageUrl.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+  return `<figure><img src="${src}" alt=""></figure>${html}`;
 }
 
 // The stored excerpt has had its markup stripped by ingest, so rebuild
