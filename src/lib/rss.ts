@@ -361,7 +361,13 @@ export function refreshFeedArticles(feed: FeedWithFolder): Promise<void> {
     // on file for this link makes the upsert land on the existing row instead,
     // and keeps its embedding, its topic and anything pointing at it.
     const knownGuid = db.prepare(
-      "SELECT guid FROM articles WHERE feed_id = ? AND link = ?"
+      "SELECT id, guid, content_html IS NULL AS bare FROM articles WHERE feed_id = ? AND link = ?"
+    );
+    // A reader body built from the plain-text excerpt is cached as final, so
+    // the first time the feed hands over the article's HTML that body has to
+    // go, or the reader keeps serving the 6 000-character block it replaced.
+    const forgetFeedBody = db.prepare(
+      "DELETE FROM article_content WHERE article_id = ? AND source = 'feed'"
     );
 
     const items = (parsed.items ?? []).slice(0, MAX_ITEMS_PER_FEED);
@@ -372,8 +378,9 @@ export function refreshFeedArticles(feed: FeedWithFolder): Promise<void> {
         if (!link || !title) continue;
         const publishedAt = item.isoDate ?? (item.pubDate ? new Date(item.pubDate).toISOString() : null);
         const known = knownGuid.get(feed.id, link) as
-          | { guid: string }
+          | { id: number; guid: string; bare: number }
           | undefined;
+        const contentHtml = extractContentHtml(item);
         upsert.run({
           feed_id: feed.id,
           guid: known?.guid ?? itemGuid(item) ?? link,
@@ -385,8 +392,9 @@ export function refreshFeedArticles(feed: FeedWithFolder): Promise<void> {
           published_at: publishedAt,
           topic: extractTopic(item, feed),
           content: extractContent(item),
-          content_html: extractContentHtml(item),
+          content_html: contentHtml,
         });
+        if (known?.bare && contentHtml) forgetFeedBody.run(known.id);
       }
       db.prepare("UPDATE feeds SET last_fetched_at = datetime('now') WHERE id = ?").run(feed.id);
       if (feed.city) trimCityFeed(db, feed.id);

@@ -474,6 +474,20 @@ export function getDb(): Database.Database {
       .run();
     console.log(`[db] dropped ${dropped.changes} plain-text feed bodies`);
   }
+  // …and the ones cached in the gap between that migration and the feed's
+  // next refresh, when the HTML had not arrived yet. A body built from the
+  // plain text holds nothing but <p>; one built from the feed's markup has
+  // links and italics. Idempotent: once rebuilt, a row no longer matches.
+  const superseded = db
+    .prepare(
+      `DELETE FROM article_content
+        WHERE source = 'feed' AND html NOT GLOB '*<[^p/]*'
+          AND article_id IN (SELECT id FROM articles WHERE content_html IS NOT NULL)`
+    )
+    .run();
+  if (superseded.changes > 0) {
+    console.log(`[db] dropped ${superseded.changes} plain-text feed bodies now superseded by HTML`);
+  }
 
   // How long the reader was actually open, in seconds. Nullable on purpose:
   // NULL means the event predates measurement, and "Your reading" has to tell
