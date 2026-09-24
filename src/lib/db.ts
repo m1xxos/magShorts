@@ -459,6 +459,21 @@ export function getDb(): Database.Database {
   if (!articleColumns.some((column) => column.name === "content")) {
     db.exec("ALTER TABLE articles ADD COLUMN content TEXT");
   }
+  // The same body with its markup intact, for the reader. The plain text above
+  // is a paragraphless 6 000-character block; when a publisher walls off its
+  // pages — The Atlantic's Cloudflare answers every article with a 403 — the
+  // feed is the only copy of the article we can get, and it deserves to be
+  // read as an article.
+  if (!articleColumns.some((column) => column.name === "content_html")) {
+    db.exec("ALTER TABLE articles ADD COLUMN content_html TEXT");
+    // Bodies already built from the plain-text excerpt are cached as final,
+    // so the reader would never offer Retry on them. Forget them once; the
+    // next open rebuilds each from the HTML when the feed has supplied it.
+    const dropped = db
+      .prepare("DELETE FROM article_content WHERE source = 'feed'")
+      .run();
+    console.log(`[db] dropped ${dropped.changes} plain-text feed bodies`);
+  }
 
   // How long the reader was actually open, in seconds. Nullable on purpose:
   // NULL means the event predates measurement, and "Your reading" has to tell
