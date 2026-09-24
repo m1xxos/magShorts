@@ -488,6 +488,21 @@ export function getDb(): Database.Database {
   if (superseded.changes > 0) {
     console.log(`[db] dropped ${superseded.changes} plain-text feed bodies now superseded by HTML`);
   }
+  // Feed bodies built before the reader started opening them with the cover.
+  // Idempotent the same way: once rebuilt, the body holds its picture.
+  const pictureless = db
+    .prepare(
+      `DELETE FROM article_content
+        WHERE source = 'feed' AND html NOT LIKE '%<img%'
+          AND article_id IN (
+            SELECT id FROM articles
+             WHERE content_html IS NOT NULL AND image_url LIKE 'http%'
+          )`
+    )
+    .run();
+  if (pictureless.changes > 0) {
+    console.log(`[db] dropped ${pictureless.changes} feed bodies built without their picture`);
+  }
 
   // How long the reader was actually open, in seconds. Nullable on purpose:
   // NULL means the event predates measurement, and "Your reading" has to tell
