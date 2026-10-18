@@ -268,15 +268,20 @@ export function SettingsDialog({
     if (!form) return;
     setBusy(true);
     try {
-      await fetch("/api/settings", {
+      const settingsRes = await fetch("/api/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           Object.fromEntries(EDITABLE.map((key) => [key, form[key]]))
         ),
       });
+      if (!settingsRes.ok) {
+        onSaved("Failed to save settings");
+        return;
+      }
+
       if (emailDirty) {
-        await fetch("/api/me", {
+        const patchRes = await fetch("/api/me", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -284,9 +289,18 @@ export function SettingsDialog({
             email_weekly_digest: emailWeeklyDigest ? 1 : 0,
           }),
         });
+        if (!patchRes.ok) {
+          const errorData = await patchRes.json().catch(() => null);
+          onSaved(errorData?.error || "Failed to update email settings");
+          return;
+        }
+        setInitialEmail(email);
+        setInitialEmailWeeklyDigest(emailWeeklyDigest);
       }
       onSaved("Settings saved");
       onClose();
+    } catch {
+      onSaved("An unexpected error occurred while saving settings");
     } finally {
       setBusy(false);
     }

@@ -313,5 +313,21 @@ describe("sendWeeklyDigestEmail delivery, isolation, and ownership", () => {
       .get(bobDigestId) as { email_sent_at: string | null };
     assert.equal(bobRow.email_sent_at, null);
   });
+
+  it("requires configured APP_URL in production environment", async () => {
+    delete process.env.APP_URL;
+    delete process.env.NEXT_PUBLIC_APP_URL;
+    (process.env as Record<string, string | undefined>).NODE_ENV = "production";
+
+    try {
+      const res = await sendWeeklyDigestEmail(aliceId, {
+        digestId: aliceDigestId,
+      });
+      assert.equal(res.success, false);
+      assert.match(res.error!, /APP_URL is not configured/);
+    } finally {
+      (process.env as Record<string, string | undefined>).NODE_ENV = "test";
+    }
+  });
 });
 

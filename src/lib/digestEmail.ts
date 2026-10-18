@@ -38,10 +38,12 @@ export function renderWeeklyDigestEmail(
 ): { subject: string; html: string; text: string } {
   const appUrl = (
     options.appUrl ||
-    process.env.NEXT_PUBLIC_APP_URL ||
     process.env.APP_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
     "http://localhost:3000"
-  ).replace(/\/$/, "");
+  )
+    .trim()
+    .replace(/\/$/, "");
 
   const leadItems = digest.items.filter((i) => i.section === "lead");
   const alsoItems = digest.items.filter((i) => i.section === "also");
@@ -381,6 +383,7 @@ export function renderWeeklyDigestEmail(
 export interface SendWeeklyDigestEmailOptions {
   digestId?: number;
   isTest?: boolean;
+  appUrl?: string;
 }
 
 export async function sendWeeklyDigestEmail(
@@ -399,6 +402,20 @@ export async function sendWeeklyDigestEmail(
       success: false,
       error:
         "Mailer not configured. Add GMAIL_USER and GMAIL_APP_PASSWORD (or SMTP_*) to .env.local",
+    };
+  }
+
+  const appUrl =
+    options.appUrl ||
+    process.env.APP_URL?.trim() ||
+    process.env.NEXT_PUBLIC_APP_URL?.trim();
+
+  // In production, require APP_URL to be set so recipients don't receive dead localhost links
+  if (!appUrl && process.env.NODE_ENV === "production" && !isTest) {
+    return {
+      success: false,
+      error:
+        "APP_URL is not configured. Set APP_URL in environment (e.g. https://magshorts.example.com) so digest email links work in production.",
     };
   }
 
@@ -441,7 +458,10 @@ export async function sendWeeklyDigestEmail(
     };
   }
 
-  const { subject, html, text } = renderWeeklyDigestEmail(digest);
+  const resolvedAppUrl = appUrl || "http://localhost:3000";
+  const { subject, html, text } = renderWeeklyDigestEmail(digest, {
+    appUrl: resolvedAppUrl,
+  });
 
   const sendResult = await sendMail({
     to: user.email,

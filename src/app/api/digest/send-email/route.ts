@@ -34,7 +34,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const result = await sendWeeklyDigestEmail(user.id, { isTest: true });
+  const result = await sendWeeklyDigestEmail(user.id, {
+    isTest: true,
+    appUrl: request.nextUrl.origin,
+  });
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 500 });
   }
