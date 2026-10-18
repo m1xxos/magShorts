@@ -1026,9 +1026,42 @@ export async function runDueDigests(): Promise<void> {
     for (const kind of ["daily", "weekly", "city"] as DigestKind[]) {
       const periodKey = duePeriodKey(kind);
       for (const user of users) {
-        if (hasDigest(user.id, kind, periodKey)) continue;
+        if (hasDigest(user.id, kind, periodKey)) {
+          // If a weekly digest already exists for this period but was not emailed yet, try sending now.
+          if (kind === "weekly") {
+            const unsent = db
+              .prepare(
+                "SELECT id FROM digests WHERE user_id = ? AND kind = 'weekly' AND period_key = ? AND email_sent_at IS NULL"
+              )
+              .get(user.id, periodKey) as { id: number } | undefined;
+            if (unsent) {
+              try {
+                const { sendWeeklyDigestEmail } = await import("./digestEmail");
+                await sendWeeklyDigestEmail(user.id, unsent.id);
+              } catch (mailError) {
+                console.error(
+                  `[digest] failed to send pending weekly email for user ${user.id}:`,
+                  mailError
+                );
+              }
+            }
+          }
+          continue;
+        }
+
         try {
-          await buildDigest(user.id, kind, { periodKey });
+          const result = await buildDigest(user.id, kind, { periodKey });
+          if (kind === "weekly" && result) {
+            try {
+              const { sendWeeklyDigestEmail } = await import("./digestEmail");
+              await sendWeeklyDigestEmail(user.id, result.digestId);
+            } catch (mailError) {
+              console.error(
+                `[digest] failed to send weekly email for user ${user.id}:`,
+                mailError
+              );
+            }
+          }
         } catch (error) {
           console.error(
             `[digest] ${kind} build failed for user ${user.id}:`,

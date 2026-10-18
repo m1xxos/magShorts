@@ -624,6 +624,25 @@ export function getDb(): Database.Database {
     `);
   }
 
+  const userColumns = db
+    .prepare("PRAGMA table_info(users)")
+    .all() as Array<{ name: string }>;
+  if (!userColumns.some((column) => column.name === "email")) {
+    db.exec("ALTER TABLE users ADD COLUMN email TEXT");
+  }
+  if (!userColumns.some((column) => column.name === "email_weekly_digest")) {
+    db.exec(
+      "ALTER TABLE users ADD COLUMN email_weekly_digest INTEGER NOT NULL DEFAULT 1"
+    );
+  }
+
+  const digestColumns = db
+    .prepare("PRAGMA table_info(digests)")
+    .all() as Array<{ name: string }>;
+  if (!digestColumns.some((column) => column.name === "email_sent_at")) {
+    db.exec("ALTER TABLE digests ADD COLUMN email_sent_at TEXT");
+  }
+
   const feedCount = db.prepare("SELECT COUNT(*) AS n FROM feeds").get() as {
     n: number;
   };

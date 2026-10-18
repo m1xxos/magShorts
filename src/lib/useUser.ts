@@ -6,6 +6,8 @@ import { useEffect, useState } from "react";
 export interface CurrentUser {
   id: number;
   username: string;
+  email?: string | null;
+  email_weekly_digest?: number;
 }
 
 // Redirects to /login when there is no session; returns undefined while loading.
