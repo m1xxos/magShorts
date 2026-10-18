@@ -91,12 +91,12 @@ export function renderWeeklyDigestEmail(
       : "";
     const metaInfo = [feedTitle, minutes].filter(Boolean).join(" · ");
     const articleLink = escapeHtml(item.link);
-    const readerUrl = `${appUrl}/digest`;
+    const storyUrl = `${appUrl}/digest?kind=weekly&article=${item.article_id}`;
 
     const coverHtml = item.image_url
       ? `
         <div style="width: 100%; max-height: 240px; overflow: hidden; border-radius: 10px; background: #e9e6df; margin-bottom: 20px;">
-          <a href="${articleLink}" target="_blank" style="text-decoration: none; display: block;">
+          <a href="${storyUrl}" target="_blank" style="text-decoration: none; display: block;">
             <img src="${escapeHtml(
               item.image_url
             )}" alt="" width="536" style="display: block; width: 100%; max-height: 240px; object-fit: cover; border-radius: 10px; border: 0;" />
@@ -105,22 +105,22 @@ export function renderWeeklyDigestEmail(
       `
       : `
         <div style="width: 100%; height: 110px; border-radius: 10px; margin-bottom: 20px; background: linear-gradient(135deg, ${tone}25, ${tone}50); display: table;">
-          <div style="display: table-cell; vertical-align: middle; padding: 16px 20px;">
+          <a href="${storyUrl}" target="_blank" style="text-decoration: none; display: table-cell; vertical-align: middle; padding: 16px 20px;">
             <span style="font-family: Lora, Georgia, 'Times New Roman', serif; font-size: 19px; line-height: 1.3; color: #1f1e1b; font-weight: 500;">
               ${title}
             </span>
-          </div>
+          </a>
         </div>
       `;
 
     const ctaButton = isLead
       ? `
-        <a href="${readerUrl}" target="_blank" style="display: inline-block; background-color: #c96442; color: #ffffff !important; border-radius: 999px; padding: 10px 22px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; font-weight: 600; text-decoration: none; text-align: center; box-shadow: 0 1px 2px rgba(201, 100, 66, 0.2);">
+        <a href="${storyUrl}" target="_blank" style="display: inline-block; background-color: #c96442; color: #ffffff !important; border-radius: 999px; padding: 10px 22px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; font-weight: 600; text-decoration: none; text-align: center; box-shadow: 0 1px 2px rgba(201, 100, 66, 0.2);">
           Read in magShorts
         </a>
       `
       : `
-        <a href="${readerUrl}" target="_blank" style="display: inline-block; border: 1px solid #dcd7cb; background-color: #ffffff; color: #1f1e1b !important; border-radius: 999px; padding: 8px 18px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 13px; font-weight: 500; text-decoration: none; text-align: center;">
+        <a href="${storyUrl}" target="_blank" style="display: inline-block; border: 1px solid #dcd7cb; background-color: #ffffff; color: #1f1e1b !important; border-radius: 999px; padding: 8px 18px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 13px; font-weight: 500; text-decoration: none; text-align: center;">
           Read story &rarr;
         </a>
       `;
@@ -152,7 +152,7 @@ export function renderWeeklyDigestEmail(
                 <h2 style="margin: 0 0 12px; font-family: Lora, Georgia, 'Times New Roman', serif; font-size: ${
                   isLead ? "25px" : "21px"
                 }; line-height: 1.25; font-weight: 600; color: #1f1e1b;">
-                  <a href="${articleLink}" target="_blank" style="color: #1f1e1b; text-decoration: none;">
+                  <a href="${storyUrl}" target="_blank" style="color: #1f1e1b; text-decoration: none;">
                     ${title}
                   </a>
                 </h2>
@@ -161,7 +161,9 @@ export function renderWeeklyDigestEmail(
                 ${
                   summary
                     ? `<p style="margin: 0 0 20px; font-family: Georgia, 'Times New Roman', serif; font-size: 15.5px; line-height: 1.6; color: #434038;">
-                        ${summary}
+                        <a href="${storyUrl}" target="_blank" style="color: #434038; text-decoration: none;">
+                          ${summary}
+                        </a>
                       </p>`
                     : ""
                 }
@@ -244,9 +246,9 @@ export function renderWeeklyDigestEmail(
                       <td style="padding: 8px 0; border-top: ${
                         i > 0 ? "1px solid #f0ede6" : "none"
                       }; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 14px; line-height: 1.45;">
-                        <a href="${escapeHtml(
-                          item.link
-                        )}" target="_blank" style="color: #1f1e1b; font-weight: 500; text-decoration: none;">
+                        <a href="${appUrl}/digest?kind=weekly&article=${
+                          item.article_id
+                        }" target="_blank" style="color: #1f1e1b; font-weight: 500; text-decoration: none;">
                           ${escapeHtml(item.title)}
                         </a>
                         <div style="font-size: 12px; color: #8a867b; margin-top: 2px;">

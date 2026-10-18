@@ -88,16 +88,26 @@ describe("weekly digest email rendering", () => {
     assert.ok(html.includes("At a glance · This week's synthesis"));
     assert.ok(html.includes("Energy grids are absorbing AI data center loads"));
 
-    // Lead card with hero image
+    // Lead card with hero image and reader story link
     assert.ok(html.includes("https://example.com/hero.jpg"));
     assert.ok(html.includes("Felix Rieseberg"));
     assert.ok(html.includes("7 min read"));
     assert.ok(html.includes("Read in magShorts"));
+    assert.ok(
+      html.includes(
+        "https://magshorts.example.com/digest?kind=weekly&article=1"
+      )
+    );
 
     // Second card (also) with fallback gradient (no img tag for article 2)
     assert.ok(html.includes("Learning to Live with Waymos"));
     assert.ok(html.includes("The New Yorker"));
     assert.ok(html.includes("Read story &rarr;"));
+    assert.ok(
+      html.includes(
+        "https://magshorts.example.com/digest?kind=weekly&article=2"
+      )
+    );
 
     // Quick hits card
     assert.ok(html.includes("Quick hits · Headlines worth noting"));
