@@ -1,5 +1,5 @@
 import { getDb } from "./db";
-import { readDigest } from "./digest";
+import { readDigest, readDigestById } from "./digest";
 import { feedTone, type DigestDto, type DigestItemDto } from "./types";
 import { isMailerConfigured, sendMail } from "./mailer";
 
@@ -378,10 +378,21 @@ export function renderWeeklyDigestEmail(
   return { subject, html, text };
 }
 
+export interface SendWeeklyDigestEmailOptions {
+  digestId?: number;
+  isTest?: boolean;
+}
+
 export async function sendWeeklyDigestEmail(
   userId: number,
-  digestId?: number
+  optionsOrDigestId?: number | SendWeeklyDigestEmailOptions
 ): Promise<{ success: boolean; error?: string }> {
+  const options =
+    typeof optionsOrDigestId === "number"
+      ? { digestId: optionsOrDigestId }
+      : (optionsOrDigestId ?? {});
+  const { digestId, isTest = false } = options;
+
   const mailerStatus = isMailerConfigured();
   if (!mailerStatus.configured) {
     return {
@@ -412,14 +423,17 @@ export async function sendWeeklyDigestEmail(
     };
   }
 
-  if (user.email_weekly_digest === 0) {
+  if (!isTest && user.email_weekly_digest === 0) {
     return {
       success: false,
       error: "User has disabled weekly digest email delivery.",
     };
   }
 
-  const digest = readDigest(userId, "weekly");
+  const digest = digestId
+    ? readDigestById(digestId, userId)
+    : readDigest(userId, "weekly");
+
   if (!digest || digest.items.length === 0) {
     return {
       success: false,
@@ -440,25 +454,18 @@ export async function sendWeeklyDigestEmail(
     return { success: false, error: sendResult.error };
   }
 
-  // Record that the digest email was successfully dispatched
-  try {
-    const targetId =
-      digestId ??
-      (
-        db
-          .prepare(
-            "SELECT id FROM digests WHERE user_id = ? AND kind = 'weekly' ORDER BY id DESC LIMIT 1"
-          )
-          .get(userId) as { id: number } | undefined
-      )?.id;
-
-    if (targetId) {
-      db.prepare(
-        "UPDATE digests SET email_sent_at = datetime('now') WHERE id = ?"
-      ).run(targetId);
+  // Record that the digest email was successfully dispatched, unless this is a test email
+  if (!isTest) {
+    try {
+      const targetId = digestId ?? digest.id;
+      if (targetId) {
+        db.prepare(
+          "UPDATE digests SET email_sent_at = datetime('now') WHERE id = ? AND user_id = ?"
+        ).run(targetId, userId);
+      }
+    } catch (err) {
+      console.error("[digestEmail] error marking email_sent_at:", err);
     }
-  } catch (err) {
-    console.error("[digestEmail] error marking email_sent_at:", err);
   }
 
   return { success: true };

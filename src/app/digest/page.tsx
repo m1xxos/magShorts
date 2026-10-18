@@ -117,13 +117,22 @@ function Meta({ item }: { item: DigestItemDto }) {
 
 export default function DigestPage() {
   const user = useUser();
-  const [kind, setKind] = useState<DigestKind>(() => {
-    if (typeof window !== "undefined") {
+  const [kind, setKind] = useState<DigestKind>("daily");
+
+  useEffect(() => {
+    function apply() {
       const param = new URLSearchParams(window.location.search).get("kind");
-      if (param === "weekly" || param === "city") return param;
+      if (param === "weekly" || param === "city") {
+        setKind(param);
+      }
     }
-    return "daily";
-  });
+    apply();
+    window.addEventListener("popstate", apply);
+    return () => {
+      window.removeEventListener("popstate", apply);
+    };
+  }, []);
+
   // Both snapshots are already built, so switching is a read — cache them and
   // the toggle never shows a spinner twice.
   const [loaded, setLoaded] = useState<

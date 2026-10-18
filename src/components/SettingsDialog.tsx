@@ -222,14 +222,24 @@ export function SettingsDialog({
       return;
     }
     if (emailDirty) {
-      await fetch("/api/me", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: email.trim(),
-          email_weekly_digest: emailWeeklyDigest ? 1 : 0,
-        }),
-      });
+      try {
+        const patchRes = await fetch("/api/me", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: email.trim(),
+            email_weekly_digest: emailWeeklyDigest ? 1 : 0,
+          }),
+        });
+        if (!patchRes.ok) {
+          const errorData = await patchRes.json().catch(() => null);
+          onSaved(errorData?.error || "Failed to update email address");
+          return;
+        }
+      } catch {
+        onSaved("Failed to update email address");
+        return;
+      }
       setInitialEmail(email);
       setInitialEmailWeeklyDigest(emailWeeklyDigest);
     }

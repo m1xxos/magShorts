@@ -34,14 +34,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  let body: { digestId?: number } = {};
-  try {
-    body = await request.json();
-  } catch {
-    // Body is optional
-  }
-
-  const result = await sendWeeklyDigestEmail(user.id, body.digestId);
+  const result = await sendWeeklyDigestEmail(user.id, { isTest: true });
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 500 });
   }

@@ -120,6 +120,7 @@ export interface DigestItemDto {
 }
 
 export interface DigestDto {
+  id?: number;
   kind: DigestKind;
   period_key: string;
   period_start: string;

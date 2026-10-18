@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
-import { renderWeeklyDigestEmail } from "../src/lib/digestEmail";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { beforeEach, describe, it } from "node:test";
+import { getDb } from "../src/lib/db";
+import {
+  renderWeeklyDigestEmail,
+  sendWeeklyDigestEmail,
+} from "../src/lib/digestEmail";
 import { isMailerConfigured } from "../src/lib/mailer";
 import type { DigestDto } from "../src/lib/types";
 
@@ -177,3 +184,134 @@ describe("mailer configuration detection", () => {
     process.env = { ...origEnv };
   });
 });
+
+describe("sendWeeklyDigestEmail delivery, isolation, and ownership", () => {
+  const tmpDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "magshorts-digest-mail-test-")
+  );
+  process.env.DATA_DIR = tmpDir;
+
+  beforeEach(() => {
+    process.env.MAILER_MOCK = "true";
+    process.env.GMAIL_USER = "mock@example.com";
+    process.env.GMAIL_APP_PASSWORD = "mockpassword";
+  });
+
+  const db = getDb();
+
+  // Create users
+  db.prepare(
+    "INSERT INTO users (username, password_hash, email, email_weekly_digest) VALUES (?, ?, ?, ?)"
+  ).run("alice", "hash1", "alice@example.com", 1);
+  const aliceId = (
+    db.prepare("SELECT id FROM users WHERE username = 'alice'").get() as {
+      id: number;
+    }
+  ).id;
+
+  db.prepare(
+    "INSERT INTO users (username, password_hash, email, email_weekly_digest) VALUES (?, ?, ?, ?)"
+  ).run("bob", "hash2", "bob@example.com", 1);
+  const bobId = (
+    db.prepare("SELECT id FROM users WHERE username = 'bob'").get() as {
+      id: number;
+    }
+  ).id;
+
+  // Insert feed and article
+  const feedRes = db
+    .prepare("INSERT INTO feeds (title, url, site_url) VALUES (?, ?, ?)")
+    .run("Test Feed", "https://feed.test/rss", "https://feed.test");
+  const feedId = Number(feedRes.lastInsertRowid);
+
+  const articleRes = db
+    .prepare(
+      "INSERT INTO articles (feed_id, guid, title, link, summary) VALUES (?, ?, ?, ?, ?)"
+    )
+    .run(
+      feedId,
+      "guid-1",
+      "Test Article 1",
+      "https://example.com/1",
+      "Test summary 1"
+    );
+  const articleId = Number(articleRes.lastInsertRowid);
+
+  // Insert weekly digest for Alice
+  const aliceDigestRes = db
+    .prepare(
+      `INSERT INTO digests (user_id, kind, period_key, period_start, period_end, built_at, three_lines, total_articles, total_publications)
+       VALUES (?, 'weekly', 'w2026-10-11', '2026-10-04', '2026-10-11', '2026-10-11T16:00:00Z', '[]', 1, 1)`
+    )
+    .run(aliceId);
+  const aliceDigestId = Number(aliceDigestRes.lastInsertRowid);
+
+  db.prepare(
+    "INSERT INTO digest_items (digest_id, article_id, section, position, summary, reading_minutes) VALUES (?, ?, 'lead', 0, 'Lead summary', 3)"
+  ).run(aliceDigestId, articleId);
+
+  // Insert weekly digest for Bob
+  const bobDigestRes = db
+    .prepare(
+      `INSERT INTO digests (user_id, kind, period_key, period_start, period_end, built_at, three_lines, total_articles, total_publications)
+       VALUES (?, 'weekly', 'w2026-10-11', '2026-10-04', '2026-10-11', '2026-10-11T16:00:00Z', '[]', 1, 1)`
+    )
+    .run(bobId);
+  const bobDigestId = Number(bobDigestRes.lastInsertRowid);
+
+  db.prepare(
+    "INSERT INTO digest_items (digest_id, article_id, section, position, summary, reading_minutes) VALUES (?, ?, 'lead', 0, 'Bob lead summary', 3)"
+  ).run(bobDigestId, articleId);
+
+  it("test email with isTest=true does not record email_sent_at", async () => {
+    const res = await sendWeeklyDigestEmail(aliceId, { isTest: true });
+    assert.equal(res.success, true);
+
+    const row = db
+      .prepare("SELECT email_sent_at FROM digests WHERE id = ?")
+      .get(aliceDigestId) as { email_sent_at: string | null };
+    assert.equal(
+      row.email_sent_at,
+      null,
+      "email_sent_at must remain NULL after test send"
+    );
+  });
+
+  it("rejects unauthorized access when requesting another user's digest ID", async () => {
+    // Alice attempts to send or trigger delivery using Bob's digest ID
+    const res = await sendWeeklyDigestEmail(aliceId, { digestId: bobDigestId });
+    assert.equal(res.success, false);
+    assert.match(res.error!, /No weekly digest found/);
+
+    const bobRow = db
+      .prepare("SELECT email_sent_at FROM digests WHERE id = ?")
+      .get(bobDigestId) as { email_sent_at: string | null };
+    assert.equal(
+      bobRow.email_sent_at,
+      null,
+      "Bob's digest must not be marked as sent by Alice"
+    );
+  });
+
+  it("scheduled/normal send marks email_sent_at scoped to user and digest id", async () => {
+    const res = await sendWeeklyDigestEmail(aliceId, {
+      digestId: aliceDigestId,
+    });
+    assert.equal(res.success, true);
+
+    const aliceRow = db
+      .prepare("SELECT email_sent_at FROM digests WHERE id = ?")
+      .get(aliceDigestId) as { email_sent_at: string | null };
+    assert.ok(
+      aliceRow.email_sent_at !== null,
+      "email_sent_at should be recorded"
+    );
+
+    // Bob's digest must still be unsent
+    const bobRow = db
+      .prepare("SELECT email_sent_at FROM digests WHERE id = ?")
+      .get(bobDigestId) as { email_sent_at: string | null };
+    assert.equal(bobRow.email_sent_at, null);
+  });
+});
+

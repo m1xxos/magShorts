@@ -951,19 +951,8 @@ interface DigestRow {
 
 // A read of the stored snapshot — nothing is recomputed. Items the user has
 // skipped since it was built drop out, which is what makes Skip stick.
-export function readDigest(
-  userId: number,
-  kind: DigestKind
-): DigestDto | null {
+function rowToDigestDto(row: DigestRow, userId: number): DigestDto {
   const db = getDb();
-  const row = db
-    .prepare(
-      `SELECT * FROM digests WHERE user_id = ? AND kind = ?
-       ORDER BY id DESC LIMIT 1`
-    )
-    .get(userId, kind) as DigestRow | undefined;
-  if (!row) return null;
-
   const items = db
     .prepare(
       `SELECT d.article_id, d.section, d.position, d.summary, d.reading_minutes,
@@ -989,6 +978,7 @@ export function readDigest(
   }
 
   return {
+    id: row.id,
     kind: row.kind as DigestKind,
     period_key: row.period_key,
     period_start: row.period_start,
@@ -1001,6 +991,35 @@ export function readDigest(
     llm_model: row.llm_model,
     items,
   };
+}
+
+// A read of the stored snapshot — nothing is recomputed. Items the user has
+// skipped since it was built drop out, which is what makes Skip stick.
+export function readDigest(
+  userId: number,
+  kind: DigestKind
+): DigestDto | null {
+  const db = getDb();
+  const row = db
+    .prepare(
+      `SELECT * FROM digests WHERE user_id = ? AND kind = ?
+       ORDER BY id DESC LIMIT 1`
+    )
+    .get(userId, kind) as DigestRow | undefined;
+  if (!row) return null;
+  return rowToDigestDto(row, userId);
+}
+
+export function readDigestById(
+  digestId: number,
+  userId: number
+): DigestDto | null {
+  const db = getDb();
+  const row = db
+    .prepare("SELECT * FROM digests WHERE id = ? AND user_id = ?")
+    .get(digestId, userId) as DigestRow | undefined;
+  if (!row) return null;
+  return rowToDigestDto(row, userId);
 }
 
 // ---------------------------------------------------------------- scheduler
@@ -1019,6 +1038,8 @@ export async function runDueDigests(): Promise<void> {
     }>;
     if (users.length === 0) return;
 
+    const attemptedDigestIds = new Set<number>();
+
     // The city digest last. buildDigest is serialised process-wide, so a city
     // digest built first would delay the morning one by its own LLM calls —
     // minutes, on a box running the model locally. The morning digest is the
@@ -1026,35 +1047,15 @@ export async function runDueDigests(): Promise<void> {
     for (const kind of ["daily", "weekly", "city"] as DigestKind[]) {
       const periodKey = duePeriodKey(kind);
       for (const user of users) {
-        if (hasDigest(user.id, kind, periodKey)) {
-          // If a weekly digest already exists for this period but was not emailed yet, try sending now.
-          if (kind === "weekly") {
-            const unsent = db
-              .prepare(
-                "SELECT id FROM digests WHERE user_id = ? AND kind = 'weekly' AND period_key = ? AND email_sent_at IS NULL"
-              )
-              .get(user.id, periodKey) as { id: number } | undefined;
-            if (unsent) {
-              try {
-                const { sendWeeklyDigestEmail } = await import("./digestEmail");
-                await sendWeeklyDigestEmail(user.id, unsent.id);
-              } catch (mailError) {
-                console.error(
-                  `[digest] failed to send pending weekly email for user ${user.id}:`,
-                  mailError
-                );
-              }
-            }
-          }
-          continue;
-        }
+        if (hasDigest(user.id, kind, periodKey)) continue;
 
         try {
           const result = await buildDigest(user.id, kind, { periodKey });
           if (kind === "weekly" && result) {
+            attemptedDigestIds.add(result.digestId);
             try {
               const { sendWeeklyDigestEmail } = await import("./digestEmail");
-              await sendWeeklyDigestEmail(user.id, result.digestId);
+              await sendWeeklyDigestEmail(user.id, { digestId: result.digestId });
             } catch (mailError) {
               console.error(
                 `[digest] failed to send weekly email for user ${user.id}:`,
@@ -1068,6 +1069,28 @@ export async function runDueDigests(): Promise<void> {
             error
           );
         }
+      }
+    }
+
+    // Catch up on any pending weekly digests across prior periods that have not yet been emailed.
+    const pendingWeekly = db
+      .prepare(
+        `SELECT id, user_id FROM digests
+         WHERE kind = 'weekly' AND email_sent_at IS NULL
+         ORDER BY id ASC`
+      )
+      .all() as Array<{ id: number; user_id: number }>;
+
+    for (const pending of pendingWeekly) {
+      if (attemptedDigestIds.has(pending.id)) continue;
+      try {
+        const { sendWeeklyDigestEmail } = await import("./digestEmail");
+        await sendWeeklyDigestEmail(pending.user_id, { digestId: pending.id });
+      } catch (mailError) {
+        console.error(
+          `[digest] catch-up weekly email failed for digest ${pending.id} (user ${pending.user_id}):`,
+          mailError
+        );
       }
     }
   } finally {

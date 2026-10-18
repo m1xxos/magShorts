@@ -70,6 +70,15 @@ export function getTransporter(): Transporter | null {
     return cachedTransporter;
   }
 
+  if (process.env.MAILER_MOCK === "true") {
+    cachedTransporter = nodemailer.createTransport({
+      streamTransport: true,
+      newline: "windows",
+    });
+    lastConfigKey = currentKey;
+    return cachedTransporter;
+  }
+
   if (status.provider === "gmail") {
     const user = process.env.GMAIL_USER!.trim();
     // Google app passwords are generated with spaces (e.g. 'abcd efgh ijkl mnop'); remove them.
