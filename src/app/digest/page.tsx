@@ -118,6 +118,21 @@ function Meta({ item }: { item: DigestItemDto }) {
 export default function DigestPage() {
   const user = useUser();
   const [kind, setKind] = useState<DigestKind>("daily");
+
+  useEffect(() => {
+    function apply() {
+      const param = new URLSearchParams(window.location.search).get("kind");
+      if (param === "weekly" || param === "city") {
+        setKind(param);
+      }
+    }
+    apply();
+    window.addEventListener("popstate", apply);
+    return () => {
+      window.removeEventListener("popstate", apply);
+    };
+  }, []);
+
   // Both snapshots are already built, so switching is a read — cache them and
   // the toggle never shows a spinner twice.
   const [loaded, setLoaded] = useState<
@@ -312,6 +327,16 @@ export default function DigestPage() {
         month: "long",
       });
 
+  function switchKind(next: DigestKind) {
+    setKind(next);
+    setShowAll(false);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.set("kind", next);
+      window.history.replaceState(window.history.state, "", url.toString());
+    }
+  }
+
   const highlightCount = highlights.length + quick.length;
 
   return (
@@ -364,10 +389,7 @@ export default function DigestPage() {
               ).map((option) => (
                 <button
                   key={option.value}
-                  onClick={() => {
-                    setKind(option.value);
-                    setShowAll(false);
-                  }}
+                  onClick={() => switchKind(option.value)}
                   className={`rounded-full px-3.5 py-1.5 text-xs transition ${
                     kind === option.value
                       ? "bg-clay text-white"

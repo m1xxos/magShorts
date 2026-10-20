@@ -9,10 +9,10 @@
     "lint": "eslint",
     "llm-bench": "tsx scripts/llm-bench.ts",
     "extract-bench": "tsx scripts/extract-bench.ts",
-    "test": "next build && tsx --test tests/speech.test.ts tests/api.test.ts tests/browser.test.ts",
+    "test": "next build && tsx --test tests/speech.test.ts tests/digestEmail.test.ts tests/api.test.ts tests/browser.test.ts",
     "test:e2e": "tsx --test tests/browser.test.ts",
     "test:api": "tsx --test tests/api.test.ts",
-    "test:unit": "tsx --test tests/speech.test.ts"
+    "test:unit": "tsx --test tests/speech.test.ts tests/digestEmail.test.ts"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
@@ -20,6 +20,7 @@
     "better-sqlite3": "^12.11.1",
     "linkedom": "^0.18.13",
     "next": "16.2.10",
+    "nodemailer": "^10.1.6",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "rss-parser": "^3.13.0",
@@ -31,6 +32,7 @@
     "@tailwindcss/postcss": "^4",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20",
+    "@types/nodemailer": "^8.0.2",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "defuddle": "^0.19.2",

@@ -71,6 +71,17 @@ export function SettingsDialog({
   // control. A 196px rail beside a 380px column is most of the window.
   const narrow = useMediaQuery("(max-width: 899px)");
 
+  const [email, setEmail] = useState("");
+  const [initialEmail, setInitialEmail] = useState("");
+  const [emailWeeklyDigest, setEmailWeeklyDigest] = useState(true);
+  const [initialEmailWeeklyDigest, setInitialEmailWeeklyDigest] = useState(true);
+  const [mailerStatus, setMailerStatus] = useState<{
+    configured: boolean;
+    provider: string;
+    from: string;
+  } | null>(null);
+  const [sendingTest, setSendingTest] = useState(false);
+
   useEffect(() => {
     fetch("/api/settings")
       .then((response) => response.json())
@@ -88,6 +99,22 @@ export function SettingsDialog({
       .then((data: ApiTokenDto[]) => {
         if (Array.isArray(data)) setTokens(data);
       })
+      .catch(() => {});
+    fetch("/api/me")
+      .then((response) => response.json())
+      .then((data) => {
+        if (data.email) {
+          setEmail(data.email);
+          setInitialEmail(data.email);
+        }
+        const enabled = data.email_weekly_digest !== 0;
+        setEmailWeeklyDigest(enabled);
+        setInitialEmailWeeklyDigest(enabled);
+      })
+      .catch(() => {});
+    fetch("/api/digest/send-email")
+      .then((response) => response.json())
+      .then((data) => setMailerStatus(data))
       .catch(() => {});
   }, []);
 
@@ -110,10 +137,12 @@ export function SettingsDialog({
     (Number.parseInt(form?.digest_also_count ?? "", 10) || 0) +
     (form?.digest_rerank === "off" ? 0 : 1);
 
+  const emailDirty =
+    email !== initialEmail || emailWeeklyDigest !== initialEmailWeeklyDigest;
   const dirty =
-    form && initial
+    (form && initial
       ? EDITABLE.filter((key) => form[key] !== initial[key]).length
-      : 0;
+      : 0) + (emailDirty ? 1 : 0);
 
   function setField(key: keyof SettingsForm, value: string) {
     setForm((prev) => (prev ? { ...prev, [key]: value } : prev));
@@ -187,20 +216,91 @@ export function SettingsDialog({
     }
   }
 
+  async function sendTestEmail() {
+    if (!email.trim()) {
+      onSaved("Please enter your email address first");
+      return;
+    }
+    if (emailDirty) {
+      try {
+        const patchRes = await fetch("/api/me", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: email.trim(),
+            email_weekly_digest: emailWeeklyDigest ? 1 : 0,
+          }),
+        });
+        if (!patchRes.ok) {
+          const errorData = await patchRes.json().catch(() => null);
+          onSaved(errorData?.error || "Failed to update email address");
+          return;
+        }
+      } catch {
+        onSaved("Failed to update email address");
+        return;
+      }
+      setInitialEmail(email);
+      setInitialEmailWeeklyDigest(emailWeeklyDigest);
+    }
+
+    setSendingTest(true);
+    try {
+      const response = await fetch("/api/digest/send-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        onSaved(`Test digest sent to ${data.recipient}!`);
+      } else {
+        onSaved(data.error || "Failed to send test email");
+      }
+    } catch {
+      onSaved("Failed to send test email");
+    } finally {
+      setSendingTest(false);
+    }
+  }
+
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!form) return;
     setBusy(true);
     try {
-      await fetch("/api/settings", {
+      const settingsRes = await fetch("/api/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           Object.fromEntries(EDITABLE.map((key) => [key, form[key]]))
         ),
       });
+      if (!settingsRes.ok) {
+        onSaved("Failed to save settings");
+        return;
+      }
+
+      if (emailDirty) {
+        const patchRes = await fetch("/api/me", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: email.trim(),
+            email_weekly_digest: emailWeeklyDigest ? 1 : 0,
+          }),
+        });
+        if (!patchRes.ok) {
+          const errorData = await patchRes.json().catch(() => null);
+          onSaved(errorData?.error || "Failed to update email settings");
+          return;
+        }
+        setInitialEmail(email);
+        setInitialEmailWeeklyDigest(emailWeeklyDigest);
+      }
       onSaved("Settings saved");
       onClose();
+    } catch {
+      onSaved("An unexpected error occurred while saving settings");
     } finally {
       setBusy(false);
     }
@@ -520,6 +620,67 @@ export function SettingsDialog({
               />
             </div>
           </label>
+        </div>
+      </div>
+
+      <div className="border-t border-line pt-4 space-y-3.5">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <span className="text-[13px] font-medium text-ink-soft">
+              Weekly email delivery
+            </span>
+            <span className="mt-0.5 block text-[12px] text-ink-faint pointer-coarse:text-[13.5px]">
+              Sends the Sunday digest formatted as an editorial newsletter.
+            </span>
+          </div>
+          <Switch
+            checked={emailWeeklyDigest}
+            title={
+              emailWeeklyDigest
+                ? "Weekly email enabled — click to turn off"
+                : "Weekly email disabled — click to turn on"
+            }
+            onClick={() => setEmailWeeklyDigest((v) => !v)}
+          />
+        </div>
+
+        <div>
+          <label className="block">
+            <span className="text-[12px] text-ink-faint">Recipient email</span>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              className="mt-1.5 w-full rounded-xl border border-line bg-paper px-4 py-2.5 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-clay pointer-coarse:py-3 pointer-coarse:text-[15.5px]"
+            />
+          </label>
+        </div>
+
+        <div className="flex items-center justify-between gap-3 pt-1">
+          <div className="flex items-center gap-2">
+            <span
+              className={`inline-block h-2 w-2 rounded-full ${
+                mailerStatus?.configured ? "bg-emerald-500" : "bg-amber-500"
+              }`}
+            />
+            <span className="text-[12px] text-ink-faint">
+              {mailerStatus?.configured
+                ? `${
+                    mailerStatus.provider === "gmail" ? "Gmail" : "SMTP"
+                  } active (${mailerStatus.from})`
+                : "Mailer not configured in .env"}
+            </span>
+          </div>
+
+          <button
+            type="button"
+            onClick={sendTestEmail}
+            disabled={!email.trim() || sendingTest || !mailerStatus?.configured}
+            className="rounded-full border border-line px-3 py-1.5 text-[12.5px] text-ink-soft transition hover:border-clay hover:text-clay disabled:opacity-40 pointer-coarse:min-h-10 pointer-coarse:px-4"
+          >
+            {sendingTest ? "Sending…" : "Send test email"}
+          </button>
         </div>
       </div>
     </div>

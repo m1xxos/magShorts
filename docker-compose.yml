@@ -25,4 +25,15 @@ services:
       # Ranking gets its own model so it doesn't share the annotations' budget.
       - LLM_RANK_PROVIDERS=${LLM_RANK_PROVIDERS:-}
       - DIGEST_RERANK=${DIGEST_RERANK:-}
+      # Public URL for deep links in digest emails (e.g. https://magshorts.example.com)
+      - APP_URL=${APP_URL:-}
+      # Weekly digest email delivery (Gmail App Password or SMTP)
+      - GMAIL_USER=${GMAIL_USER:-}
+      - GMAIL_APP_PASSWORD=${GMAIL_APP_PASSWORD:-}
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASS=${SMTP_PASS:-}
+      - SMTP_SECURE=${SMTP_SECURE:-}
+      - SMTP_FROM=${SMTP_FROM:-}
     restart: unless-stopped
