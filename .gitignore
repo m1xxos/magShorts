@@ -42,6 +42,11 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# security & vulnerability reports
+trivy-*.json
+trivy-*.sarif
+*vulnerability-report.html
+.cache/trivy
 # data
 /data
 # Never: a copy of the live database carries the password hash, a working

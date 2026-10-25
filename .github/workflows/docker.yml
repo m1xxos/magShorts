@@ -15,8 +15,13 @@ jobs:
     permissions:
       contents: read
       packages: write
+      security-events: write
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
 
       - uses: docker/setup-buildx-action@v3
 
@@ -37,6 +42,58 @@ jobs:
             type=sha,prefix=sha-
             type=ref,event=tag
 
+      - name: Build Docker image for vulnerability scan
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: magshorts:scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run Trivy container scanner (JSON)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: magshorts:scan
+          format: 'json'
+          output: 'trivy-container-results.json'
+          severity: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
+          scanners: 'vuln'
+
+      - name: Run Trivy container scanner (SARIF)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: magshorts:scan
+          format: 'sarif'
+          output: 'trivy-container-results.sarif'
+          severity: 'LOW,MEDIUM,HIGH,CRITICAL'
+          scanners: 'vuln'
+
+      - name: Upload SARIF to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        if: always() && hashFiles('trivy-container-results.sarif') != ''
+        with:
+          sarif_file: trivy-container-results.sarif
+          category: container-image
+
+      - name: Generate Vulnerability Summary & HTML Report
+        if: always() && hashFiles('trivy-container-results.json') != ''
+        run: |
+          node scripts/generate-vulnerability-report.mjs \
+            --input trivy-container-results.json \
+            --title "Docker Container Vulnerability Scan" \
+            --html container-vulnerability-report.html \
+            --summary >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload HTML Vulnerability Report
+        uses: actions/upload-artifact@v4
+        if: always() && hashFiles('container-vulnerability-report.html') != ''
+        with:
+          name: container-vulnerability-report
+          path: container-vulnerability-report.html
+          retention-days: 30
+
       - name: Build & push
         uses: docker/build-push-action@v6
         with:
@@ -48,4 +105,3 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max

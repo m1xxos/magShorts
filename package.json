@@ -12,7 +12,9 @@
     "test": "next build && tsx --test tests/speech.test.ts tests/digestEmail.test.ts tests/api.test.ts tests/browser.test.ts",
     "test:e2e": "tsx --test tests/browser.test.ts",
     "test:api": "tsx --test tests/api.test.ts",
-    "test:unit": "tsx --test tests/speech.test.ts tests/digestEmail.test.ts"
+    "test:unit": "tsx --test tests/speech.test.ts tests/digestEmail.test.ts",
+    "scan": "./scripts/scan-local.sh",
+    "scan:report": "node scripts/generate-vulnerability-report.mjs"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
