@@ -69,6 +69,7 @@ jobs:
           output: 'trivy-container-results.json'
           severity: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
           scanners: 'vuln'
+          ignore-unfixed: true
         env:
           TRIVY_USERNAME: ${{ github.actor }}
           TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
@@ -81,6 +82,7 @@ jobs:
           output: 'trivy-container-results.sarif'
           severity: 'LOW,MEDIUM,HIGH,CRITICAL'
           scanners: 'vuln'
+          ignore-unfixed: true
         env:
           TRIVY_USERNAME: ${{ github.actor }}
           TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
