@@ -42,33 +42,48 @@ jobs:
             type=sha,prefix=sha-
             type=ref,event=tag
 
-      - name: Build Docker image for vulnerability scan
+      - name: Build & push
         uses: docker/build-push-action@v6
         with:
           context: .
+          # The home server is x86_64; native deps (better-sqlite3, sharp,
+          # onnxruntime) make emulated arm64 builds painfully slow.
           platforms: linux/amd64
-          load: true
-          tags: magshorts:scan
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Select image tag for scan
+        id: image
+        run: |
+          PRIMARY_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n 1)
+          echo "tag=${PRIMARY_TAG}" >> $GITHUB_OUTPUT
 
       - name: Run Trivy container scanner (JSON)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: magshorts:scan
+          image-ref: ${{ steps.image.outputs.tag }}
           format: 'json'
           output: 'trivy-container-results.json'
           severity: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
           scanners: 'vuln'
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run Trivy container scanner (SARIF)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: magshorts:scan
+          image-ref: ${{ steps.image.outputs.tag }}
           format: 'sarif'
           output: 'trivy-container-results.sarif'
           severity: 'LOW,MEDIUM,HIGH,CRITICAL'
           scanners: 'vuln'
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload SARIF to GitHub Code Scanning
         uses: github/codeql-action/upload-sarif@v3
@@ -93,15 +108,3 @@ jobs:
           name: container-vulnerability-report
           path: container-vulnerability-report.html
           retention-days: 30
-
-      - name: Build & push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          # The home server is x86_64; native deps (better-sqlite3, sharp,
-          # onnxruntime) make emulated arm64 builds painfully slow.
-          platforms: linux/amd64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
