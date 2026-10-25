@@ -524,7 +524,8 @@ async function doRefreshStaleFeeds(
     // A failed feed keeps its old last_fetched_at and stays stale, so
     // make the failure visible instead of silently retrying forever.
     console.warn(
-      `[rss] refresh failed for ${feed.title}:`,
+      "[rss] refresh failed for %s:",
+      feed.title,
       result.reason?.message ?? result.reason
     );
     const failures = feed.failures + 1;

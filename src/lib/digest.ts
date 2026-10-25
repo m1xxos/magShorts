@@ -1058,14 +1058,17 @@ export async function runDueDigests(): Promise<void> {
               await sendWeeklyDigestEmail(user.id, { digestId: result.digestId });
             } catch (mailError) {
               console.error(
-                `[digest] failed to send weekly email for user ${user.id}:`,
+                "[digest] failed to send weekly email for user %s:",
+                user.id,
                 mailError
               );
             }
           }
         } catch (error) {
           console.error(
-            `[digest] ${kind} build failed for user ${user.id}:`,
+            "[digest] %s build failed for user %s:",
+            kind,
+            user.id,
             error
           );
         }
@@ -1088,7 +1091,9 @@ export async function runDueDigests(): Promise<void> {
         await sendWeeklyDigestEmail(pending.user_id, { digestId: pending.id });
       } catch (mailError) {
         console.error(
-          `[digest] catch-up weekly email failed for digest ${pending.id} (user ${pending.user_id}):`,
+          "[digest] catch-up weekly email failed for digest %s (user %s):",
+          pending.id,
+          pending.user_id,
           mailError
         );
       }

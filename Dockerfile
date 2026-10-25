@@ -21,15 +21,22 @@ ENV DATA_DIR=/data
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
 
-RUN groupadd --system app && useradd --system --gid app --home /app app \
+# Upgrade system packages to patch any OS vulnerabilities,
+# clean up package caches and remove unused package managers (npm, yarn, corepack)
+# as the production runner only requires the node runtime.
+RUN apt-get update && apt-get upgrade -y \
+  && rm -rf /var/lib/apt/lists/* \
+  && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /opt/yarn* \
+  && groupadd --system app && useradd --system --gid app --home /app app \
   && mkdir -p /data && chown app:app /data
 
 COPY --from=builder --chown=app:app /app/.next/standalone ./
 COPY --from=builder --chown=app:app /app/.next/static ./.next/static
 COPY --from=builder --chown=app:app /app/public ./public
 # Next's file tracing misses onnxruntime's dlopen'd shared library
-# (libonnxruntime.so.1), so ship the whole package.
+# (libonnxruntime.so.1) and cjs distribution, so ship the whole packages.
 COPY --from=builder --chown=app:app /app/node_modules/onnxruntime-node ./node_modules/onnxruntime-node
+COPY --from=builder --chown=app:app /app/node_modules/onnxruntime-common ./node_modules/onnxruntime-common
 
 USER app
 EXPOSE 3000
