@@ -17,17 +17,17 @@
     "scan:report": "node scripts/generate-vulnerability-report.mjs"
   },
   "dependencies": {
-    "@huggingface/transformers": "^4.3.1",
+    "@huggingface/transformers": "^4.3.2",
     "@mozilla/readability": "^0.6.0",
     "better-sqlite3": "^12.11.1",
-    "linkedom": "^0.18.13",
-    "next": "^16.4.3",
-    "nodemailer": "^10.1.6",
-    "react": "19.2.4",
-    "react-dom": "19.2.4",
+    "linkedom": "^0.18.15",
+    "next": "^16.4.6",
+    "nodemailer": "^10.6.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
     "rss-parser": "^3.13.0",
     "sharp": "^0.35.5",
-    "undici": "^7.30.1"
+    "undici": "^7.30.2"
   },
   "devDependencies": {
     "@extractus/article-extractor": "^9.0.1",
@@ -37,12 +37,12 @@
     "@types/nodemailer": "^8.0.2",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "defuddle": "^0.19.6",
+    "defuddle": "^0.19.7",
     "eslint": "^9",
-    "eslint-config-next": "^16.4.3",
-    "playwright-core": "^1.62.1",
+    "eslint-config-next": "^16.4.6",
+    "playwright-core": "^1.65.1",
     "tailwindcss": "^4",
-    "tsx": "^4.23.12",
+    "tsx": "^4.23.15",
     "typescript": "^5"
   }
 }
