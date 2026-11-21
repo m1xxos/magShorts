@@ -3,6 +3,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { type SearchSort } from "@/lib/types";
+import { shortcutBlocked } from "@/lib/useKeyboardShortcuts";
 
 // Where a search goes. One function, so the box in the header, the tag chips
 // and the source chips cannot disagree about what a search URL looks like.
@@ -77,25 +78,11 @@ export function SearchField({
   // reader's note editor, which is a plain textarea.
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
-      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) {
-        return;
-      }
-      const active = document.activeElement as HTMLElement | null;
-      if (
-        active &&
-        (active.tagName === "INPUT" ||
-          active.tagName === "TEXTAREA" ||
-          active.isContentEditable)
-      ) {
-        return;
-      }
-      // The reader and the sheets cover the whole window, header included.
-      // Focusing the box underneath one means typing into a field nobody can
-      // see, and Enter then changes the results behind the article you are
-      // reading.
-      if (document.querySelector("[role=dialog][aria-modal=true]")) return;
+      if (event.key !== "/" || event.shiftKey || shortcutBlocked(event)) return;
+      const field = input.current;
+      if (!field?.getClientRects().length) return;
       event.preventDefault();
-      input.current?.focus();
+      field.focus();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

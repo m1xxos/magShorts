@@ -18,6 +18,8 @@ import { Toast, useToast } from "./Toast";
 import { Reader, after } from "./Reader";
 import { useReader } from "@/lib/useReader";
 import { useUser } from "@/lib/useUser";
+import { useKeyboardShortcuts } from "@/lib/useKeyboardShortcuts";
+import { KeyboardHelp } from "./KeyboardHelp";
 
 const SHORTS_PAGE = 40;
 
@@ -35,12 +37,13 @@ export function ShortsReader() {
   const [folders, setFolders] = useState<FolderDto[]>([]);
   // null = All: the default deck across every enabled feed and folder.
   const [folderId, setFolderId] = useState<number | null>(null);
-  const [keysOpen, setKeysOpen] = useState(false);
   // Links already saved, so the reader's bookmark pill starts in the right
   // state — the deck knows about saves the moment a card is swiped.
   const [savedLinks, setSavedLinks] = useState<Set<string>>(new Set());
   const [openInReader, setOpenInReader] = useState(true);
+  const deckRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const advanceTimer = useRef<number | undefined>(undefined);
   const cardHandles = useRef<Map<number, SwipeableCardHandle>>(new Map());
   const actedCards = useRef<Set<number>>(new Set());
   const skippedCards = useRef<Set<number>>(new Set());
@@ -95,6 +98,7 @@ export function ShortsReader() {
 
   useEffect(() => {
     if (!user) return;
+    window.clearTimeout(advanceTimer.current);
     // Switching decks (mount or folder pill) starts a fresh session:
     // drop cards and per-card bookkeeping.
     // eslint-disable-next-line react-hooks/set-state-in-effect -- deck reset before an async fetch, same pattern as the data loads below
@@ -203,46 +207,61 @@ export function ShortsReader() {
   }, [loadReadingCount]);
 
   const scrollToIndex = useCallback((index: number) => {
-    containerRef.current?.children[index]?.scrollIntoView({
-      behavior: "smooth",
-    });
+    containerRef.current?.children[index]?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
-  useEffect(() => {
-    function onKey(event: KeyboardEvent) {
-      // The reader mounts over the deck and owns the keyboard while it is
-      // open: without this, Escape closed the article and then left Shorts
-      // entirely, and ←/→ swiped the card hidden behind the overlay.
-      if (reader.article) return;
-      if (event.key === "ArrowDown" || event.key === "j" || event.key === " ") {
-        event.preventDefault();
-        setCurrent((index) => {
-          const next = Math.min(index + 1, articles.length - 1);
-          scrollToIndex(next);
-          return next;
-        });
-      } else if (event.key === "ArrowUp" || event.key === "k") {
-        event.preventDefault();
-        setCurrent((index) => {
-          const prev = Math.max(index - 1, 0);
-          scrollToIndex(prev);
-          return prev;
-        });
-      } else if (event.key === "ArrowRight") {
-        event.preventDefault();
-        cardHandles.current.get(current)?.swipe();
-        // Let the fly-out play, then move on to the next short.
-        const next = Math.min(current + 1, articles.length - 1);
-        if (next !== current) {
-          setTimeout(() => scrollToIndex(next), 320);
-        }
-      } else if (event.key === "Escape") {
-        router.push("/");
-      }
+  useEffect(() => () => window.clearTimeout(advanceTimer.current), []);
+
+  const { help, showHelp, vim } = useKeyboardShortcuts("shorts", (command) => {
+    window.clearTimeout(advanceTimer.current);
+    if (command === "close") {
+      router.push("/");
+      return;
     }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [articles.length, current, scrollToIndex, router, reader.article]);
+    if (!articles.length) return false;
+
+    const last = articles.length - 1;
+    const next = Math.min(current + 1, last);
+    const card = containerRef.current?.children[current];
+
+    if (command === "save") {
+      deckRef.current?.focus({ preventScroll: true });
+      cardHandles.current.get(current)?.swipe();
+      if (next !== current) {
+        advanceTimer.current = window.setTimeout(() => scrollToIndex(next), 320);
+      }
+      return;
+    }
+    if (command === "open") {
+      const action = card?.querySelector<HTMLElement>("[data-short-read]");
+      if (!action) return false;
+      action.focus({ preventScroll: true });
+      action.click();
+      return;
+    }
+
+    let index: number;
+    switch (command) {
+      case "previous":
+        index = Math.max(current - 1, 0);
+        break;
+      case "next":
+        index = next;
+        break;
+      case "first":
+        index = 0;
+        break;
+      case "last":
+        index = last;
+        break;
+      default:
+        return false;
+    }
+    // An offscreen control must not receive the next Enter or Space.
+    deckRef.current?.focus({ preventScroll: true });
+    scrollToIndex(index);
+    setCurrent(index);
+  }, undefined, !!reader.article);
 
   // Track which card is in view while the user scrolls freely.
   useEffect(() => {
@@ -266,7 +285,8 @@ export function ShortsReader() {
   }, [articles]);
 
   return (
-    <div className="relative h-dvh bg-paper">
+    <div ref={deckRef} tabIndex={-1} className="relative h-dvh bg-paper outline-none">
+      <KeyboardHelp dialogRef={help} scope="shorts" vim={vim} />
       {/* Floating header */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-center justify-between p-5">
         <Link
@@ -314,10 +334,8 @@ export function ShortsReader() {
             <BookmarkIcon size={13} />
             <span className="tabular-nums">{readingCount}</span>
           </Link>
-          {/* The full shortcut list lives here now; the legend below is
-              three lines long and this is where the rest went. */}
           <button
-            onClick={() => setKeysOpen((open) => !open)}
+            onClick={showHelp}
             title="Keyboard shortcuts"
             aria-label="Keyboard shortcuts"
             className="pointer-events-auto hidden h-9 w-9 items-center justify-center rounded-full border border-line bg-paper-raised/90 text-[13px] text-ink-faint backdrop-blur transition hover:text-ink md:flex"
@@ -422,9 +440,7 @@ export function ShortsReader() {
         </div>
       )}
 
-      {/* Three shortcuts, not five, and out of the middle of the screen.
-          The rest are behind the ? in the header — a legend you have read once
-          should not keep taking the bottom of every card. */}
+      {/* Keep the primary gestures visible beside the deck. */}
       {articles.length > 0 && (
         <div className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex justify-center md:hidden">
           <div className="rounded-full border border-line bg-paper-raised/90 px-4 py-2 text-[12px] text-ink-faint backdrop-blur">
@@ -447,31 +463,6 @@ export function ShortsReader() {
             <span className="flex items-center gap-1.5">
               <Key>Esc</Key> exit
             </span>
-          </div>
-        </div>
-      )}
-      {keysOpen && (
-        <div
-          className="absolute inset-0 z-40 flex items-center justify-center bg-ink/20 p-4 backdrop-blur-sm"
-          onClick={() => setKeysOpen(false)}
-        >
-          <div
-            className="w-full max-w-sm rounded-2xl border border-line bg-paper-raised p-5 shadow-xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <h2 className="font-serif text-[19px] text-ink">Shortcuts</h2>
-            <ul className="mt-3 space-y-2 text-[13px] text-ink-soft">
-              <li className="flex items-center gap-2">
-                <Key>↑</Key>
-                <Key>↓</Key> browse the deck
-              </li>
-              <li className="flex items-center gap-2">
-                <Key>→</Key> save to Read later
-              </li>
-              <li className="flex items-center gap-2">
-                <Key>Esc</Key> back to the feed
-              </li>
-            </ul>
           </div>
         </div>
       )}

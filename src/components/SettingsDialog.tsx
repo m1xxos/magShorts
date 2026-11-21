@@ -7,6 +7,7 @@ import { Switch } from "./ui/Switch";
 import { Segmented } from "./ui/Segmented";
 import { ChipRow, Chip } from "./ui/ChipRow";
 import { Sheet } from "./ui/Sheet";
+import { setVimShortcuts, useVimShortcuts } from "@/lib/useKeyboardShortcuts";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 
 // Only these are edited here. Saving must not send the per-domain lists, or a
@@ -52,6 +53,7 @@ export function SettingsDialog({
   onClose: () => void;
   onSaved: (message: string) => void;
 }) {
+  const vim = useVimShortcuts();
   const [form, setForm] = useState<SettingsForm | null>(null);
   // What was loaded, so the footer can count what has actually changed rather
   // than saying "unsaved changes" from the moment the dialog opens.
@@ -392,6 +394,20 @@ export function SettingsDialog({
             </Chip>
           ))}
         </ChipRow>
+      </div>
+
+      <div className="flex items-center gap-3 rounded-xl border border-line px-3 py-2.5">
+        <div className="min-w-0 flex-1">
+          <span className="text-[13px] font-medium text-ink-soft">Vim shortcuts</span>
+          <p className="mt-0.5 text-[12px] text-ink-faint">
+            Enable Vim keys in this browser. Press ? while browsing or reading for shortcuts.
+          </p>
+        </div>
+        <Switch
+          checked={vim}
+          title="Vim shortcuts"
+          onClick={() => setVimShortcuts(!vim)}
+        />
       </div>
 
       <div className="flex items-center gap-3 rounded-xl border border-line px-3 py-2.5">
@@ -865,6 +881,9 @@ export function SettingsDialog({
       onClick={onClose}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Settings"
         className="flex max-h-[85vh] w-full max-w-[760px] overflow-hidden rounded-2xl border border-line bg-paper-raised shadow-xl"
         onClick={(event) => event.stopPropagation()}
       >

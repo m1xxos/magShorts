@@ -229,3 +229,8 @@ body {
   padding: 6px 10px;
   text-align: left;
 }
+
+[data-article-link]:focus-visible {
+  outline: 2px solid var(--clay);
+  outline-offset: -2px;
+}

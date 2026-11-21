@@ -1,5 +1,7 @@
 "use client";
 
+import { ArticleKeyboard } from "@/components/ArticleKeyboard";
+
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
@@ -337,6 +339,7 @@ function SearchResults() {
       <div className="flex">
         <Sidebar {...railProps} />
         <main className="mx-auto min-w-0 max-w-[1180px] flex-1 px-5 py-6 md:px-8">
+          <ArticleKeyboard />
           {/* The header has no room for a field below sm, so it lives here
               instead — one box visible at a time, never two. */}
           <SearchField

@@ -1,5 +1,7 @@
 "use client";
 
+import { ArticleKeyboard } from "@/components/ArticleKeyboard";
+
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -356,6 +358,7 @@ export default function DigestPage() {
         )}
       />
       <main className="mx-auto max-w-[1080px] px-5 pt-9 pb-10 md:px-11">
+        <ArticleKeyboard />
         <div className="flex flex-wrap items-end justify-between gap-4 border-b border-line pb-5">
           <div>
             <p className={`${SECTION_LABEL} mb-1.5`}>{eyebrow}</p>
@@ -453,7 +456,7 @@ export default function DigestPage() {
               {lead && (
                 <>
                   <p className={`${SECTION_LABEL} mb-3.5`}>The lead</p>
-                  <div className="overflow-hidden rounded-2xl border border-line bg-paper-raised">
+                  <div data-article-card className="overflow-hidden rounded-2xl border border-line bg-paper-raised">
                     <Cover item={lead} />
                     <div className="p-[22px]">
                       <div className="mb-2.5 flex items-center gap-2">
@@ -478,6 +481,7 @@ export default function DigestPage() {
                       <div className="mt-[18px] flex flex-wrap gap-2.5">
                         <a
                           {...readerLink(asArticle(lead), reader.open)}
+                          data-article-link
                           className="rounded-full bg-clay px-4 py-2.5 text-[13px] font-medium text-white transition hover:brightness-95"
                         >
                           Read here
@@ -510,6 +514,7 @@ export default function DigestPage() {
                     {also.map((item) => (
                       <div
                         key={item.article_id}
+                        data-article-card
                         className="flex gap-3.5 rounded-[14px] border border-line bg-paper-raised p-4"
                       >
                         {/* 16:9, because that is the shape article covers
@@ -533,6 +538,7 @@ export default function DigestPage() {
                         <div className="min-w-0">
                           <a
                             {...readerLink(asArticle(item), reader.open)}
+                            data-article-link
                             className="font-serif text-[17px] leading-[1.3] font-medium text-ink hover:text-clay"
                           >
                             {item.title}
@@ -589,10 +595,12 @@ export default function DigestPage() {
                     {(showAll ? [...quick, ...rest] : quick).map((item) => (
                       <p
                         key={item.article_id}
+                        data-article-card
                         className="text-[13px] leading-[1.4] text-ink-soft"
                       >
                         <a
                           {...readerLink(asArticle(item), reader.open)}
+                          data-article-link
                           className="text-ink hover:text-clay"
                         >
                           {item.title}

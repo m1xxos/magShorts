@@ -1,5 +1,7 @@
 "use client";
 
+import { ArticleKeyboard } from "@/components/ArticleKeyboard";
+
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { removeFromReadingList, saveToReadingList } from "@/lib/actions";
@@ -397,6 +399,7 @@ export default function HomePage() {
       <div className="flex">
         <Sidebar {...railProps} />
         <main className="min-w-0 flex-1 px-5 py-6 md:px-8">
+          <ArticleKeyboard />
           {/* Mobile feed chips */}
           <div className="no-scrollbar -mx-5 mb-4 flex gap-2 overflow-x-auto px-5 lg:hidden">
             <button

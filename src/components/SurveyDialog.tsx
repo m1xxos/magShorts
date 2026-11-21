@@ -20,6 +20,9 @@ export function SurveyDialog({
       onClick={onClose}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Did you like it?"
         className="w-full max-w-sm rounded-2xl border border-line bg-paper-raised p-6 shadow-xl"
         onClick={(event) => event.stopPropagation()}
       >

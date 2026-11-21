@@ -1,5 +1,7 @@
 "use client";
 
+import { ArticleKeyboard } from "@/components/ArticleKeyboard";
+
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -248,6 +250,7 @@ export default function ReadingListPage() {
       <div className="flex">
         <Sidebar {...railProps} />
         <main className="mx-auto min-w-0 max-w-[760px] flex-1 px-5 py-8 md:px-8">
+          <ArticleKeyboard />
         <div className="flex items-baseline justify-between gap-4">
           <div className="min-w-0">
             <h1 className="font-serif text-3xl text-ink">Read later</h1>
@@ -316,6 +319,7 @@ export default function ReadingListPage() {
                     return (
                       <li
                         key={item.id}
+                        data-article-card
                         className="flex flex-col gap-3 rounded-2xl border border-line bg-paper-raised p-4 transition hover:shadow-[0_8px_24px_-12px_rgba(31,30,27,0.2)] sm:flex-row sm:items-center sm:gap-4"
                       >
                         <div className="flex min-w-0 flex-1 gap-4">
@@ -337,6 +341,7 @@ export default function ReadingListPage() {
                             {article ? (
                               <a
                                 {...readerLink(article, reader.open)}
+                                data-article-link
                                 className="line-clamp-2 font-serif text-[16px] leading-snug font-medium text-ink hover:text-clay pointer-coarse:text-[19px]"
                               >
                                 {item.title}
@@ -344,6 +349,7 @@ export default function ReadingListPage() {
                             ) : (
                               <a
                                 href={unlockUrl(item.link)}
+                                data-article-link
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 title="Opens paywall-free via Marreta"

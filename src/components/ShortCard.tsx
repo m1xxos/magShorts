@@ -146,6 +146,7 @@ export function ShortCard({
           <div className="flex shrink-0 flex-nowrap items-center gap-1.5 border-t border-line px-7 py-3.5 md:gap-2 md:px-8">
               {onRead ? (
                 <button
+                  data-short-read
                   onClick={() => {
                     recordEvent(article.link, "open");
                     onActed?.();
@@ -157,6 +158,7 @@ export function ShortCard({
                 </button>
               ) : (
                 <a
+                  data-short-read
                   href={unlockUrl(article.link)}
                   target="_blank"
                   rel="noopener noreferrer"

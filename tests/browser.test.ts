@@ -711,3 +711,267 @@ describe("the menu on a narrow screen", () => {
     await page.close();
   });
 });
+
+describe("keyboard shortcuts", () => {
+  const articleLinks = (page: Page) => page.locator("main [data-article-link]");
+  const help = (page: Page) => page.getByRole("dialog", { name: "Keyboard shortcuts" });
+
+  async function stubContent(page: Page) {
+    const image = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+    const prose = "<p>A paragraph long enough to exercise scrolling with the keyboard.</p>";
+    const slides = ["First illustration", "Second illustration"].map((caption) =>
+      `<figure><img src="${image}" width="100" height="60"><figcaption>${caption}</figcaption></figure>`
+    ).join("");
+    await page.route("**/api/articles/*/content", (route) => route.fulfill({
+      json: {
+        status: "ok",
+        html: `<div class="reader-gallery">${slides}</div>${prose.repeat(70)}`,
+        headings: [],
+        reading_minutes: 2,
+        source: "direct",
+      },
+    }));
+  }
+
+  it("moves through article lists and restores focus when the reader closes", async () => {
+    const page = await open();
+    const { id: userId } = app.db.prepare("SELECT id FROM users WHERE username = 'tester'").get() as { id: number };
+    const ids = app.articles.slice(0, 2).map(({ id }) => id);
+    const digest = app.db.prepare(
+      `INSERT INTO digests (user_id, kind, period_key, period_start, period_end, three_lines,
+                            total_articles, total_publications)
+       VALUES (?, 'daily', 'keyboard-test', '2026-11-20', '2026-11-21', '[]', 2, 1)`
+    ).run(userId).lastInsertRowid;
+    const addItem = app.db.prepare(
+      "INSERT INTO digest_items (digest_id, article_id, section, position) VALUES (?, ?, ?, ?)"
+    );
+    const addSave = app.db.prepare(
+      `INSERT INTO reading_list (user_id, link, title)
+       SELECT ?, link, title FROM articles WHERE id = ? ON CONFLICT DO NOTHING`
+    );
+    for (const [index, id] of ids.entries()) {
+      addItem.run(digest, id, index === 0 ? "lead" : "also", 0);
+      addSave.run(userId, id);
+    }
+
+    try {
+      await stubContent(page);
+      for (const url of ["/?view=all", "/search?q=kubernetes", "/reading-list", "/digest"]) {
+        await go(page, url);
+        const links = articleLinks(page);
+        await links.nth(1).waitFor();
+        await page.keyboard.press("ArrowDown");
+        assert.ok(await links.first().evaluate((link) => link === document.activeElement), url);
+        const grid = url.startsWith("/?") || url.startsWith("/search");
+        await page.keyboard.press(grid ? "ArrowRight" : "ArrowDown");
+        const next = links.nth(1);
+        assert.ok(await next.evaluate((link) => link === document.activeElement), url);
+        const expected = await next.getAttribute("href");
+        await page.keyboard.press("Enter");
+        await page.waitForURL(new URL(expected!, app.baseUrl).href);
+        await page.locator(".reader-body").waitFor();
+        await page.keyboard.press("Escape");
+        await page.locator(".reader-body").waitFor({ state: "detached" });
+        await page.waitForFunction(() => document.activeElement?.matches("main [data-article-link]"));
+        assert.ok(await next.evaluate((link) => link === document.activeElement), url);
+      }
+    } finally {
+      app.db.prepare("DELETE FROM digests WHERE id = ?").run(digest);
+      app.db.prepare(
+        "DELETE FROM reading_list WHERE user_id = ? AND link IN (SELECT link FROM articles WHERE id IN (?, ?))"
+      ).run(userId, ...ids);
+      await page.close();
+    }
+  });
+
+  it("follows the columns and rows of the responsive article grid", async () => {
+    const page = await open();
+    try {
+      await go(page, "/?view=all");
+      const links = articleLinks(page);
+      const columns = await links.first().evaluate((link) => {
+        const grid = link.closest("[data-article-card]")!.parentElement!;
+        return getComputedStyle(grid).gridTemplateColumns.split(" ").length;
+      });
+      assert.ok(columns > 1);
+      await links.nth(columns + 1).waitFor();
+
+      await page.keyboard.press("Home");
+      for (const [key, index] of [
+        ["ArrowRight", 1],
+        ["ArrowDown", columns + 1],
+        ["ArrowUp", 1],
+        ["ArrowLeft", 0],
+        ["ArrowLeft", 0],
+        ["ArrowDown", columns],
+      ] as const) {
+        await page.keyboard.press(key);
+        assert.ok(await links.nth(index).evaluate((link) => link === document.activeElement), key);
+      }
+
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.keyboard.press("Home");
+      await page.keyboard.press("ArrowRight");
+      assert.ok(await links.first().evaluate((link) => link === document.activeElement));
+      await page.keyboard.press("ArrowDown");
+      assert.ok(await links.nth(1).evaluate((link) => link === document.activeElement));
+    } finally {
+      await page.close();
+    }
+  });
+
+  it("enables Vim in Settings and respects text input and the top dialog", async () => {
+    const page = await open();
+    await stubContent(page);
+    await go(page, "/?view=all");
+    const links = articleLinks(page);
+    await links.nth(1).waitFor();
+    await page.keyboard.press("j");
+    assert.equal(await links.first().evaluate((link) => link === document.activeElement), false);
+    await page.keyboard.press("?");
+    await help(page).waitFor();
+    assert.equal(await help(page).getByText("j", { exact: true }).count(), 0);
+    await page.keyboard.press("Escape");
+    await help(page).waitFor({ state: "hidden" });
+
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    const setting = page.getByRole("switch", { name: "Vim shortcuts" });
+    assert.equal(await setting.getAttribute("aria-checked"), "false");
+    await setting.click();
+    assert.equal(await setting.getAttribute("aria-checked"), "true");
+    await page.keyboard.press("Escape");
+    await page.reload({ waitUntil: "networkidle" });
+    await links.nth(1).waitFor();
+
+    await page.keyboard.press("/");
+    const search = page.getByLabel("Search articles");
+    await page.keyboard.type("jkog?");
+    assert.equal(await search.inputValue(), "jkog?");
+    assert.equal(await help(page).isVisible(), false);
+    await search.blur();
+
+    // The physical J key produces Cyrillic о on this layout.
+    await page.evaluate(() => document.activeElement?.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "о", code: "KeyJ", bubbles: true, cancelable: true })
+    ));
+    assert.ok(await links.first().evaluate((link) => link === document.activeElement));
+    await page.keyboard.press("l");
+    assert.ok(await links.nth(1).evaluate((link) => link === document.activeElement));
+    await page.keyboard.press("h");
+    assert.ok(await links.first().evaluate((link) => link === document.activeElement));
+    await page.keyboard.press("Shift+KeyG");
+    assert.ok(await links.last().evaluate((link) => link === document.activeElement));
+    await page.keyboard.press("g");
+    await page.keyboard.press("g");
+    assert.ok(await links.first().evaluate((link) => link === document.activeElement));
+    await page.keyboard.press("o");
+
+    const body = page.locator(".reader-body");
+    await body.waitFor();
+    const reader = body.locator("xpath=ancestor::*[@aria-modal='true'][1]");
+    await reader.evaluate((element) => {
+      const scroll = element.scrollTo.bind(element);
+      element.scrollTo = (options?: ScrollToOptions | number, y?: number) => {
+        if (typeof options === "number") {
+          scroll(options, y ?? 0);
+          return;
+        }
+        element.setAttribute("data-scroll-behavior", options?.behavior ?? "");
+        scroll(options);
+      };
+    });
+    await page.keyboard.down("ArrowDown");
+    await page.keyboard.down("ArrowDown");
+    await page.keyboard.up("ArrowDown");
+    assert.equal(await reader.getAttribute("data-scroll-behavior"), "smooth");
+    await page.waitForFunction(() =>
+      document.querySelector(".reader-body")?.closest('[aria-modal="true"]')?.scrollTop === 80
+    );
+    await page.keyboard.press("PageDown");
+    await page.waitForFunction(() =>
+      (document.querySelector(".reader-body")?.closest('[aria-modal="true"]')?.scrollTop ?? 0) > 80
+    );
+    await page.keyboard.press("g");
+    await page.keyboard.press("g");
+    await page.waitForFunction(() =>
+      document.querySelector(".reader-body")?.closest('[aria-modal="true"]')?.scrollTop === 0
+    );
+
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.keyboard.press("PageDown");
+    assert.equal(await reader.getAttribute("data-scroll-behavior"), "instant");
+    await page.keyboard.press("Home");
+    assert.equal(await reader.evaluate((element) => element.scrollTop), 0);
+
+    await page.keyboard.press("?");
+    await help(page).waitFor();
+    assert.ok(await help(page).getByText("gg", { exact: true }).isVisible());
+    await page.keyboard.press("Escape");
+    await help(page).waitFor({ state: "hidden" });
+    assert.ok(await body.isVisible());
+    await reader.getByRole("img", { name: "First illustration" }).click();
+    const firstImage = page.getByRole("dialog", { name: "First illustration" });
+    const secondImage = page.getByRole("dialog", { name: "Second illustration" });
+    await firstImage.waitFor();
+    await page.keyboard.press("ArrowRight");
+    await secondImage.waitFor();
+    await page.keyboard.press("ArrowLeft");
+    await firstImage.waitFor();
+    await page.keyboard.press("Escape");
+    await firstImage.waitFor({ state: "hidden" });
+    assert.ok(await body.isVisible());
+    await page.close();
+  });
+
+  it("opens a Short, keeps a held Escape inside Shorts, and saves with Right", async () => {
+    const page = await open();
+    await stubContent(page);
+    const { feed_id: feedId } = app.db.prepare("SELECT feed_id FROM articles WHERE id = ?")
+      .get(app.articles[0].id) as { feed_id: number };
+    await go(page, `/shorts?feed=${feedId}`);
+    await page.locator("[data-index='2'] [data-short-read]").waitFor();
+    const secondCard = page.locator("[data-index='1']");
+    await secondCard.evaluate((card) => {
+      const scroll = card.scrollIntoView.bind(card);
+      card.scrollIntoView = (options) => {
+        if (typeof options === "object") {
+          card.setAttribute("data-scroll-behavior", options.behavior ?? "");
+        }
+        scroll(options);
+      };
+    });
+    await page.keyboard.press("ArrowDown");
+    assert.equal(await secondCard.getAttribute("data-scroll-behavior"), "smooth");
+    await page.waitForFunction(() => {
+      const card = document.querySelector("[data-index='1']");
+      return card && Math.abs(card.getBoundingClientRect().top) < 2;
+    });
+    await page.keyboard.press("Enter");
+    const body = page.locator(".reader-body");
+    await body.waitFor();
+    assert.equal(new URL(page.url()).searchParams.get("article"), String(app.articles[1].id));
+    await page.keyboard.down("Escape");
+    await body.waitFor({ state: "detached" });
+    await page.keyboard.down("Escape");
+    await page.keyboard.up("Escape");
+    assert.ok(path(page).startsWith("/shorts?"));
+
+    app.db.prepare(
+      `INSERT INTO article_content (article_id, html, headings, status, source)
+       VALUES (?, '<p>Cached body.</p>', '[]', 'ok', 'direct')
+       ON CONFLICT(article_id) DO NOTHING`
+    ).run(app.articles[1].id);
+    const saved = page.waitForResponse((response) =>
+      response.url().endsWith("/api/reading-list") && response.request().method() === "POST"
+    );
+    await page.keyboard.press("ArrowRight");
+    const response = await saved;
+    assert.ok(response.ok());
+    assert.equal(response.request().postDataJSON().title, app.articles[1].title);
+    await page.waitForFunction(() => {
+      const card = document.querySelector("[data-index='2']");
+      return card && Math.abs(card.getBoundingClientRect().top) < 2;
+    });
+    await page.close();
+  });
+});

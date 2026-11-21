@@ -101,7 +101,7 @@ export function SwipeableCard({
   const strength = Math.min(Math.abs(offset) / THRESHOLD, 1);
 
   return (
-    <div className={`relative ${className ?? ""}`}>
+    <div data-article-card className={`relative ${className ?? ""}`}>
       {/* Action layer revealed under the card */}
       <div
         className={`pointer-events-none absolute inset-0 flex items-center justify-between overflow-hidden ${radiusClass}`}

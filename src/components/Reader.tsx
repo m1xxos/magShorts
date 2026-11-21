@@ -45,6 +45,8 @@ import { useMediaQuery } from "@/lib/useMediaQuery";
 import { detectLanguage, formatLeft, splitSentences } from "@/lib/speech";
 import { blockBreaks, useSpeech, type SpeechSentence } from "@/lib/useSpeech";
 import { ListenIcon, ReaderListen } from "./ReaderListen";
+import { useKeyboardShortcuts } from "@/lib/useKeyboardShortcuts";
+import { KeyboardHelp } from "./KeyboardHelp";
 
 // The in-app reader: an article opened over the grid instead of in a new tab.
 //
@@ -304,6 +306,7 @@ export function Reader({
   // Articles about the same thing as this one. Empty is a normal answer.
   const [related, setRelated] = useState<ArticleDto[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const keyboardScrollTarget = useRef<number | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   // Highest fraction reached, not the current one: scrolling back up should
   // not un-read the article.
@@ -403,6 +406,7 @@ export function Reader({
 
   useEffect(() => {
     reached.current = 0;
+    keyboardScrollTarget.current = null;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting per-article view state when the reader swaps articles
     setProgress(0);
     setActiveId(null);
@@ -498,35 +502,67 @@ export function Reader({
   const close = useCallback(() => onClose(), [onClose]);
 
   useEffect(() => {
-    function onKey(event: KeyboardEvent) {
-      if (lightbox) {
-        // The topmost thing closes first, and the arrows belong to it while
-        // it is open.
-        if (event.key === "Escape") setLightbox(null);
-        if (event.key === "ArrowLeft") setLightbox(step(lightbox, -1));
-        if (event.key === "ArrowRight") setLightbox(step(lightbox, 1));
+    const container = scrollRef.current;
+    const origin = document.activeElement;
+    container?.focus({ preventScroll: true });
+    return () => {
+      const active = document.activeElement;
+      if (origin instanceof HTMLElement && origin.isConnected &&
+          (active === document.body || container?.contains(active))) {
+        origin.focus({ preventScroll: true });
+      }
+    };
+  }, []);
+
+  function resetKeyboardScroll() {
+    keyboardScrollTarget.current = null;
+  }
+
+  const { help, vim } = useKeyboardShortcuts("reader", (command) => {
+    const container = scrollRef.current;
+    if (!container) return false;
+    // Each press advances from the destination even while the browser is
+    // still animating toward it.
+    const current = keyboardScrollTarget.current ?? container.scrollTop;
+    const end = container.scrollHeight - container.clientHeight;
+    const page = Math.max(40, container.clientHeight - RAIL_TOP);
+    let destination: number;
+    switch (command) {
+      case "close":
+        close();
         return;
-      }
-      if (event.key === "Escape") close();
-      // Read by position, not by character: on a Russian layout this key types
-      // "д", and a shortcut that only works in one layout is not a shortcut.
-      // Space is not available — it scrolls the article, and Shorts spends it.
-      if (
-        event.code === "KeyL" &&
-        !event.metaKey &&
-        !event.ctrlKey &&
-        !event.altKey &&
-        !(event.target as HTMLElement | null)?.closest?.(
-          "input, textarea, [contenteditable]"
-        )
-      ) {
-        event.preventDefault();
+      case "listen":
         speechToggle.current();
-      }
+        return;
+      case "previous":
+        destination = current - 40;
+        break;
+      case "next":
+        destination = current + 40;
+        break;
+      case "pageUp":
+        destination = current - page;
+        break;
+      case "pageDown":
+        destination = current + page;
+        break;
+      case "first":
+        destination = 0;
+        break;
+      case "last":
+        destination = end;
+        break;
+      default:
+        return false;
     }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [close, lightbox]);
+
+    const top = Math.max(0, Math.min(destination, end));
+    if (top === keyboardScrollTarget.current) return;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    keyboardScrollTarget.current = !reduceMotion && top !== container.scrollTop ? top : null;
+    followAgainAt.current = Date.now() + FOLLOW_PAUSE;
+    container.scrollTo({ top, behavior: reduceMotion ? "instant" : "smooth" });
+  }, scrollRef, draft !== null || !!pending_);
 
   // Restore where the reader stopped last time, once the body is on screen.
   useEffect(() => {
@@ -560,6 +596,10 @@ export function Reader({
     // around for a while — going to look at something else is a decision, and
     // the article must not argue with it.
     if (!selfScroll.current) followAgainAt.current = Date.now() + FOLLOW_PAUSE;
+    const destination = keyboardScrollTarget.current;
+    if (destination !== null && Math.abs((scrollRef.current?.scrollTop ?? 0) - destination) < 1) {
+      keyboardScrollTarget.current = null;
+    }
     if (ticking.current) return;
     ticking.current = true;
     requestAnimationFrame(() => {
@@ -1040,6 +1080,7 @@ export function Reader({
   function jumpTo(target: Element) {
     const container = scrollRef.current;
     if (!container) return;
+    keyboardScrollTarget.current = null;
     const to =
       container.scrollTop +
       target.getBoundingClientRect().top -
@@ -1423,12 +1464,17 @@ export function Reader({
   return (
     <div
       ref={scrollRef}
+      tabIndex={-1}
       onScroll={onScroll}
+      onScrollEnd={resetKeyboardScroll}
+      onWheel={resetKeyboardScroll}
+      onPointerDown={resetKeyboardScroll}
       role="dialog"
       aria-modal="true"
       aria-label={article.title}
-      className="fixed inset-0 z-50 overflow-y-auto bg-paper-sunken"
+      className="fixed inset-0 z-50 overflow-y-auto bg-paper-sunken outline-none"
     >
+      <KeyboardHelp dialogRef={help} scope="reader" vim={vim} />
       <div className="sticky top-0 z-10 bg-paper">
         <div className="flex h-16 items-center justify-between gap-4 border-b border-line px-5 md:px-8">
           <button
@@ -1985,16 +2031,35 @@ function Lightbox({
 }) {
   const item = state.items[state.index];
   const many = state.items.length > 1;
+  const gallery = useRef<HTMLDivElement>(null);
+  const { help, vim } = useKeyboardShortcuts("gallery", (command) => {
+    switch (command) {
+      case "previous":
+        onStep(-1);
+        break;
+      case "next":
+        onStep(1);
+        break;
+      case "close":
+        onClose();
+        break;
+      default:
+        return false;
+    }
+  }, gallery);
+
   return (
     // Above the reader, which is already above the grid. Clicking the ground
     // closes — the picture itself and the controls stop the click.
     <div
+      ref={gallery}
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-label={item.caption || "Image"}
       className="fixed inset-0 z-60 flex flex-col items-center justify-center gap-4 bg-ink/85 px-4 py-6 backdrop-blur-sm"
     >
+      <KeyboardHelp dialogRef={help} scope="gallery" vim={vim} />
       <button
         onClick={onClose}
         aria-label="Close the image"

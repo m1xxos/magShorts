@@ -183,6 +183,7 @@ export function ArticleCard({
       {density === "cards" ? (
         <a
           {...linkProps}
+          data-article-link
           className="group flex h-full flex-col overflow-hidden rounded-2xl border border-line bg-paper-raised transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_24px_-12px_rgba(31,30,27,0.25)]"
         >
           <div className="relative aspect-[2/1] w-full shrink-0 overflow-hidden bg-paper-sunken">
@@ -219,6 +220,7 @@ export function ArticleCard({
       ) : density === "list" ? (
         <a
           {...linkProps}
+          data-article-link
           className="group flex gap-4 overflow-hidden rounded-2xl border border-line bg-paper-raised p-3 transition duration-200 hover:shadow-[0_8px_24px_-12px_rgba(31,30,27,0.25)]"
         >
           <div className="relative aspect-[4/3] w-[104px] shrink-0 overflow-hidden rounded-[10px] bg-paper-sunken sm:w-[140px]">
@@ -245,6 +247,7 @@ export function ArticleCard({
       ) : (
         <a
           {...linkProps}
+          data-article-link
           className="group flex min-h-14 items-center gap-3 rounded-xl border border-line bg-paper-raised px-4 transition duration-200 hover:border-clay"
         >
           <FeedAvatar
