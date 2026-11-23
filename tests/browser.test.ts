@@ -869,27 +869,22 @@ describe("keyboard shortcuts", () => {
     const body = page.locator(".reader-body");
     await body.waitFor();
     const reader = body.locator("xpath=ancestor::*[@aria-modal='true'][1]");
-    await reader.evaluate((element) => {
-      const scroll = element.scrollTo.bind(element);
-      element.scrollTo = (options?: ScrollToOptions | number, y?: number) => {
-        if (typeof options === "number") {
-          scroll(options, y ?? 0);
-          return;
-        }
-        element.setAttribute("data-scroll-behavior", options?.behavior ?? "");
-        scroll(options);
-      };
+    const beforeAnimation = await reader.evaluate((element) => {
+      element.dispatchEvent(new KeyboardEvent("keydown", {
+        key: "ArrowDown", bubbles: true, cancelable: true,
+      }));
+      element.dispatchEvent(new KeyboardEvent("keydown", {
+        key: "ArrowDown", repeat: true, bubbles: true, cancelable: true,
+      }));
+      return element.scrollTop;
     });
-    await page.keyboard.down("ArrowDown");
-    await page.keyboard.down("ArrowDown");
-    await page.keyboard.up("ArrowDown");
-    assert.equal(await reader.getAttribute("data-scroll-behavior"), "smooth");
+    assert.equal(beforeAnimation, 0);
     await page.waitForFunction(() =>
-      document.querySelector(".reader-body")?.closest('[aria-modal="true"]')?.scrollTop === 80
+      document.querySelector(".reader-body")?.closest('[aria-modal="true"]')?.scrollTop === 192
     );
     await page.keyboard.press("PageDown");
     await page.waitForFunction(() =>
-      (document.querySelector(".reader-body")?.closest('[aria-modal="true"]')?.scrollTop ?? 0) > 80
+      (document.querySelector(".reader-body")?.closest('[aria-modal="true"]')?.scrollTop ?? 0) > 192
     );
     await page.keyboard.press("g");
     await page.keyboard.press("g");
@@ -898,8 +893,13 @@ describe("keyboard shortcuts", () => {
     );
 
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.keyboard.press("PageDown");
-    assert.equal(await reader.getAttribute("data-scroll-behavior"), "instant");
+    const immediate = await reader.evaluate((element) => {
+      element.dispatchEvent(new KeyboardEvent("keydown", {
+        key: "ArrowDown", bubbles: true, cancelable: true,
+      }));
+      return element.scrollTop;
+    });
+    assert.equal(immediate, 96);
     await page.keyboard.press("Home");
     assert.equal(await reader.evaluate((element) => element.scrollTop), 0);
 

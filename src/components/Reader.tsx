@@ -95,6 +95,8 @@ const FOLLOW_PAUSE = 6000;
 // Clears the sticky top bar (64px) and the progress rule (3px), plus a little
 // air. Used by both rails and by the outline's own scroll box.
 const RAIL_TOP = 83;
+const KEYBOARD_SCROLL_STEP = 96;
+const KEYBOARD_SCROLL_MS = 120;
 
 // The id the not-yet-saved passage wears while the bar is open. Negative, so it
 // can never collide with a row id.
@@ -307,6 +309,14 @@ export function Reader({
   const [related, setRelated] = useState<ArticleDto[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const keyboardScrollTarget = useRef<number | null>(null);
+  const keyboardScrollFrame = useRef<number | null>(null);
+  const resetKeyboardScroll = useCallback(() => {
+    if (keyboardScrollFrame.current !== null) {
+      cancelAnimationFrame(keyboardScrollFrame.current);
+      keyboardScrollFrame.current = null;
+    }
+    keyboardScrollTarget.current = null;
+  }, []);
   const bodyRef = useRef<HTMLDivElement>(null);
   // Highest fraction reached, not the current one: scrolling back up should
   // not un-read the article.
@@ -406,7 +416,6 @@ export function Reader({
 
   useEffect(() => {
     reached.current = 0;
-    keyboardScrollTarget.current = null;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting per-article view state when the reader swaps articles
     setProgress(0);
     setActiveId(null);
@@ -514,9 +523,7 @@ export function Reader({
     };
   }, []);
 
-  function resetKeyboardScroll() {
-    keyboardScrollTarget.current = null;
-  }
+  useEffect(() => resetKeyboardScroll, [article.id, resetKeyboardScroll]);
 
   const { help, vim } = useKeyboardShortcuts("reader", (command) => {
     const container = scrollRef.current;
@@ -525,7 +532,7 @@ export function Reader({
     // still animating toward it.
     const current = keyboardScrollTarget.current ?? container.scrollTop;
     const end = container.scrollHeight - container.clientHeight;
-    const page = Math.max(40, container.clientHeight - RAIL_TOP);
+    const page = Math.max(KEYBOARD_SCROLL_STEP, container.clientHeight - RAIL_TOP);
     let destination: number;
     switch (command) {
       case "close":
@@ -535,10 +542,10 @@ export function Reader({
         speechToggle.current();
         return;
       case "previous":
-        destination = current - 40;
+        destination = current - KEYBOARD_SCROLL_STEP;
         break;
       case "next":
-        destination = current + 40;
+        destination = current + KEYBOARD_SCROLL_STEP;
         break;
       case "pageUp":
         destination = current - page;
@@ -558,10 +565,24 @@ export function Reader({
 
     const top = Math.max(0, Math.min(destination, end));
     if (top === keyboardScrollTarget.current) return;
-    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    keyboardScrollTarget.current = !reduceMotion && top !== container.scrollTop ? top : null;
+    resetKeyboardScroll();
     followAgainAt.current = Date.now() + FOLLOW_PAUSE;
-    container.scrollTo({ top, behavior: reduceMotion ? "instant" : "smooth" });
+    const start = container.scrollTop;
+    if (top === start || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      container.scrollTop = top;
+      return;
+    }
+
+    keyboardScrollTarget.current = top;
+    const startedAt = performance.now();
+    const animate = (now: number) => {
+      const fraction = Math.max(0, Math.min(1, (now - startedAt) / KEYBOARD_SCROLL_MS));
+      const eased = 1 - (1 - fraction) ** 3;
+      container.scrollTop = start + (top - start) * eased;
+      if (fraction < 1) keyboardScrollFrame.current = requestAnimationFrame(animate);
+      else resetKeyboardScroll();
+    };
+    keyboardScrollFrame.current = requestAnimationFrame(animate);
   }, scrollRef, draft !== null || !!pending_);
 
   // Restore where the reader stopped last time, once the body is on screen.
@@ -596,10 +617,6 @@ export function Reader({
     // around for a while — going to look at something else is a decision, and
     // the article must not argue with it.
     if (!selfScroll.current) followAgainAt.current = Date.now() + FOLLOW_PAUSE;
-    const destination = keyboardScrollTarget.current;
-    if (destination !== null && Math.abs((scrollRef.current?.scrollTop ?? 0) - destination) < 1) {
-      keyboardScrollTarget.current = null;
-    }
     if (ticking.current) return;
     ticking.current = true;
     requestAnimationFrame(() => {
@@ -1080,7 +1097,7 @@ export function Reader({
   function jumpTo(target: Element) {
     const container = scrollRef.current;
     if (!container) return;
-    keyboardScrollTarget.current = null;
+    resetKeyboardScroll();
     const to =
       container.scrollTop +
       target.getBoundingClientRect().top -
@@ -1466,7 +1483,6 @@ export function Reader({
       ref={scrollRef}
       tabIndex={-1}
       onScroll={onScroll}
-      onScrollEnd={resetKeyboardScroll}
       onWheel={resetKeyboardScroll}
       onPointerDown={resetKeyboardScroll}
       role="dialog"
